@@ -1,0 +1,24 @@
+[project]
+name = "burn-rate-backend"
+version = "0.1.0"
+description = "Django API for Burn Rate family budgeting"
+requires-python = ">=3.12"
+dependencies = [
+  "django>=5.2,<6.0",
+  "djangorestframework>=3.16,<4.0",
+  "django-cors-headers>=4.7,<5.0",
+  "gunicorn>=23.0,<24.0",
+  "psycopg[binary]>=3.2,<4.0",
+  "python-dotenv>=1.1,<2.0",
+  "whitenoise>=6.11,<7.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3,<9.0",
+  "pytest-django>=4.9,<5.0",
+]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+python_files = ["tests.py", "test_*.py", "*_tests.py"]

@@ -1,0 +1,16 @@
+.DS_Store
+.env
+.git/
+.venv/
+backend/.venv/
+backend/.pytest_cache/
+backend/staticfiles/
+backend/test.sqlite3
+frontend/dist/
+frontend/node_modules/
+frontend/.vite/
+frontend/*.tsbuildinfo
+node_modules/
+dist/
+coverage/
+htmlcov/
