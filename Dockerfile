@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
 
+ARG PYTHON_IMAGE=python:3.13-slim
+
 FROM node:22-alpine AS frontend-build
 WORKDIR /app/frontend
 RUN corepack enable
@@ -8,17 +10,30 @@ RUN pnpm install --frozen-lockfile
 COPY frontend/ ./
 RUN pnpm exec vue-tsc -b && pnpm exec vite build --base=/static/
 
-FROM python:3.12-slim AS backend-build
+FROM ${PYTHON_IMAGE} AS backend-build
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 WORKDIR /app/backend
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir uv
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY backend/ ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev \
+    && rm -rf \
+        .venv/lib/python*/site-packages/pip \
+        .venv/lib/python*/site-packages/pip-* \
+        .venv/lib/python*/site-packages/setuptools \
+        .venv/lib/python*/site-packages/setuptools-* \
+        .venv/lib/python*/site-packages/wheel \
+        .venv/lib/python*/site-packages/wheel-* \
+        .venv/bin/pip \
+        .venv/bin/pip3 \
+        .venv/bin/wheel
 
-FROM python:3.12-slim
+FROM ${PYTHON_IMAGE}
 ENV DJANGO_SETTINGS_MODULE=config.settings \
     PATH="/app/backend/.venv/bin:$PATH" \
     PORT=8000 \
@@ -26,7 +41,10 @@ ENV DJANGO_SETTINGS_MODULE=config.settings \
     PYTHONUNBUFFERED=1
 
 WORKDIR /app
-RUN useradd --create-home --shell /usr/sbin/nologin app
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --shell /usr/sbin/nologin app
 COPY --from=backend-build /app/backend/.venv /app/backend/.venv
 COPY backend/ /app/backend/
 COPY --from=frontend-build /app/frontend/dist /app/frontend/dist

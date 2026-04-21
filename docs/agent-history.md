@@ -1,5 +1,29 @@
 # Agent History
 
+## 2026-04-21 - Docker Scout hardening y compose template
+
+Objetivo: mejorar la calificación de seguridad de la imagen Docker antes de publicar una nueva versión y documentar un template de instalación con Docker Compose.
+
+Archivos tocados:
+
+- Actualizado `Dockerfile` para usar Python `3.13-slim`, refrescar paquetes Debian en las capas Python y quitar `pip`, `setuptools` y `wheel` del virtualenv de producción.
+- Actualizado `docker-compose.yml` para etiquetar la imagen como `loomitz/burnrate:v0.1.1` mediante `BURN_RATE_IMAGE`.
+- Actualizado `.env.example` con `BURN_RATE_IMAGE=loomitz/burnrate:v0.1.1`.
+- Actualizado `README.md` con el logo blanco, el runtime Docker actual y un template completo de `docker-compose.yml` para instalar desde Docker Hub.
+- Actualizado este historial técnico.
+
+Verificaciones:
+
+- `docker scout cves loomitz/burnrate:v0.1.0 --only-fixed` detectó 9 vulnerabilidades corregibles en 2 paquetes: `openssl` y `pip`.
+- `docker scout recommendations loomitz/burnrate:v0.1.0` recomendó mover la base Python a una versión menor más reciente para remover vulnerabilidades altas.
+- `docker build --pull -t loomitz/burnrate:v0.1.1 .` construyó correctamente.
+- `docker scout cves loomitz/burnrate:v0.1.1 --only-fixed` reportó 0 vulnerabilidades detectadas.
+- `docker run --rm --entrypoint sh loomitz/burnrate:v0.1.1 ...` confirmó Python 3.13.13 y que el virtualenv ya no contiene `pip`.
+- Smoke test con PostgreSQL temporal: migraciones completas, `collectstatic`, `/healthz/`, `/`, asset `/static/assets/...` y `/api/bootstrap/status/` funcionaron correctamente.
+- `docker inspect` reportó el contenedor de prueba como `healthy running`.
+- `docker run --rm --entrypoint sh ... python manage.py check` pasó dentro de la imagen.
+- `docker compose config` pasó.
+
 ## 2026-04-21 - README en español, gitignore y capturas
 
 Objetivo: cerrar la documentación pública de instalación con logo, capturas reales de la aplicación, flujo inicial e instrucciones de operación en español.

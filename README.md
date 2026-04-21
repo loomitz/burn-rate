@@ -32,7 +32,7 @@ La instalación objetivo de esta versión es sencilla: un contenedor `app` que s
 
 - Backend: Django, Django REST Framework, PostgreSQL, Gunicorn y WhiteNoise.
 - Frontend: Vue 3, TypeScript, Vite y Pinia.
-- Runtime Docker: build multi-stage con Node/pnpm para compilar Vue y Python 3.12 con `uv` para Django.
+- Runtime Docker: build multi-stage con Node/pnpm para compilar Vue y Python 3.13 con `uv` para Django.
 - Documentación: notas técnicas versionadas en `docs/`.
 
 ## Instalación con Docker
@@ -82,6 +82,94 @@ http://127.0.0.1:8000/healthz/
 
 La base de datos no publica puertos al host por defecto. Solo se expone la aplicación en `${APP_BIND:-127.0.0.1}:${APP_PORT:-8000}`.
 
+## Template de Docker Compose
+
+Si vas a instalar desde Docker Hub sin clonar este repositorio, crea un archivo `docker-compose.yml` con este template:
+
+```yaml
+services:
+  app:
+    image: loomitz/burnrate:v0.1.1
+    environment:
+      DB_NAME: ${DB_NAME:-burn_rate}
+      DB_USER: ${DB_USER:-burn_rate}
+      DB_PASSWORD: ${DB_PASSWORD:?configura DB_PASSWORD}
+      DB_HOST: db
+      DB_PORT: 5432
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?configura DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: "false"
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+      DJANGO_CORS_ALLOWED_ORIGINS: ${DJANGO_CORS_ALLOWED_ORIGINS:-}
+      DJANGO_SESSION_COOKIE_AGE: ${DJANGO_SESSION_COOKIE_AGE:-2592000}
+      DJANGO_SESSION_SAVE_EVERY_REQUEST: "true"
+      DJANGO_SESSION_COOKIE_SAMESITE: Lax
+      DJANGO_CSRF_COOKIE_SAMESITE: Lax
+      DJANGO_SESSION_COOKIE_SECURE: ${DJANGO_SESSION_COOKIE_SECURE:-false}
+      DJANGO_CSRF_COOKIE_SECURE: ${DJANGO_CSRF_COOKIE_SECURE:-false}
+      DJANGO_TRUST_X_FORWARDED_PROTO: ${DJANGO_TRUST_X_FORWARDED_PROTO:-false}
+      INVITATION_TTL_DAYS: ${INVITATION_TTL_DAYS:-14}
+      BURN_RATE_PUBLIC_URL: ${BURN_RATE_PUBLIC_URL:-http://localhost:8000}
+      BURN_RATE_FRONTEND_URL: ${BURN_RATE_FRONTEND_URL:-http://localhost:8000}
+      EMAIL_HOST: ${EMAIL_HOST:-}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-true}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-}
+      RUN_MIGRATIONS: "true"
+      COLLECT_STATIC: "true"
+      WAIT_FOR_DB: "true"
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-60}
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-burn_rate}
+      POSTGRES_USER: ${DB_USER:-burn_rate}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?configura DB_PASSWORD}
+    volumes:
+      - burn_rate_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-burn_rate} -d ${DB_NAME:-burn_rate}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  burn_rate_postgres:
+```
+
+Y un `.env` mínimo junto al compose:
+
+```env
+APP_BIND=127.0.0.1
+APP_PORT=8000
+DB_NAME=burn_rate
+DB_USER=burn_rate
+DB_PASSWORD=usa-una-password-real
+DJANGO_SECRET_KEY=usa-un-secreto-largo-y-aleatorio
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+BURN_RATE_PUBLIC_URL=http://localhost:8000
+```
+
+Con ese template, la actualización normal es:
+
+```bash
+docker compose pull app
+docker compose up -d
+```
+
 ## Flujo inicial
 
 1. En una base limpia, la pantalla inicial detecta que no hay usuarios y muestra la bienvenida.
@@ -116,6 +204,7 @@ Si estas variables no están completas, el flujo sigue funcionando y muestra el 
 
 | Variable | Uso |
 | --- | --- |
+| `BURN_RATE_IMAGE` | Imagen usada por el `docker-compose.yml` del repo. Por defecto `loomitz/burnrate:v0.1.1`. |
 | `APP_BIND` | Interfaz del host donde Docker publica la app. Por defecto `127.0.0.1`. |
 | `APP_PORT` | Puerto del host para acceder a Burn Rate. Por defecto `8000`. |
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Credenciales de PostgreSQL. |
