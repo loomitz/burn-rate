@@ -23,6 +23,10 @@ Verificaciones:
 - `docker inspect` reportó el contenedor de prueba como `healthy running`.
 - `docker run --rm --entrypoint sh ... python manage.py check` pasó dentro de la imagen.
 - `docker compose config` pasó.
+- `docker buildx build --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.1 -t loomitz/burnrate:latest --push .` publicó un manifiesto multi-arquitectura.
+- `docker manifest inspect loomitz/burnrate:v0.1.1` confirmó plataformas `linux/amd64` y `linux/arm64`.
+- `docker scout cves --platform linux/amd64 loomitz/burnrate:v0.1.1 --only-fixed` reportó 0 vulnerabilidades detectadas.
+- `docker scout cves --platform linux/arm64 loomitz/burnrate:v0.1.1 --only-fixed` reportó 0 vulnerabilidades detectadas.
 
 ## 2026-04-21 - README en español, gitignore y capturas
 

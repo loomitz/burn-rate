@@ -86,6 +86,8 @@ La base de datos no publica puertos al host por defecto. Solo se expone la aplic
 
 Si vas a instalar desde Docker Hub sin clonar este repositorio, crea un archivo `docker-compose.yml` con este template:
 
+La imagen `loomitz/burnrate:v0.1.1` está publicada para `linux/amd64` y `linux/arm64`.
+
 ```yaml
 services:
   app:
