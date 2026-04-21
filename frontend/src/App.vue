@@ -6,6 +6,7 @@ import {
   useBudgetStore,
   type Account,
   type Category,
+  type BudgetCategorySummary,
   type ExpectedCharge,
   type HouseholdMember,
   type Invitation,
@@ -76,6 +77,8 @@ const selectedScope = ref<Scope>('total')
 const selectedCategoryId = ref<number | null>(null)
 const expenseCategorySearch = ref('')
 const expenseAccountSearch = ref('')
+const commitmentCategorySearch = ref('')
+const commitmentAccountSearch = ref('')
 const merchantSuggestionsOpen = ref(false)
 const merchantSuggestionTarget = ref<MerchantSuggestionTarget>('expense')
 const inviteToken = ref(inviteTokenFromLocation())
@@ -326,6 +329,9 @@ const recurringExpectedTotal = computed(() =>
   recurringExpectedCharges.value.reduce((total, charge) => total + charge.amount_cents, 0),
 )
 const activeRecurringExpenses = computed(() => recurringExpenses.value.filter((expense) => expense.is_active))
+const activeRecurringTotal = computed(() =>
+  activeRecurringExpenses.value.reduce((total, expense) => total + expense.amount_cents, 0),
+)
 const recurringCommitmentRows = computed(() =>
   activeRecurringExpenses.value.map((expense) => ({
     expense,
@@ -358,6 +364,20 @@ const filteredExpenseCategories = computed(() => {
 })
 const filteredExpenseAccounts = computed(() => {
   const query = expenseAccountSearch.value.trim().toLowerCase()
+  if (!query) return activeAccounts.value
+  return activeAccounts.value.filter((account) => {
+    return `${account.name} ${account.account_type}`.toLowerCase().includes(query)
+  })
+})
+const filteredCommitmentCategories = computed(() => {
+  const query = commitmentCategorySearch.value.trim().toLowerCase()
+  if (!query) return visibleCategories.value
+  return visibleCategories.value.filter((category) => {
+    return `${category.name} ${category.member_name ?? ''}`.toLowerCase().includes(query)
+  })
+})
+const filteredCommitmentAccounts = computed(() => {
+  const query = commitmentAccountSearch.value.trim().toLowerCase()
   if (!query) return activeAccounts.value
   return activeAccounts.value.filter((account) => {
     return `${account.name} ${account.account_type}`.toLowerCase().includes(query)
@@ -1142,6 +1162,10 @@ async function submitRecurring() {
     showNotice('Escribe un monto mensual mayor a cero.', 'error')
     return
   }
+  if (!recurringForm.category) {
+    showNotice('Elige la categoría del cargo mensual.', 'error')
+    return
+  }
   if (recurringForm.end_date && recurringForm.end_date < recurringForm.start_date) {
     showNotice('La fecha final no puede ir antes del inicio.', 'error')
     return
@@ -1181,6 +1205,10 @@ async function submitInstallment() {
   }
   if (totalAmountCents <= 0) {
     showNotice('Escribe un monto total mayor a cero.', 'error')
+    return
+  }
+  if (!installmentForm.category) {
+    showNotice('Elige la categoría de la compra a meses.', 'error')
     return
   }
   if (!Number.isInteger(monthsCount) || monthsCount < 1) {
@@ -1401,6 +1429,38 @@ function chooseExpenseAccount(accountId: number) {
   expenseForm.account = String(accountId)
 }
 
+function commitmentCategoryValue() {
+  return commitmentKind.value === 'subscription' ? recurringForm.category : installmentForm.category
+}
+
+function commitmentAccountValue() {
+  return commitmentKind.value === 'subscription' ? recurringForm.account : installmentForm.account
+}
+
+function chooseCommitmentCategory(categoryId: number) {
+  if (commitmentKind.value === 'subscription') {
+    recurringForm.category = String(categoryId)
+    return
+  }
+  installmentForm.category = String(categoryId)
+}
+
+function chooseCommitmentAccount(accountId: number | null) {
+  const value = accountId ? String(accountId) : ''
+  if (commitmentKind.value === 'subscription') {
+    recurringForm.account = value
+    return
+  }
+  installmentForm.account = value
+}
+
+function submitCurrentCommitment() {
+  if (commitmentKind.value === 'subscription') {
+    return submitRecurring()
+  }
+  return submitInstallment()
+}
+
 function openIconGallery(event?: MouseEvent) {
   iconGalleryOpener.value = event?.currentTarget instanceof HTMLElement ? event.currentTarget : null
   iconSearch.value = ''
@@ -1452,6 +1512,21 @@ function installmentProgressPercent(plan: { current_payment_number?: number | nu
 function projectionBarWidth(total: number) {
   if (!total) return '0%'
   return `${Math.max(8, Math.round((total / maxProjectedPeriodTotal.value) * 100))}%`
+}
+
+function percentOfBudget(amountCents: number, budgetCents: number) {
+  if (budgetCents <= 0) return 0
+  return Math.max(0, Math.min(100, (amountCents / budgetCents) * 100))
+}
+
+function categoryFreePercent(item: BudgetCategorySummary) {
+  return percentOfBudget(Math.max(item.available_cents, 0), item.budget_cents)
+}
+
+function categoryCommittedPercent(item: BudgetCategorySummary) {
+  const freeCents = Math.max(item.available_cents, 0)
+  const visibleCommittedCents = Math.min(Math.max(item.expected_cents, 0), Math.max(item.budget_cents - freeCents, 0))
+  return percentOfBudget(visibleCommittedCents, item.budget_cents)
 }
 
 function projectionPeriodLabel(index: number) {
@@ -1840,6 +1915,9 @@ function categoryIconComponent(icon?: string | null) {
                   <p v-else>
                     {{ item.spent_cents ? money(item.spent_cents, settings.currency) : '$0.00' }} de {{ money(item.budget_cents, settings.currency) }}
                   </p>
+                  <small v-if="item.expected_cents" class="category-commitment-line">
+                    Comprometido {{ money(item.expected_cents, settings.currency) }}
+                  </small>
                   <small v-if="item.budget_behavior === 'monthly_reset' && item.overspend_count">
                     {{ item.overspend_count }} excedentes · {{ money(item.overspend_total_cents, settings.currency) }}
                   </small>
@@ -1848,8 +1926,17 @@ function categoryIconComponent(icon?: string | null) {
                   {{ item.is_overspent ? 'Revisar' : item.budget_behavior === 'carryover' ? 'Acumula' : 'Bien' }}
                 </span>
               </div>
-              <div class="meter" aria-hidden="true">
-                <i :style="{ width: `${Math.max(0, Math.min(100, item.percent_available))}%`, background: item.is_overspent ? '#d64309' : item.color }"></i>
+              <div
+                class="meter category-meter"
+                :style="{ '--category-fill-color': item.is_overspent ? '#d64309' : item.color }"
+                aria-hidden="true"
+              >
+                <span class="meter-segment free" :style="{ width: `${categoryFreePercent(item)}%` }"></span>
+                <span
+                  v-if="item.expected_cents"
+                  class="meter-segment committed"
+                  :style="{ left: `${categoryFreePercent(item)}%`, width: `${categoryCommittedPercent(item)}%` }"
+                ></span>
               </div>
               <footer>
                 <span>{{ item.member?.name ?? 'Casa' }}</span>
@@ -2085,152 +2172,177 @@ function categoryIconComponent(icon?: string | null) {
           <button :class="{ active: commitmentKind === 'msi' }" type="button" @click="commitmentKind = 'msi'">Compra a meses</button>
         </div>
 
-        <form v-if="commitmentKind === 'subscription'" class="commitment-form form-stack" @submit.prevent="submitRecurring">
-          <div class="field-row">
-            <label>Nombre<input v-model="recurringForm.name" required /></label>
-            <div class="form-field merchant-field">
-              <label for="recurring-merchant">Comercio</label>
-              <input
-                id="recurring-merchant"
-                v-model="recurringForm.merchant"
-                placeholder="Netflix, CFE, gimnasio"
-                required
-                autocomplete="off"
-                aria-autocomplete="list"
-                aria-controls="recurring-merchant-suggestions"
-                :aria-expanded="showMerchantSuggestionList('recurring')"
-                @focus="openMerchantSuggestions('recurring')"
-                @input="openMerchantSuggestions('recurring')"
-                @blur="closeMerchantSuggestionsSoon"
-              />
-              <div
-                v-if="showMerchantSuggestionList('recurring')"
-                id="recurring-merchant-suggestions"
-                class="merchant-suggestions"
-                role="listbox"
-                aria-label="Sugerencias de comercios y conceptos"
-              >
-                <button
-                  v-for="concept in merchantConceptSuggestions"
-                  :key="concept.id"
-                  type="button"
-                  role="option"
-                  @mousedown.prevent
-                  @click="chooseMerchantConcept(concept.name)"
-                >
-                  <span>{{ concept.name }}</span>
-                  <small>{{ concept.usage_count }} {{ concept.usage_count === 1 ? 'uso' : 'usos' }}</small>
-                </button>
-              </div>
+        <form class="commitment-form form-stack" @submit.prevent="submitCurrentCommitment">
+          <section class="choice-block commitment-choice-block">
+            <div class="section-title-row">
+              <h2>Categoría</h2>
+              <span>{{ commitmentCategoryValue() ? 'Lista' : 'Elige una' }}</span>
             </div>
-            <label>Monto mensual<input v-model="recurringForm.amount" inputmode="decimal" required /></label>
-          </div>
-          <div class="field-row">
-            <label>
-              Categoría
-              <select v-model="recurringForm.category" required>
-                <option value="">Categoría</option>
-                <option v-for="category in activeCategories" :key="category.id" :value="category.id">
-                  {{ category.name }}{{ category.member_name ? ` - ${category.member_name}` : '' }}
-                </option>
-              </select>
+
+            <label class="search-field category-search-field">
+              Buscar categoría
+              <input v-model="commitmentCategorySearch" type="search" placeholder="Comida, gas, internet" autocomplete="off" />
             </label>
-            <label>
-              Cuenta
-              <select v-model="recurringForm.account">
-                <option value="">Sin cuenta</option>
-                <option v-for="account in activeAccounts" :key="account.id" :value="account.id">{{ account.name }}</option>
-              </select>
+
+            <div class="choice-chips category-card-list" role="list">
+              <button
+                v-for="category in filteredCommitmentCategories"
+                :key="category.id"
+                type="button"
+                :class="{ active: String(category.id) === commitmentCategoryValue() }"
+                :style="{ '--category-color': category.color }"
+                @click="chooseCommitmentCategory(category.id)"
+              >
+                <span class="category-icon" :style="{ '--category-color': category.color }">
+                  <component :is="categoryIconComponent(category.icon)" aria-hidden="true" />
+                </span>
+                {{ category.name }}
+              </button>
+              <p v-if="!filteredCommitmentCategories.length" class="empty-line">No encontramos esa categoría.</p>
+            </div>
+          </section>
+
+          <section class="choice-block commitment-choice-block">
+            <div class="section-title-row">
+              <h2>Cuenta</h2>
+              <span>{{ commitmentAccountValue() ? 'Lista' : 'Opcional' }}</span>
+            </div>
+
+            <label class="search-field account-search-field">
+              Buscar cuenta
+              <input v-model="commitmentAccountSearch" type="search" placeholder="BBVA, caja, tarjeta" autocomplete="off" />
             </label>
-          </div>
-          <section class="purple-panel">
+
+            <div class="choice-chips account-card-list" role="list">
+              <button
+                class="account-choice-card no-account-choice"
+                type="button"
+                :class="{ active: !commitmentAccountValue() }"
+                :style="{ '--account-color': 'var(--commitments-accent)' }"
+                @click="chooseCommitmentAccount(null)"
+              >
+                <span class="account-color-dot" aria-hidden="true"></span>
+                Sin cuenta
+              </button>
+              <button
+                v-for="account in filteredCommitmentAccounts"
+                :key="account.id"
+                class="account-choice-card"
+                type="button"
+                :class="{ active: String(account.id) === commitmentAccountValue() }"
+                :style="{ '--account-color': account.color }"
+                @click="chooseCommitmentAccount(account.id)"
+              >
+                <span class="account-color-dot" aria-hidden="true"></span>
+                {{ account.name }}
+              </button>
+              <p v-if="!filteredCommitmentAccounts.length" class="empty-line">No encontramos esa cuenta.</p>
+            </div>
+          </section>
+
+          <section v-if="commitmentKind === 'subscription'" class="purple-panel commitment-entry-panel">
             <div class="section-title-row">
               <h2>Cargo mensual</h2>
               <span>Indefinida</span>
             </div>
             <p>Solo indica el día de pago. El cargo se repite cada mes hasta que lo omitas o lo desactives.</p>
-            <label>Día de pago<input v-model.number="recurringForm.charge_day" type="number" min="1" max="28" /></label>
+            <div class="field-row commitment-input-row">
+              <label>Nombre<input v-model="recurringForm.name" required /></label>
+              <div class="form-field merchant-field">
+                <label for="recurring-merchant">Comercio</label>
+                <input
+                  id="recurring-merchant"
+                  v-model="recurringForm.merchant"
+                  placeholder="Netflix, CFE, gimnasio"
+                  required
+                  autocomplete="off"
+                  aria-autocomplete="list"
+                  aria-controls="recurring-merchant-suggestions"
+                  :aria-expanded="showMerchantSuggestionList('recurring')"
+                  @focus="openMerchantSuggestions('recurring')"
+                  @input="openMerchantSuggestions('recurring')"
+                  @blur="closeMerchantSuggestionsSoon"
+                />
+                <div
+                  v-if="showMerchantSuggestionList('recurring')"
+                  id="recurring-merchant-suggestions"
+                  class="merchant-suggestions"
+                  role="listbox"
+                  aria-label="Sugerencias de comercios y conceptos"
+                >
+                  <button
+                    v-for="concept in merchantConceptSuggestions"
+                    :key="concept.id"
+                    type="button"
+                    role="option"
+                    @mousedown.prevent
+                    @click="chooseMerchantConcept(concept.name)"
+                  >
+                    <span>{{ concept.name }}</span>
+                    <small>{{ concept.usage_count }} {{ concept.usage_count === 1 ? 'uso' : 'usos' }}</small>
+                  </button>
+                </div>
+              </div>
+              <label>Monto mensual<input v-model="recurringForm.amount" inputmode="decimal" required /></label>
+            </div>
+            <div class="field-row commitment-date-row">
+              <label>Día de pago<input v-model.number="recurringForm.charge_day" type="number" min="1" max="28" /></label>
+              <label>Inicio<input v-model="recurringForm.start_date" type="date" required /></label>
+              <label>Fin opcional<input v-model="recurringForm.end_date" type="date" /></label>
+            </div>
             <div class="preview-box">
               <b>Cómo se verá</b>
               <span>Primer cargo {{ recurringForm.start_date }}</span>
               <span>Duración indefinida</span>
             </div>
-            <label>Inicio<input v-model="recurringForm.start_date" type="date" required /></label>
-            <label>Fin opcional<input v-model="recurringForm.end_date" type="date" /></label>
           </section>
-          <div class="action-row">
-            <button class="secondary purple-secondary" type="button" @click="closeCommitmentForm">Cancelar</button>
-            <button class="primary purple-primary" type="submit" :disabled="actionBusy === 'recurring'">
-              {{ actionBusy === 'recurring' ? 'Guardando...' : 'Guardar cargo' }}
-            </button>
-          </div>
-        </form>
 
-        <form v-else class="commitment-form form-stack" @submit.prevent="submitInstallment">
-          <div class="field-row">
-            <label>Nombre<input v-model="installmentForm.name" required /></label>
-            <div class="form-field merchant-field">
-              <label for="installment-merchant">Comercio</label>
-              <input
-                id="installment-merchant"
-                v-model="installmentForm.merchant"
-                placeholder="Liverpool, Amazon, banco"
-                required
-                autocomplete="off"
-                aria-autocomplete="list"
-                aria-controls="installment-merchant-suggestions"
-                :aria-expanded="showMerchantSuggestionList('installment')"
-                @focus="openMerchantSuggestions('installment')"
-                @input="openMerchantSuggestions('installment')"
-                @blur="closeMerchantSuggestionsSoon"
-              />
-              <div
-                v-if="showMerchantSuggestionList('installment')"
-                id="installment-merchant-suggestions"
-                class="merchant-suggestions"
-                role="listbox"
-                aria-label="Sugerencias de comercios y conceptos"
-              >
-                <button
-                  v-for="concept in merchantConceptSuggestions"
-                  :key="concept.id"
-                  type="button"
-                  role="option"
-                  @mousedown.prevent
-                  @click="chooseMerchantConcept(concept.name)"
-                >
-                  <span>{{ concept.name }}</span>
-                  <small>{{ concept.usage_count }} {{ concept.usage_count === 1 ? 'uso' : 'usos' }}</small>
-                </button>
-              </div>
-            </div>
-            <label>Monto total<input v-model="installmentForm.total_amount" inputmode="decimal" required /></label>
-          </div>
-          <div class="field-row">
-            <label>
-              Categoría
-              <select v-model="installmentForm.category" required>
-                <option value="">Categoría</option>
-                <option v-for="category in activeCategories" :key="category.id" :value="category.id">
-                  {{ category.name }}{{ category.member_name ? ` - ${category.member_name}` : '' }}
-                </option>
-              </select>
-            </label>
-            <label>
-              Cuenta
-              <select v-model="installmentForm.account">
-                <option value="">Sin cuenta</option>
-                <option v-for="account in activeAccounts" :key="account.id" :value="account.id">{{ account.name }}</option>
-              </select>
-            </label>
-          </div>
-          <section class="purple-panel">
+          <section v-else class="purple-panel commitment-entry-panel">
             <div class="section-title-row">
               <h2>Compra a meses</h2>
               <span>Plazo definido</span>
             </div>
             <p>Indica la fecha del primer pago y cuántos meses dura la compra. Burn Rate calcula el último cargo.</p>
-            <div class="field-row">
+            <div class="field-row commitment-input-row">
+              <label>Nombre<input v-model="installmentForm.name" required /></label>
+              <div class="form-field merchant-field">
+                <label for="installment-merchant">Comercio</label>
+                <input
+                  id="installment-merchant"
+                  v-model="installmentForm.merchant"
+                  placeholder="Liverpool, Amazon, banco"
+                  required
+                  autocomplete="off"
+                  aria-autocomplete="list"
+                  aria-controls="installment-merchant-suggestions"
+                  :aria-expanded="showMerchantSuggestionList('installment')"
+                  @focus="openMerchantSuggestions('installment')"
+                  @input="openMerchantSuggestions('installment')"
+                  @blur="closeMerchantSuggestionsSoon"
+                />
+                <div
+                  v-if="showMerchantSuggestionList('installment')"
+                  id="installment-merchant-suggestions"
+                  class="merchant-suggestions"
+                  role="listbox"
+                  aria-label="Sugerencias de comercios y conceptos"
+                >
+                  <button
+                    v-for="concept in merchantConceptSuggestions"
+                    :key="concept.id"
+                    type="button"
+                    role="option"
+                    @mousedown.prevent
+                    @click="chooseMerchantConcept(concept.name)"
+                  >
+                    <span>{{ concept.name }}</span>
+                    <small>{{ concept.usage_count }} {{ concept.usage_count === 1 ? 'uso' : 'usos' }}</small>
+                  </button>
+                </div>
+              </div>
+              <label>Monto total<input v-model="installmentForm.total_amount" inputmode="decimal" required /></label>
+            </div>
+            <div class="field-row commitment-date-row">
               <label>Primer pago<input v-model="installmentForm.start_date" type="date" required /></label>
               <label>Meses<input v-model="installmentForm.months_count" type="number" inputmode="numeric" min="1" step="1" required /></label>
             </div>
@@ -2250,10 +2362,21 @@ function categoryIconComponent(icon?: string | null) {
               <span v-if="installmentForm.round_up_monthly_payment">Pago requerido redondeado al siguiente peso</span>
             </div>
           </section>
+
           <div class="action-row">
             <button class="secondary purple-secondary" type="button" @click="closeCommitmentForm">Cancelar</button>
-            <button class="primary purple-primary" type="submit" :disabled="actionBusy === 'installment'">
-              {{ actionBusy === 'installment' ? 'Guardando...' : 'Guardar compra' }}
+            <button
+              class="primary purple-primary"
+              type="submit"
+              :disabled="actionBusy === (commitmentKind === 'subscription' ? 'recurring' : 'installment')"
+            >
+              {{
+                actionBusy === (commitmentKind === 'subscription' ? 'recurring' : 'installment')
+                  ? 'Guardando...'
+                  : commitmentKind === 'subscription'
+                    ? 'Guardar cargo'
+                    : 'Guardar compra'
+              }}
             </button>
           </div>
         </form>
@@ -2269,8 +2392,20 @@ function categoryIconComponent(icon?: string | null) {
               <em>{{ activeRecurringExpenses.length }} mensuales · {{ projectedInstallmentPlans.length }} a meses</em>
             </small>
           </div>
-          <button class="month-chip" type="button" @click="openCommitmentForm('subscription')">Agregar</button>
         </header>
+
+        <div class="commitment-total-grid">
+          <article class="commitment-total-card">
+            <span>Suscripciones activas</span>
+            <strong>{{ money(activeRecurringTotal, settings.currency) }}</strong>
+            <small>{{ activeRecurringExpenses.length }} mensuales registrados</small>
+          </article>
+          <article class="commitment-total-card">
+            <span>MSI del periodo</span>
+            <strong>{{ money(currentInstallmentTotal, settings.currency) }}</strong>
+            <small>{{ projectedInstallmentPlans.length }} compras a meses activas</small>
+          </article>
+        </div>
 
         <div class="segmented">
           <button :class="{ active: commitmentTab === 'subscriptions' }" type="button" @click="commitmentTab = 'subscriptions'">Mensuales</button>
@@ -2467,7 +2602,7 @@ function categoryIconComponent(icon?: string | null) {
           <button class="wide-secondary" type="button" @click="openCommitmentForm('msi')">Agregar compra a meses</button>
         </section>
 
-        <section class="projection-card">
+        <section v-if="commitmentTab === 'msi'" class="projection-card">
           <div class="projection-header">
             <div>
               <h2>Pagos a meses registrados</h2>

@@ -7,7 +7,7 @@ Está pensada para instalarse detrás de una VPN, red privada o reverse proxy co
 ## Imagen
 
 ```bash
-docker pull loomitz/burnrate:v0.1.9
+docker pull loomitz/burnrate:v0.1.10
 ```
 
 También está disponible:
@@ -46,7 +46,7 @@ Crea un archivo `docker-compose.yml`:
 ```yaml
 services:
   app:
-    image: loomitz/burnrate:v0.1.9
+    image: loomitz/burnrate:v0.1.10
     environment:
       DB_NAME: ${DB_NAME:-burn_rate}
       DB_USER: ${DB_USER:-burn_rate}
@@ -221,7 +221,7 @@ DJANGO_CSRF_COOKIE_SECURE=true
 DJANGO_TRUST_X_FORWARDED_PROTO=true
 ```
 
-La imagen `v0.1.9` fue revisada y publicada para `linux/amd64` y `linux/arm64`.
+La imagen `v0.1.10` fue revisada y publicada para `linux/amd64` y `linux/arm64`.
 
 ## Código fuente
 
@@ -233,6 +233,7 @@ https://github.com/loomitz/burn-rate
 
 ## Tags
 
+- `v0.1.10`: ajustes visuales de Plan y Cargos, compromisos segmentados en categorías, formulario homogéneo de cargos y resúmenes por tab.
 - `v0.1.9`: categorías acumulables, historial de excedentes por ciclo y cambios de presupuesto con fecha efectiva.
 - `v0.1.8`: flujo de compras a meses por fecha del primer pago y meses, redondeo requerido por defecto y edición de categoría.
 - `v0.1.7`: redondeo opcional del pago requerido en compras a meses y soporte multi-arquitectura.

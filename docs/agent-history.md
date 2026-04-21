@@ -1,5 +1,21 @@
 # Agent History
 
+## 2026-04-21 - Ajustes UI de plan y cargos v0.1.10
+
+Objetivo: cerrar comentarios visuales del flujo móvil de Plan y Cargos, y publicar una nueva imagen versionada.
+
+Archivos tocados:
+
+- Actualizado `frontend/src/App.vue` para mostrar compromisos pendientes por categoría, segmentar la barra entre libre y comprometido, mover el dropdown de comercios a overlay, homologar el formulario de suscripciones/MSI con la selección visual de gastos y ajustar los resúmenes por tab.
+- Actualizado `frontend/src/style.css` para los segmentos de barra, dropdown flotante, tarjetas de totales de cargos y layout del formulario homogéneo.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.10`.
+
+Verificaciones:
+
+- `pnpm build` pasó en `frontend/`.
+- `pnpm test` pasó en `frontend/` con 21 tests.
+- Playwright validó en `http://localhost:5173/` los cambios móviles de categorías, dropdown de comercio, formulario de cargos y resúmenes de Cargos.
+
 ## 2026-04-21 - Categorías acumulables y excedentes mensuales
 
 Objetivo: permitir que algunas categorías acumulen saldo entre ciclos, conservar el comportamiento mensual actual para las existentes y registrar excedentes de categorías normales por ciclo cerrado.
