@@ -528,6 +528,11 @@ p {
   background: var(--commitments-soft);
 }
 
+.rounding-switch {
+  --settings-accent: var(--commitments-accent);
+  margin-top: var(--space-xs);
+}
+
 .form-stack {
   display: grid;
   gap: var(--space-sm);

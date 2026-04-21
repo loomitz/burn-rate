@@ -267,6 +267,7 @@ describe('budget store auth flow', () => {
       start_date: '2026-04-21',
       end_date: '2026-12-21',
       first_payment_number: 4,
+      round_up_monthly_payment: true,
       is_active: true,
     }
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))

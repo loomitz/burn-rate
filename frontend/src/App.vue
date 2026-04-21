@@ -139,6 +139,7 @@ const installmentForm = reactive({
   start_date: selectedDate.value,
   end_date: selectedDate.value,
   first_payment_number: '1',
+  round_up_monthly_payment: false,
 })
 const commitmentEditForm = reactive({
   name: '',
@@ -1147,12 +1148,14 @@ async function submitInstallment() {
       start_date: installmentForm.start_date,
       end_date: installmentForm.end_date,
       first_payment_number: firstPaymentNumber,
+      round_up_monthly_payment: installmentForm.round_up_monthly_payment,
       is_active: true,
     })
     installmentForm.name = ''
     installmentForm.merchant = ''
     installmentForm.total_amount = ''
     installmentForm.first_payment_number = '1'
+    installmentForm.round_up_monthly_payment = false
     showCommitmentForm.value = false
     commitmentTab.value = 'msi'
   })
@@ -2154,11 +2157,20 @@ function categoryIconComponent(icon?: string | null) {
               <label>Último pago<input v-model="installmentForm.end_date" type="date" required /></label>
               <label>Pago inicial<input v-model="installmentForm.first_payment_number" type="number" inputmode="numeric" min="1" step="1" required /></label>
             </div>
+            <label class="switch-row rounding-switch">
+              <input v-model="installmentForm.round_up_monthly_payment" type="checkbox" role="switch" />
+              <span class="switch-track" aria-hidden="true"></span>
+              <span>
+                <b>Redondear pago requerido</b>
+                <small>Usa el siguiente peso completo en cada mensualidad y ajusta el último pago al remanente real.</small>
+              </span>
+            </label>
             <div class="preview-box">
               <b>Cómo se verá</b>
               <span>Primer cargo {{ installmentForm.start_date }}</span>
               <span>Último cargo {{ installmentForm.end_date }}</span>
               <span>Empieza en pago {{ installmentForm.first_payment_number || 1 }}</span>
+              <span v-if="installmentForm.round_up_monthly_payment">Pago requerido redondeado al siguiente peso</span>
             </div>
           </section>
           <div class="action-row">

@@ -156,12 +156,9 @@ def expected_charges_for_period(period: BudgetPeriod):
         ).exists()
         if already_confirmed:
             continue
-        payment_number = installment_payment_number_for_period(plan, period)
-        if payment_number < 1 or payment_number > plan.installments_count:
+        payment = installment_charge_for_period(plan, period)
+        if payment is None:
             continue
-        base_amount = plan.total_amount_cents // plan.installments_count
-        remainder = plan.total_amount_cents % plan.installments_count
-        amount = base_amount + (remainder if payment_number == plan.installments_count else 0)
         charge_date = max(period.start, plan.start_date)
         charges.append(
             ExpectedCharge(
@@ -170,14 +167,14 @@ def expected_charges_for_period(period: BudgetPeriod):
                 source_id=plan.id,
                 name=plan.name,
                 merchant=plan.merchant,
-                amount_cents=amount,
+                amount_cents=payment["amount_cents"],
                 date=charge_date,
                 period_start=period.start,
                 period_end=period.end,
                 category=plan.category,
                 account=plan.account,
                 payments_total=plan.installments_count,
-                payment_number=payment_number,
+                payment_number=payment["payment_number"],
                 total_amount_cents=plan.total_amount_cents,
             )
         )
@@ -199,9 +196,9 @@ def installment_charge_for_period(plan: InstallmentPlan, period: BudgetPeriod) -
     if payment_number < 1 or payment_number > plan.installments_count:
         return None
 
-    base_amount = plan.total_amount_cents // plan.installments_count
-    remainder = plan.total_amount_cents % plan.installments_count
-    amount = base_amount + (remainder if payment_number == plan.installments_count else 0)
+    amount = plan.payment_amount_cents(payment_number)
+    if amount <= 0:
+        return None
     remaining_after_period = max(plan.installments_count - payment_number, 0)
     return {
         "payment_number": payment_number,
@@ -243,6 +240,7 @@ def installment_projection(value: date | None = None, months_ahead: int = 6) -> 
                     "payments_total": payment["payments_total"],
                     "remaining_payments": payment["remaining_payments"],
                     "total_amount_cents": plan.total_amount_cents,
+                    "round_up_monthly_payment": plan.round_up_monthly_payment,
                     "category": {
                         "id": plan.category.id,
                         "name": plan.category.name,
@@ -284,6 +282,7 @@ def installment_projection(value: date | None = None, months_ahead: int = 6) -> 
                 "name": plan.name,
                 "merchant": plan.merchant,
                 "total_amount_cents": plan.total_amount_cents,
+                "round_up_monthly_payment": plan.round_up_monthly_payment,
                 "current_amount_cents": current_payment["amount_cents"] if current_payment else 0,
                 "current_payment_number": current_payment["payment_number"] if current_payment else None,
                 "payments_total": plan.installments_count,

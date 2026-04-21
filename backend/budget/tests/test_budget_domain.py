@@ -239,3 +239,27 @@ class ExpectedChargeTests(TestCase):
         self.assertEqual(projection["plans"][0]["current_payment_number"], 4)
         self.assertEqual(projection["plans"][0]["payments_total"], 12)
         self.assertEqual(projection["plans"][0]["remaining_payments"], 8)
+
+    def test_installment_plan_can_round_up_required_payment_to_next_peso(self):
+        plan = InstallmentPlan.objects.create(
+            name="Amazon MSI redondeado",
+            merchant="Amazon",
+            total_amount_cents=271438,
+            category=self.category,
+            account=self.card,
+            start_date=date(2026, 4, 21),
+            end_date=date(2027, 3, 21),
+            round_up_monthly_payment=True,
+        )
+
+        first_period_charges = expected_charges_for_period(get_budget_period(date(2026, 4, 25)))
+        final_period_charges = expected_charges_for_period(get_budget_period(date(2027, 3, 25)))
+        projection = installment_projection(date(2026, 4, 25), months_ahead=12)
+
+        self.assertEqual(plan.installments_count, 12)
+        self.assertEqual(plan.monthly_amount_cents, 22700)
+        self.assertEqual(first_period_charges[0].amount_cents, 22700)
+        self.assertEqual(final_period_charges[0].amount_cents, 21738)
+        self.assertEqual(projection["periods"][0]["total_cents"], 22700)
+        self.assertEqual(projection["periods"][11]["total_cents"], 21738)
+        self.assertTrue(projection["plans"][0]["round_up_monthly_payment"])

@@ -391,6 +391,33 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.data["monthly_amount_cents"], 100000)
         self.assertTrue(MerchantConcept.objects.filter(name="Liverpool").exists())
 
+    def test_installment_plan_accepts_rounded_up_required_payment(self):
+        response = self.client.post(
+            "/api/installment-plans/",
+            {
+                "name": "Amazon MSI redondeado",
+                "merchant": "Amazon",
+                "total_amount_cents": 271438,
+                "category": self.category.id,
+                "account": self.account.id,
+                "start_date": "2026-04-21",
+                "end_date": "2027-03-21",
+                "round_up_monthly_payment": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.data["round_up_monthly_payment"])
+        self.assertEqual(response.data["installments_count"], 12)
+        self.assertEqual(response.data["monthly_amount_cents"], 22700)
+
+        first_expected = self.client.get("/api/expected-charges/?date=2026-04-25")
+        final_expected = self.client.get("/api/expected-charges/?date=2027-03-25")
+
+        self.assertEqual(first_expected.data["charges"][0]["amount_cents"], 22700)
+        self.assertEqual(final_expected.data["charges"][0]["amount_cents"], 21738)
+
     def test_installment_plan_update_only_allows_name_and_merchant(self):
         plan = InstallmentPlan.objects.create(
             name="Laptop",

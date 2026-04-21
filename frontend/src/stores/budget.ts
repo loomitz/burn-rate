@@ -202,6 +202,7 @@ export interface InstallmentPlan {
   end_date: string
   first_payment_number: number
   installments_count: number
+  round_up_monthly_payment: boolean
   is_active: boolean
 }
 
@@ -227,6 +228,7 @@ export interface InstallmentProjectionPlan {
   merchant: string
   amount_cents?: number
   total_amount_cents: number
+  round_up_monthly_payment: boolean
   current_amount_cents?: number
   current_payment_number?: number | null
   payment_number?: number

@@ -602,6 +602,7 @@ class InstallmentPlanSerializer(serializers.ModelSerializer):
             "end_date",
             "first_payment_number",
             "installments_count",
+            "round_up_monthly_payment",
             "is_active",
         ]
         read_only_fields = ["installments_count"]

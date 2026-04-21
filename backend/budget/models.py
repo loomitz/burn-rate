@@ -373,6 +373,7 @@ class InstallmentPlan(models.Model):
     end_date = models.DateField()
     first_payment_number = models.PositiveSmallIntegerField(default=1)
     installments_count = models.PositiveSmallIntegerField(default=1)
+    round_up_monthly_payment = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -385,7 +386,25 @@ class InstallmentPlan(models.Model):
 
     @property
     def monthly_amount_cents(self) -> int:
+        return self.regular_payment_amount_cents()
+
+    def regular_payment_amount_cents(self) -> int:
+        if self.installments_count < 1:
+            return 0
+        if self.round_up_monthly_payment and self.installments_count > 1:
+            cents_per_full_peso_period = self.installments_count * 100
+            return ((self.total_amount_cents + cents_per_full_peso_period - 1) // cents_per_full_peso_period) * 100
         return self.total_amount_cents // self.installments_count
+
+    def payment_amount_cents(self, payment_number: int) -> int:
+        if payment_number < 1 or payment_number > self.installments_count:
+            return 0
+        regular_amount = self.regular_payment_amount_cents()
+        if self.round_up_monthly_payment:
+            remaining_before_payment = self.total_amount_cents - (regular_amount * (payment_number - 1))
+            return max(0, min(regular_amount, remaining_before_payment))
+        remainder = self.total_amount_cents % self.installments_count
+        return regular_amount + (remainder if payment_number == self.installments_count else 0)
 
     def clean(self) -> None:
         if not self.merchant:

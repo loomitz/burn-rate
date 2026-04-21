@@ -67,7 +67,16 @@ class RecurringExpenseAdmin(admin.ModelAdmin):
 
 @admin.register(InstallmentPlan)
 class InstallmentPlanAdmin(admin.ModelAdmin):
-    list_display = ["name", "merchant", "total_amount_cents", "monthly_amount_cents", "first_payment_number", "installments_count", "category"]
+    list_display = [
+        "name",
+        "merchant",
+        "total_amount_cents",
+        "monthly_amount_cents",
+        "round_up_monthly_payment",
+        "first_payment_number",
+        "installments_count",
+        "category",
+    ]
     list_filter = ["is_active"]
 
 
