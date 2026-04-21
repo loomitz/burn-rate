@@ -87,12 +87,12 @@ La base de datos no publica puertos al host por defecto. Solo se expone la aplic
 
 Si vas a instalar desde Docker Hub sin clonar este repositorio, crea un archivo `docker-compose.yml` con este template:
 
-La imagen `loomitz/burnrate:v0.1.2` está publicada para `linux/amd64` y `linux/arm64`.
+La imagen `loomitz/burnrate:v0.1.4` está publicada para `linux/amd64` y `linux/arm64`.
 
 ```yaml
 services:
   app:
-    image: loomitz/burnrate:v0.1.2
+    image: loomitz/burnrate:v0.1.4
     environment:
       DB_NAME: ${DB_NAME:-burn_rate}
       DB_USER: ${DB_USER:-burn_rate}
@@ -182,9 +182,9 @@ docker compose up -d
 5. Ese usuario queda como `staff` y `superuser`, se crea su miembro de casa y la sesión inicia automáticamente.
 6. En `Ajustes` se configuran cuentas, personas, categorías y día de corte.
 7. Desde `Ajustes > Invitar`, el admin puede invitar a una segunda persona.
-8. La invitación captura email, nombre completo, nombre visible, mensaje personalizado y si la persona será admin.
+8. La invitación captura solo email y si la persona será admin.
 9. Si hay SMTP y `BURN_RATE_PUBLIC_URL`, se envía email. Si no, el admin copia el link y lo manda por el canal que prefiera.
-10. La persona invitada abre el link, confirma o corrige sus datos, define password y entra con su nombre visible.
+10. La persona invitada abre el link, captura nombre completo, nombre visible y password, y entra con su nombre visible.
 
 El nombre visible es el que se usa dentro de la aplicación. Puede ser un nombre corto o un apodo familiar, por ejemplo `Mamá`, `Papá`, `Casa`, `Lau` o `Fer`.
 
@@ -209,7 +209,7 @@ Si estas variables no están completas, el flujo sigue funcionando y muestra el 
 
 | Variable | Uso |
 | --- | --- |
-| `BURN_RATE_IMAGE` | Imagen usada por el `docker-compose.yml` del repo. Por defecto `loomitz/burnrate:v0.1.2`. |
+| `BURN_RATE_IMAGE` | Imagen usada por el `docker-compose.yml` del repo. Por defecto `loomitz/burnrate:v0.1.4`. |
 | `APP_BIND` | Interfaz del host donde Docker publica la app. Por defecto `127.0.0.1`. |
 | `APP_PORT` | Puerto del host para acceder a Burn Rate. Por defecto `8000`. |
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Credenciales de PostgreSQL. |
@@ -273,6 +273,16 @@ DJANGO_SECURE_HSTS_SECONDS=31536000
 No expongas PostgreSQL directamente al host o a internet. Si necesitas exponer Burn Rate fuera de tu red, ponlo detrás de VPN, túnel privado o reverse proxy con TLS.
 
 ## Desarrollo local
+
+Arranque/reinicio rápido con tmux:
+
+```bash
+scripts/dev-services.sh start
+scripts/dev-services.sh restart
+scripts/dev-services.sh status
+```
+
+El script levanta PostgreSQL con Docker Compose, Django en `http://localhost:8001` y Vite en `http://localhost:5173`.
 
 1. Levanta solo PostgreSQL:
 

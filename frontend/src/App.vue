@@ -2,7 +2,15 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Laptop, Moon, Search, Sun, X } from '@lucide/vue'
-import { useBudgetStore, type ExpectedCharge, type Invitation, type Scope } from './stores/budget'
+import {
+  useBudgetStore,
+  type Account,
+  type Category,
+  type ExpectedCharge,
+  type HouseholdMember,
+  type Invitation,
+  type Scope,
+} from './stores/budget'
 import { apiErrorMessage, centsFromInput, money } from './stores/api'
 import { categoryIcons, getCategoryIcon } from './categoryIcons'
 import burnRateLogoDark from './assets/brand/burn-rate-logo-dark.svg'
@@ -16,6 +24,8 @@ const {
   onboardingReady,
   settings,
   members,
+  categories,
+  accounts,
   activeCategories,
   activeAccounts,
   merchantConcepts,
@@ -68,18 +78,24 @@ const inviteToken = ref(inviteTokenFromLocation())
 const inviteLoading = ref(false)
 const copiedInvitationId = ref<number | string | null>(null)
 const createdInvitationLink = ref('')
+const editingAccountId = ref<number | null>(null)
+const editingMemberId = ref<number | null>(null)
+const editingCategoryId = ref<number | null>(null)
 const claimForm = reactive({ full_name: '', display_name: '', email: '', password: '', confirmPassword: '' })
 const loginForm = reactive({ email: '', password: '' })
 const acceptInviteForm = reactive({ full_name: '', display_name: '', password: '', confirmPassword: '' })
 const invitationForm = reactive({
   email: '',
-  full_name: '',
-  display_name: '',
-  message: 'Te invito a entrar al presupuesto familiar en Burn Rate.',
   is_admin: false,
 })
 const expenseForm = reactive({ merchant: '', amount: '', category: '', account: '', date: selectedDate.value, note: '' })
-const accountForm = reactive({ name: '', account_type: 'cash', initial_balance: '' })
+const accountForm = reactive({
+  name: '',
+  account_type: 'cash',
+  initial_balance: '',
+  color: '#7c6250',
+  is_active: true,
+})
 const memberForm = reactive({
   name: '',
   color: '#b35320',
@@ -96,6 +112,7 @@ const categoryForm = reactive({
   monthly_budget: '',
   color: '#e11d48',
   icon: 'tag',
+  is_active: true,
 })
 const recurringForm = reactive({
   name: '',
@@ -156,6 +173,20 @@ const categoryColors = [
   '#db2777',
   '#7c2d12',
   '#374151',
+]
+
+const accountColors = [
+  '#7c6250',
+  '#2563eb',
+  '#0d9488',
+  '#16a34a',
+  '#ca8a04',
+  '#dc2626',
+  '#9333ea',
+  '#0891b2',
+  '#4f46e5',
+  '#be185d',
+  '#475569',
 ]
 
 const canManageSettings = computed(() => Boolean(user.value?.is_staff || user.value?.is_superuser))
@@ -316,7 +347,22 @@ const merchantConceptSuggestions = computed(() => {
     .slice(0, 6)
 })
 const showMerchantSuggestions = computed(() => merchantSuggestionsOpen.value && merchantConceptSuggestions.value.length > 0)
+const accountFormTitle = computed(() => (editingAccountId.value ? 'Editar cuenta' : 'Crear cuenta'))
+const accountSubmitLabel = computed(() => {
+  if (actionBusy.value === 'account') return 'Guardando...'
+  return editingAccountId.value ? 'Guardar cambios' : 'Crear cuenta'
+})
+const memberFormTitle = computed(() => (editingMemberId.value ? 'Editar persona' : 'Crear persona'))
+const memberSubmitLabel = computed(() => {
+  if (actionBusy.value === 'member') return 'Guardando...'
+  return editingMemberId.value ? 'Guardar cambios' : 'Crear persona'
+})
 const selectedCategoryIcon = computed(() => getCategoryIcon(categoryForm.icon))
+const categoryFormTitle = computed(() => (editingCategoryId.value ? 'Editar categoría' : 'Crear categoría'))
+const categorySubmitLabel = computed(() => {
+  if (actionBusy.value === 'category') return 'Guardando...'
+  return editingCategoryId.value ? 'Guardar cambios' : 'Crear categoría'
+})
 const filteredCategoryIcons = computed(() => {
   const query = iconSearch.value.trim().toLowerCase()
   if (!query) return categoryIcons
@@ -647,8 +693,8 @@ async function resolveCurrentInvitation() {
   clearNotice()
   try {
     const invitation = await store.resolveInvitation(inviteToken.value)
-    acceptInviteForm.full_name = invitation.full_name
-    acceptInviteForm.display_name = invitation.display_name
+    acceptInviteForm.full_name = invitation.full_name || ''
+    acceptInviteForm.display_name = invitation.display_name || ''
   } catch (err) {
     showNotice(apiErrorMessage(err, 'No pudimos abrir esa invitación. Pide que te manden un link nuevo.'), 'error')
   } finally {
@@ -696,26 +742,17 @@ async function loadInvitations() {
 
 async function submitInvitation() {
   const email = normalizeText(invitationForm.email)
-  const fullName = normalizeText(invitationForm.full_name)
-  const displayName = normalizeText(invitationForm.display_name)
-  const message = normalizeText(invitationForm.message)
-  if (!email || !fullName || !displayName) {
-    showNotice('Escribe email, nombre completo y nombre visible para la invitación.', 'error')
+  if (!email) {
+    showNotice('Escribe el email para la invitación.', 'error')
     return
   }
   await runAction('invitation', 'Invitación lista.', async () => {
     const invitation = await store.createInvitation({
       email,
-      full_name: fullName,
-      display_name: displayName,
-      message,
       is_admin: invitationForm.is_admin,
     })
     createdInvitationLink.value = invitationLink(invitation)
     invitationForm.email = ''
-    invitationForm.full_name = ''
-    invitationForm.display_name = ''
-    invitationForm.message = 'Te invito a entrar al presupuesto familiar en Burn Rate.'
     invitationForm.is_admin = false
   })
 }
@@ -744,6 +781,18 @@ async function copyInvitationLink(link: string, id: number | string) {
   } catch {
     showNotice('No pudimos copiar el link. Puedes seleccionarlo manualmente.', 'error')
   }
+}
+
+async function deleteInvitation(invitation: Invitation) {
+  if (invitation.accepted_at) {
+    showNotice('No se puede eliminar una invitación aceptada.', 'error')
+    return
+  }
+  if (!window.confirm(`Eliminar la invitación para ${invitation.email}?`)) return
+  await runAction(`delete-invitation-${invitation.id}`, 'Invitación eliminada.', async () => {
+    await store.deleteInvitation(invitation.id)
+    if (copiedInvitationId.value === invitation.id) copiedInvitationId.value = null
+  })
 }
 
 function selectInputText(event: FocusEvent) {
@@ -791,17 +840,65 @@ async function submitAccount() {
     showNotice('Escribe un nombre para la cuenta.', 'error')
     return
   }
-  await runAction('account', 'Cuenta guardada para la casa.', async () => {
-    await store.createAccount({
+  await runAction('account', editingAccountId.value ? 'Cuenta actualizada.' : 'Cuenta guardada para la casa.', async () => {
+    const payload = {
       name,
       account_type: accountForm.account_type,
       initial_balance_cents: accountForm.account_type === 'cash' ? centsFromInput(accountForm.initial_balance || '0') : 0,
-      color: '#7c6250',
-      is_active: true,
-    })
-    accountForm.name = ''
-    accountForm.initial_balance = ''
+      color: accountForm.color,
+      is_active: accountForm.is_active,
+    }
+    if (editingAccountId.value) {
+      await store.updateAccount(editingAccountId.value, payload)
+    } else {
+      await store.createAccount(payload)
+    }
+    resetAccountForm()
   })
+}
+
+function editAccount(account: Account) {
+  editingAccountId.value = account.id
+  accountForm.name = account.name
+  accountForm.account_type = account.account_type
+  accountForm.initial_balance = String(account.initial_balance_cents / 100)
+  accountForm.color = account.color || '#7c6250'
+  accountForm.is_active = account.is_active
+}
+
+function resetAccountForm() {
+  editingAccountId.value = null
+  accountForm.name = ''
+  accountForm.account_type = 'cash'
+  accountForm.initial_balance = ''
+  accountForm.color = '#7c6250'
+  accountForm.is_active = true
+}
+
+function accountTypeLabel(accountType: string) {
+  if (accountType === 'cash') return 'Efectivo'
+  if (accountType === 'bank') return 'Banco'
+  if (accountType === 'debit_card') return 'Tarjeta débito'
+  if (accountType === 'credit_card') return 'Tarjeta crédito'
+  return accountType
+}
+
+function setMemberAccess(enabled: boolean) {
+  memberForm.has_access = enabled
+  if (!enabled) memberForm.is_admin = false
+}
+
+function setMemberAdmin(enabled: boolean) {
+  memberForm.is_admin = enabled
+  if (enabled) memberForm.has_access = true
+}
+
+function setMemberAccessFromEvent(event: Event) {
+  setMemberAccess(event.target instanceof HTMLInputElement ? event.target.checked : false)
+}
+
+function setMemberAdminFromEvent(event: Event) {
+  setMemberAdmin(event.target instanceof HTMLInputElement ? event.target.checked : false)
 }
 
 async function submitMember() {
@@ -813,12 +910,17 @@ async function submitMember() {
     showNotice('Escribe el nombre de la persona.', 'error')
     return
   }
-  if (memberForm.has_access && (!username || !password)) {
-    showNotice('Hace falta usuario y clave temporal para dar acceso.', 'error')
+  if (memberForm.is_admin) memberForm.has_access = true
+  if (memberForm.has_access && !username) {
+    showNotice('Hace falta usuario para dar acceso.', 'error')
     return
   }
-  await runAction('member', 'Persona guardada.', async () => {
-    await store.createMember({
+  if (!editingMemberId.value && memberForm.has_access && !password) {
+    showNotice('Hace falta clave temporal para dar acceso.', 'error')
+    return
+  }
+  await runAction('member', editingMemberId.value ? 'Persona actualizada.' : 'Persona guardada.', async () => {
+    const payload = {
       name,
       color: memberForm.color,
       is_active: true,
@@ -826,15 +928,46 @@ async function submitMember() {
       username: memberForm.has_access ? username : '',
       email: memberForm.has_access ? email : '',
       password: memberForm.has_access ? password : '',
-      is_admin: memberForm.has_access ? memberForm.is_admin : false,
-    })
-    memberForm.name = ''
-    memberForm.has_access = false
-    memberForm.username = ''
-    memberForm.email = ''
-    memberForm.password = ''
-    memberForm.is_admin = false
+      is_admin: memberForm.is_admin,
+    }
+    if (editingMemberId.value) {
+      await store.updateMember(editingMemberId.value, payload)
+    } else {
+      await store.createMember(payload)
+    }
+    resetMemberForm()
   })
+}
+
+function editMember(member: HouseholdMember) {
+  editingMemberId.value = member.id
+  memberForm.name = member.name
+  memberForm.color = member.color
+  memberForm.has_access = member.access_enabled
+  memberForm.username = member.user_username || usernameSuggestionFromName(member.name)
+  memberForm.email = member.user_email || ''
+  memberForm.password = ''
+  memberForm.is_admin = member.user_is_admin
+}
+
+function resetMemberForm() {
+  editingMemberId.value = null
+  memberForm.name = ''
+  memberForm.color = '#b35320'
+  memberForm.has_access = false
+  memberForm.username = ''
+  memberForm.email = ''
+  memberForm.password = ''
+  memberForm.is_admin = false
+}
+
+function usernameSuggestionFromName(name: string) {
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
 }
 
 async function submitCategory() {
@@ -853,20 +986,46 @@ async function submitCategory() {
     showNotice('Escribe un presupuesto mensual mayor a cero.', 'error')
     return
   }
-  await runAction('category', 'Categoría guardada en el plan.', async () => {
-    await store.createCategory({
+  await runAction('category', editingCategoryId.value ? 'Categoría actualizada.' : 'Categoría guardada en el plan.', async () => {
+    const payload = {
       name,
       scope: categoryForm.scope as 'global' | 'personal',
       member: memberId,
       monthly_budget_cents: monthlyBudgetCents,
       color: categoryForm.color,
       icon: categoryForm.icon,
-      is_active: true,
+      is_active: categoryForm.is_active,
       order: 0,
-    })
-    categoryForm.name = ''
-    categoryForm.monthly_budget = ''
+    }
+    if (editingCategoryId.value) {
+      await store.updateCategory(editingCategoryId.value, payload)
+    } else {
+      await store.createCategory(payload)
+    }
+    resetCategoryForm()
   })
+}
+
+function editCategory(category: Category) {
+  editingCategoryId.value = category.id
+  categoryForm.name = category.name
+  categoryForm.scope = category.scope
+  categoryForm.member = category.member ? String(category.member) : ''
+  categoryForm.monthly_budget = String(category.monthly_budget_cents / 100)
+  categoryForm.color = category.color
+  categoryForm.icon = category.icon || 'tag'
+  categoryForm.is_active = category.is_active
+}
+
+function resetCategoryForm() {
+  editingCategoryId.value = null
+  categoryForm.name = ''
+  categoryForm.scope = 'global'
+  categoryForm.member = ''
+  categoryForm.monthly_budget = ''
+  categoryForm.color = '#e11d48'
+  categoryForm.icon = 'tag'
+  categoryForm.is_active = true
 }
 
 async function submitRecurring() {
@@ -1921,116 +2080,203 @@ function categoryIconComponent(icon?: string | null) {
         </div>
 
         <section class="settings-grid focused">
-          <form v-if="settingsPanel === 'accounts'" class="panel form-stack compact-panel accounts-panel" @submit.prevent="submitAccount">
+          <section v-if="settingsPanel === 'accounts'" class="panel form-stack compact-panel accounts-panel">
             <div class="section-title-row">
-              <h2>Cuentas de pago</h2>
+              <div>
+                <h2>Cuentas de pago</h2>
+                <p>Crea o ajusta las cuentas que usas para pagar gastos de la casa.</p>
+              </div>
               <span>Saldo: {{ money(totalAccountBalance, settings.currency) }}</span>
             </div>
-            <p>Agrega las cuentas que usas para pagar gastos de la casa.</p>
-            <label>Nombre<input v-model="accountForm.name" placeholder="Cartera casa" required /></label>
-            <div class="segmented account-type-tabs">
-              <button type="button" :class="{ active: accountForm.account_type === 'cash' }" @click="accountForm.account_type = 'cash'">Efectivo</button>
-              <button type="button" :class="{ active: accountForm.account_type === 'bank' }" @click="accountForm.account_type = 'bank'">Banco</button>
-              <button type="button" :class="{ active: accountForm.account_type === 'debit_card' }" @click="accountForm.account_type = 'debit_card'">Tarjeta débito</button>
-              <button type="button" :class="{ active: accountForm.account_type === 'credit_card' }" @click="accountForm.account_type = 'credit_card'">Tarjeta crédito</button>
-            </div>
-            <label v-if="accountForm.account_type === 'cash'">
-              Saldo inicial visible para efectivo
-              <input v-model="accountForm.initial_balance" inputmode="decimal" placeholder="$ 2,000.00" />
-            </label>
-            <button class="primary account-primary" type="submit" :disabled="actionBusy === 'account'">
-              {{ actionBusy === 'account' ? 'Guardando...' : 'Crear cuenta' }}
-            </button>
+            <form class="form-stack account-edit-form" @submit.prevent="submitAccount">
+              <div class="section-title-row compact-title-row">
+                <h3>{{ accountFormTitle }}</h3>
+                <button v-if="editingAccountId" class="secondary" type="button" @click="resetAccountForm">Cancelar</button>
+              </div>
+              <label>Nombre<input v-model="accountForm.name" placeholder="Cartera casa" required /></label>
+              <div class="segmented account-type-tabs">
+                <button type="button" :class="{ active: accountForm.account_type === 'cash' }" @click="accountForm.account_type = 'cash'">Efectivo</button>
+                <button type="button" :class="{ active: accountForm.account_type === 'bank' }" @click="accountForm.account_type = 'bank'">Banco</button>
+                <button type="button" :class="{ active: accountForm.account_type === 'debit_card' }" @click="accountForm.account_type = 'debit_card'">Tarjeta débito</button>
+                <button type="button" :class="{ active: accountForm.account_type === 'credit_card' }" @click="accountForm.account_type = 'credit_card'">Tarjeta crédito</button>
+              </div>
+              <label v-if="accountForm.account_type === 'cash'">
+                Saldo inicial visible para efectivo
+                <input v-model="accountForm.initial_balance" inputmode="decimal" placeholder="$ 2,000.00" />
+              </label>
+              <div class="field-group">
+                <span>Color</span>
+                <div class="color-picker-row" role="group" aria-label="Color de cuenta">
+                  <button
+                    v-for="color in accountColors"
+                    :key="color"
+                    type="button"
+                    :aria-label="color"
+                    :class="{ active: accountForm.color === color }"
+                    :style="{ background: color }"
+                    @click="accountForm.color = color"
+                  ></button>
+                  <input v-model="accountForm.color" type="color" aria-label="Color personalizado" />
+                </div>
+              </div>
+              <label class="check-row">
+                <input v-model="accountForm.is_active" type="checkbox" />
+                Activa: aparece como medio de pago
+              </label>
+              <button class="primary account-primary" type="submit" :disabled="actionBusy === 'account'">
+                {{ accountSubmitLabel }}
+              </button>
+            </form>
             <div class="account-list">
-              <article v-for="account in activeAccounts" :key="account.id" class="account-row">
+              <article v-for="account in accounts" :key="account.id" class="account-row" :class="{ muted: !account.is_active }">
                 <span :style="{ background: account.color }"></span>
                 <div>
                   <b>{{ account.name }}</b>
-                  <small>{{ account.account_type }}</small>
+                  <small>{{ accountTypeLabel(account.account_type) }} · {{ account.is_active ? 'activa' : 'inactiva' }}</small>
                 </div>
                 <strong>{{ money(account.current_balance_cents, settings.currency) }}</strong>
+                <button class="secondary" type="button" @click="editAccount(account)">Editar</button>
               </article>
+              <p v-if="!accounts.length" class="empty-line">Sin cuentas creadas.</p>
             </div>
-          </form>
+          </section>
 
           <form v-if="settingsPanel === 'people'" class="panel form-stack compact-panel people-panel" @submit.prevent="submitMember">
             <h2>Personas de casa</h2>
             <p>Usa personas para separar gastos personales dentro del mismo plan familiar.</p>
             <div class="people-pills">
-              <span v-for="member in members" :key="member.id" :style="{ '--member-color': member.color }">
-                {{ member.name }}
+              <button
+                v-for="member in members"
+                :key="member.id"
+                type="button"
+                class="people-pill"
+                :class="{ active: editingMemberId === member.id }"
+                :style="{ '--member-color': member.color }"
+                @click="editMember(member)"
+              >
+                <span>{{ member.name }}</span>
                 <small>{{ member.access_enabled ? (member.user_is_admin ? 'admin' : 'usuario') : 'sin login' }}</small>
-              </span>
+              </button>
+            </div>
+            <div class="section-title-row compact-title-row">
+              <h3>{{ memberFormTitle }}</h3>
+              <button v-if="editingMemberId" class="secondary" type="button" @click="resetMemberForm">Cancelar</button>
             </div>
             <label>Nombre de la persona<input v-model="memberForm.name" required /></label>
-            <label class="check-row">
-              <input v-model="memberForm.has_access" type="checkbox" />
-              Permiso: puede entrar a la app
+            <label class="switch-row">
+              <input :checked="memberForm.has_access" type="checkbox" role="switch" @change="setMemberAccessFromEvent" />
+              <span class="switch-track" aria-hidden="true"></span>
+              <span>
+                <b>Acceso a la app</b>
+                <small>Puede iniciar sesión con usuario y clave</small>
+              </span>
             </label>
-            <label class="check-row">
-              <input v-model="memberForm.is_admin" type="checkbox" />
-              Admin: puede cambiar ajustes
+            <label class="switch-row">
+              <input :checked="memberForm.is_admin" type="checkbox" role="switch" @change="setMemberAdminFromEvent" />
+              <span class="switch-track" aria-hidden="true"></span>
+              <span>
+                <b>Admin</b>
+                <small>También activa el acceso a la app</small>
+              </span>
             </label>
             <template v-if="memberForm.has_access">
               <div class="field-row">
                 <label>Usuario<input v-model="memberForm.username" autocomplete="username" required /></label>
                 <label>Email<input v-model="memberForm.email" type="email" autocomplete="email" /></label>
               </div>
-              <label>Clave temporal<input v-model="memberForm.password" type="password" autocomplete="new-password" required /></label>
+              <label>Clave temporal<input v-model="memberForm.password" type="password" autocomplete="new-password" :required="!editingMemberId" /></label>
             </template>
             <label>Color<input v-model="memberForm.color" type="color" /></label>
             <button class="primary blue-primary" type="submit" :disabled="actionBusy === 'member'">
-              {{ actionBusy === 'member' ? 'Guardando...' : 'Guardar persona' }}
+              {{ memberSubmitLabel }}
             </button>
           </form>
 
-          <form v-if="settingsPanel === 'categories'" class="panel form-stack compact-panel categories-panel" @submit.prevent="submitCategory">
-            <h2>Categorías del plan</h2>
-            <p>Crea categorías claras y reconocibles para revisar el gasto sin pensar de más.</p>
-            <div class="segmented blue-segmented">
-              <button type="button" :class="{ active: categoryForm.scope === 'global' }" @click="categoryForm.scope = 'global'">Familia</button>
-              <button type="button" :class="{ active: categoryForm.scope === 'personal' }" @click="categoryForm.scope = 'personal'">Personal</button>
-            </div>
-            <label>Nombre<input v-model="categoryForm.name" required /></label>
-            <label v-if="categoryForm.scope === 'personal'">
-              Persona
-              <select v-model="categoryForm.member" required>
-                <option value="">Elige persona</option>
-                <option v-for="member in members" :key="member.id" :value="member.id">{{ member.name }}</option>
-              </select>
-            </label>
-            <label>Presupuesto mensual<input v-model="categoryForm.monthly_budget" inputmode="decimal" required /></label>
-            <div class="field-group">
-              <span>Icono</span>
-              <button class="icon-select-button" type="button" :style="{ '--category-color': categoryForm.color }" @click="openIconGallery($event)">
-                <span class="category-icon selected-icon-preview" :style="{ '--category-color': categoryForm.color }">
-                  <component :is="selectedCategoryIcon.component" aria-hidden="true" />
-                </span>
-                <span>
-                  <b>{{ selectedCategoryIcon.label }}</b>
-                  <small>Cambiar icono</small>
-                </span>
-              </button>
-            </div>
-            <div class="field-group">
-              <span>Color</span>
-              <div class="color-picker-row" role="group" aria-label="Color de categoría">
-                <button
-                  v-for="color in categoryColors"
-                  :key="color"
-                  type="button"
-                  :aria-label="color"
-                  :class="{ active: categoryForm.color === color }"
-                  :style="{ background: color }"
-                  @click="categoryForm.color = color"
-                ></button>
-                <input v-model="categoryForm.color" type="color" aria-label="Color personalizado" />
+          <section v-if="settingsPanel === 'categories'" class="panel form-stack compact-panel categories-panel">
+            <div class="section-title-row">
+              <div>
+                <h2>Categorías del plan</h2>
+                <p>Crea o ajusta categorías, presupuesto mensual, icono, color y estado.</p>
               </div>
+              <span>{{ categories.length }} totales</span>
             </div>
-            <button class="primary blue-primary" type="submit" :disabled="actionBusy === 'category'">
-              {{ actionBusy === 'category' ? 'Guardando...' : 'Crear categoría' }}
-            </button>
-          </form>
+            <form class="form-stack category-edit-form" @submit.prevent="submitCategory">
+              <div class="section-title-row compact-title-row">
+                <h3>{{ categoryFormTitle }}</h3>
+                <button v-if="editingCategoryId" class="secondary" type="button" @click="resetCategoryForm">Cancelar</button>
+              </div>
+              <div class="segmented blue-segmented">
+                <button type="button" :class="{ active: categoryForm.scope === 'global' }" @click="categoryForm.scope = 'global'">Familia</button>
+                <button type="button" :class="{ active: categoryForm.scope === 'personal' }" @click="categoryForm.scope = 'personal'">Personal</button>
+              </div>
+              <label>Nombre<input v-model="categoryForm.name" required /></label>
+              <label v-if="categoryForm.scope === 'personal'">
+                Persona
+                <select v-model="categoryForm.member" required>
+                  <option value="">Elige persona</option>
+                  <option v-for="member in members" :key="member.id" :value="member.id">{{ member.name }}</option>
+                </select>
+              </label>
+              <label>Presupuesto mensual<input v-model="categoryForm.monthly_budget" inputmode="decimal" required /></label>
+              <div class="field-group">
+                <span>Icono</span>
+                <button class="icon-select-button" type="button" :style="{ '--category-color': categoryForm.color }" @click="openIconGallery($event)">
+                  <span class="category-icon selected-icon-preview" :style="{ '--category-color': categoryForm.color }">
+                    <component :is="selectedCategoryIcon.component" aria-hidden="true" />
+                  </span>
+                  <span>
+                    <b>{{ selectedCategoryIcon.label }}</b>
+                    <small>Cambiar icono</small>
+                  </span>
+                </button>
+              </div>
+              <div class="field-group">
+                <span>Color</span>
+                <div class="color-picker-row" role="group" aria-label="Color de categoría">
+                  <button
+                    v-for="color in categoryColors"
+                    :key="color"
+                    type="button"
+                    :aria-label="color"
+                    :class="{ active: categoryForm.color === color }"
+                    :style="{ background: color }"
+                    @click="categoryForm.color = color"
+                  ></button>
+                  <input v-model="categoryForm.color" type="color" aria-label="Color personalizado" />
+                </div>
+              </div>
+              <label class="check-row">
+                <input v-model="categoryForm.is_active" type="checkbox" />
+                Activa: aparece en plan y captura de gastos
+              </label>
+              <button class="primary blue-primary" type="submit" :disabled="actionBusy === 'category'">
+                {{ categorySubmitLabel }}
+              </button>
+            </form>
+            <section class="category-edit-list" aria-label="Categorías existentes">
+              <article
+                v-for="category in categories"
+                :key="category.id"
+                class="category-edit-row"
+                :class="{ muted: !category.is_active }"
+                :style="{ '--category-color': category.color }"
+              >
+                <span class="category-icon" :style="{ '--category-color': category.color }">
+                  <component :is="categoryIconComponent(category.icon)" aria-hidden="true" />
+                </span>
+                <div>
+                  <b>{{ category.name }}</b>
+                  <span>
+                    {{ category.scope === 'global' ? 'Familia' : category.member_name || 'Personal' }} ·
+                    {{ money(category.monthly_budget_cents, settings.currency) }} ·
+                    {{ category.is_active ? 'activa' : 'inactiva' }}
+                  </span>
+                </div>
+                <button class="secondary" type="button" @click="editCategory(category)">Editar</button>
+              </article>
+              <p v-if="!categories.length" class="empty-line">Sin categorías creadas.</p>
+            </section>
+          </section>
 
           <form v-if="settingsPanel === 'invitations'" class="panel form-stack compact-panel invitations-panel" @submit.prevent="submitInvitation">
             <div class="section-title-row">
@@ -2043,20 +2289,6 @@ function categoryIconComponent(icon?: string | null) {
             <label>
               Email
               <input v-model="invitationForm.email" type="email" autocomplete="email" placeholder="familia@example.com" required />
-            </label>
-            <div class="field-row">
-              <label>
-                Nombre completo
-                <input v-model="invitationForm.full_name" autocomplete="name" placeholder="Ana Hernández" required />
-              </label>
-              <label>
-                Nombre visible
-                <input v-model="invitationForm.display_name" autocomplete="nickname" placeholder="Mamá, Papá" required />
-              </label>
-            </div>
-            <label>
-              Mensaje
-              <textarea v-model="invitationForm.message" rows="3" placeholder="Mensaje para quien recibirá el link"></textarea>
             </label>
             <label class="check-row">
               <input v-model="invitationForm.is_admin" type="checkbox" />
@@ -2086,7 +2318,7 @@ function categoryIconComponent(icon?: string | null) {
                   <small>{{ invitation.accepted_at ? 'aceptada' : invitation.status ?? 'pendiente' }}</small>
                 </div>
                 <p v-if="invitation.message">{{ invitation.message }}</p>
-                <div class="copy-link-inline">
+                <div v-if="invitationLink(invitation)" class="copy-link-inline">
                   <input
                     :value="invitationLink(invitation)"
                     readonly
@@ -2095,6 +2327,17 @@ function categoryIconComponent(icon?: string | null) {
                   />
                   <button class="secondary" type="button" @click="copyInvitationLink(invitationLink(invitation), invitation.id)">
                     {{ copiedInvitationId === invitation.id ? 'Copiado' : 'Copiar' }}
+                  </button>
+                </div>
+                <p v-else class="invitation-link-missing">El link solo se muestra al crear la invitación. Crea otra si necesitas reenviarlo.</p>
+                <div v-if="!invitation.accepted_at" class="invitation-actions">
+                  <button
+                    class="secondary danger-secondary"
+                    type="button"
+                    :disabled="actionBusy === `delete-invitation-${invitation.id}`"
+                    @click="deleteInvitation(invitation)"
+                  >
+                    {{ actionBusy === `delete-invitation-${invitation.id}` ? 'Eliminando...' : 'Eliminar' }}
                   </button>
                 </div>
               </article>

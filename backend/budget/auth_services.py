@@ -60,8 +60,9 @@ def send_invitation_email(invitation, token: str, accept_url: str) -> bool:
     subject = getattr(settings, "BURN_RATE_INVITATION_EMAIL_SUBJECT", "Invitacion a Burn Rate")
     from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
     custom_message = f"\n{invitation.message}\n" if invitation.message else ""
+    greeting = f"Hola {invitation.display_name}," if invitation.display_name else "Hola,"
     body = (
-        f"Hola {invitation.display_name},\n\n"
+        f"{greeting}\n\n"
         "Te invitaron a Burn Rate."
         f"{custom_message}\n"
         "Abre este enlace para crear tu acceso:\n\n"

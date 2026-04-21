@@ -141,4 +141,98 @@ describe('budget store auth flow', () => {
     expect(invitation.email).toBe('familia@example.com')
     expect(fetchMock.mock.calls[0][0]).toBe('/api/invitations/resolve/?token=abc%2F123')
   })
+
+  it('deletes unaccepted invitations from the local list', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+    const store = useBudgetStore()
+    store.invitations = [
+      {
+        id: 4,
+        email: 'pendiente@example.com',
+        full_name: '',
+        display_name: '',
+        message: '',
+        is_admin: false,
+      },
+      {
+        id: 5,
+        email: 'otra@example.com',
+        full_name: '',
+        display_name: '',
+        message: '',
+        is_admin: true,
+      },
+    ]
+
+    await store.deleteInvitation(4)
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/invitations/4/')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'DELETE' })
+    expect(store.invitations.map((invitation) => invitation.id)).toEqual([5])
+  })
+
+  it('updates accounts through the account endpoint', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ currency: 'MXN', cutoff_day: 20 }))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        period: { start: '2026-04-21', end: '2026-05-20' },
+        scope: 'total',
+        totals: { budget_cents: 0, spent_cents: 0, expected_cents: 0, consumed_cents: 0, available_cents: 0 },
+        categories: [],
+      }),
+    )
+    fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+
+    const store = useBudgetStore()
+
+    await store.updateAccount(3, { name: 'Banco casa', color: '#2563eb', is_active: false })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/accounts/3/')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify({ name: 'Banco casa', color: '#2563eb', is_active: false }),
+    })
+  })
+
+  it('updates household members through the member endpoint', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ currency: 'MXN', cutoff_day: 20 }))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        period: { start: '2026-04-21', end: '2026-05-20' },
+        scope: 'total',
+        totals: { budget_cents: 0, spent_cents: 0, expected_cents: 0, consumed_cents: 0, available_cents: 0 },
+        categories: [],
+      }),
+    )
+    fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+
+    const store = useBudgetStore()
+
+    await store.updateMember(7, { has_access: true, username: 'nuez', is_admin: true })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/household-members/7/')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify({ has_access: true, username: 'nuez', is_admin: true }),
+    })
+  })
 })

@@ -159,8 +159,8 @@ class InvitationSerializer(serializers.ModelSerializer):
 
 class InvitationCreateSerializer(serializers.Serializer):
     email = serializers.EmailField()
-    full_name = serializers.CharField(max_length=150)
-    display_name = serializers.CharField(max_length=120)
+    full_name = serializers.CharField(max_length=150, required=False, allow_blank=True, default="")
+    display_name = serializers.CharField(max_length=120, required=False, allow_blank=True, default="")
     message = serializers.CharField(required=False, allow_blank=True)
     is_staff = serializers.BooleanField(required=False, default=False)
     is_admin = serializers.BooleanField(required=False, write_only=True)
@@ -169,8 +169,8 @@ class InvitationCreateSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         email = normalize_email(attrs["email"])
-        full_name = normalize_name(attrs["full_name"])
-        display_name = normalize_name(attrs["display_name"])
+        full_name = normalize_name(attrs.get("full_name", ""))
+        display_name = normalize_name(attrs.get("display_name", ""))
         message = attrs.get("message", "").strip()
         now = timezone.now()
         expires_at = attrs.get("expires_at")
@@ -189,10 +189,6 @@ class InvitationCreateSerializer(serializers.Serializer):
         ).exists()
         if pending_exists:
             raise serializers.ValidationError({"email": "Ya existe una invitacion pendiente para ese email."})
-        if not full_name:
-            raise serializers.ValidationError({"full_name": "Escribe el nombre completo."})
-        if not display_name:
-            raise serializers.ValidationError({"display_name": "Escribe el nombre visible."})
         attrs["email"] = email
         attrs["full_name"] = full_name
         attrs["display_name"] = display_name
@@ -238,6 +234,9 @@ class InvitationAcceptSerializer(serializers.Serializer):
             raise serializers.ValidationError({"full_name": "Escribe el nombre completo."})
         if not display_name:
             raise serializers.ValidationError({"display_name": "Escribe el nombre visible."})
+        linked_member = HouseholdMember.objects.filter(name__iexact=display_name, user__isnull=False).first()
+        if linked_member:
+            raise serializers.ValidationError({"display_name": "Ese nombre visible ya esta ligado a otro usuario."})
         try:
             validate_user_password(attrs["password"], email=email, full_name=full_name)
         except serializers.ValidationError as exc:
@@ -255,6 +254,10 @@ class InvitationAcceptSerializer(serializers.Serializer):
         if not invitation.is_pending:
             raise serializers.ValidationError({"token": "Esta invitacion ya no esta disponible."})
 
+        member = HouseholdMember.objects.select_for_update().filter(name__iexact=self.validated_data["display_name"]).first()
+        if member and member.user_id:
+            raise serializers.ValidationError({"display_name": "Ese nombre visible ya esta ligado a otro usuario."})
+
         user = User(
             username=unique_username_for_email(self.validated_data["email"]),
             email=self.validated_data["email"],
@@ -264,7 +267,13 @@ class InvitationAcceptSerializer(serializers.Serializer):
         apply_user_names(user, self.validated_data["full_name"])
         user.set_password(self.validated_data["password"])
         user.save()
-        member = HouseholdMember.objects.create(name=self.validated_data["display_name"], user=user)
+        if member:
+            member.name = self.validated_data["display_name"]
+            member.user = user
+            member.is_active = True
+            member.save(update_fields=["name", "user", "is_active"])
+        else:
+            member = HouseholdMember.objects.create(name=self.validated_data["display_name"], user=user)
         invitation.full_name = self.validated_data["full_name"]
         invitation.display_name = self.validated_data["display_name"]
         invitation.save(update_fields=["full_name", "display_name", "updated_at"])
@@ -315,20 +324,40 @@ class HouseholdMemberSerializer(serializers.ModelSerializer):
     def get_user_is_admin(self, obj):
         return bool(obj.user and obj.user.is_staff)
 
+    def _matching_user(self, username: str = "", email: str = ""):
+        user = None
+        if username:
+            user = User.objects.filter(username__iexact=username).first()
+        if user is None and email:
+            user = User.objects.filter(email__iexact=email).first()
+        return user
+
+    def _validate_reusable_user(self, user):
+        if user is None:
+            return
+        linked_member = HouseholdMember.objects.filter(user=user)
+        if self.instance is not None:
+            linked_member = linked_member.exclude(pk=self.instance.pk)
+        if linked_member.exists():
+            raise serializers.ValidationError({"username": "Ese usuario ya esta ligado a otra persona."})
+
     def validate(self, attrs):
-        has_access = attrs.get("has_access")
+        is_admin = attrs.get("is_admin", False)
+        has_access = True if is_admin else attrs.get("has_access")
         username = attrs.get("username", "").strip()
         email = normalize_email(attrs.get("email", ""))
         password = attrs.get("password", "")
+        matched_user = self._matching_user(username, email)
+        self._validate_reusable_user(matched_user)
+        attrs["has_access"] = has_access
         attrs["username"] = username
         attrs["email"] = email
         if has_access:
             if not username and not getattr(self.instance, "user_id", None):
                 raise serializers.ValidationError({"username": "Se requiere usuario cuando la persona tendra acceso."})
-            if self.instance is None and not password:
+            needs_new_user = getattr(self.instance, "user_id", None) is None and matched_user is None
+            if needs_new_user and not password:
                 raise serializers.ValidationError({"password": "Se requiere contrasena al crear acceso."})
-            if username and User.objects.filter(username=username).exclude(pk=getattr(getattr(self.instance, "user", None), "pk", None)).exists():
-                raise serializers.ValidationError({"username": "Ese usuario ya existe."})
             if password:
                 full_name = attrs.get("name", getattr(self.instance, "name", username))
                 try:
@@ -343,6 +372,8 @@ class HouseholdMemberSerializer(serializers.ModelSerializer):
         email = normalize_email(payload.pop("email", ""))
         password = payload.pop("password", "")
         is_admin = payload.pop("is_admin", False)
+        if is_admin:
+            has_access = True
 
         if has_access is False:
             instance.user = None
@@ -352,7 +383,7 @@ class HouseholdMemberSerializer(serializers.ModelSerializer):
         if has_access:
             user = instance.user
             if user is None:
-                user = User(username=username)
+                user = self._matching_user(username, email) or User(username=username)
             elif username:
                 user.username = username
             user.email = email

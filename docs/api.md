@@ -66,6 +66,7 @@ Claim payload:
 
 - `GET /api/invitations/`: staff-only list.
 - `POST /api/invitations/`: staff-only create. Always returns `accept_url` for copying. `email_sent` is `true` only when SMTP and `BURN_RATE_PUBLIC_URL` are configured.
+- `DELETE /api/invitations/{id}/`: staff-only delete for invitations that have not been accepted.
 - `POST /api/invitations/{id}/revoke/`: staff-only revoke.
 - `GET /api/invitations/resolve/?token=...`: public token lookup for the acceptance screen.
 - `POST /api/invitations/accept/`: public token acceptance; creates the user/member and starts a session.
@@ -75,9 +76,6 @@ Create payload:
 ```json
 {
   "email": "mama@example.com",
-  "full_name": "Ana Hernandez",
-  "display_name": "Mama",
-  "message": "Te invito a entrar al presupuesto familiar.",
   "is_admin": false
 }
 ```
@@ -146,9 +144,13 @@ The response includes `access_enabled`, `user_username`, `user_email`, and `user
 }
 ```
 
+Use `PATCH /api/categories/{id}/` with any of those fields plus `is_active` to edit an existing category without deleting historical transactions.
+
 `icon` is a stable key from the frontend's curated local icon catalog. Existing categories default to `tag`; old keys such as `paw`, `bolt`, and `box` remain valid. The frontend can also normalize `lucide:`-prefixed values to the same local keys when the icon exists in the curated catalog.
 
-`accounts` only supports `cash`, `bank`, `debit_card`, and `credit_card`. `initial_balance_cents` is only valid for `cash`; non-cash accounts must use `0`.
+`accounts` supports `cash`, `bank`, `debit_card`, and `credit_card`. It also accepts a user-facing `color` and `is_active` flag on create/update. `initial_balance_cents` is only valid for `cash`; non-cash accounts must use `0`.
+
+Use `PATCH /api/accounts/{id}/` to edit an existing account without deleting historical transactions.
 
 `transactions` for expenses require a merchant/name. The API sets `created_by` from the logged-in Django user and returns `created_by_username` for audit visibility in the UI.
 Creating an expense also records the merchant/name in the merchant concept catalog, normalizing extra spaces and merging case-insensitive duplicates.

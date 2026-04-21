@@ -183,7 +183,12 @@ class SettingsView(APIView):
         return Response(serializer.data)
 
 
-class InvitationViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
+class InvitationViewSet(
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
     queryset = Invitation.objects.select_related("invited_by", "accepted_by", "revoked_by").all()
     serializer_class = InvitationSerializer
     permission_classes = [IsAuthenticated, IsStaffUser]
@@ -197,6 +202,13 @@ class InvitationViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets
         data = InvitationSerializer(invitation).data
         data.update({"token": token, "accept_url": accept_url, "email_sent": email_sent})
         return Response(data, status=status.HTTP_201_CREATED)
+
+    def destroy(self, request, *args, **kwargs):
+        invitation = self.get_object()
+        if invitation.accepted_at:
+            return Response({"detail": "No se puede eliminar una invitacion aceptada."}, status=status.HTTP_400_BAD_REQUEST)
+        invitation.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["post"])
     def revoke(self, request, pk=None):

@@ -1,5 +1,96 @@
 # Agent History
 
+## 2026-04-21 - Registro y switches de personas
+
+Objetivo: corregir el caso donde un usuario aceptado como admin podía aparecer como persona sin login, permitir editar personas existentes y hacer explícita la relación entre acceso a la app y admin.
+
+Archivos tocados:
+
+- Actualizado `backend/budget/serializers.py` para que `is_admin=true` implique acceso a la app, pueda enlazar un usuario existente sin persona, reutilice una persona sin login cuando una invitación se acepta con el mismo nombre visible y no exija clave al editar una persona ya vinculada.
+- Actualizado `frontend/src/stores/budget.ts` con `updateMember()` usando `PATCH /api/household-members/{id}/`.
+- Actualizado `frontend/src/App.vue` para editar personas desde las etiquetas, precargar usuario/email/color y usar dos switches: `Acceso a la app` y `Admin`.
+- Actualizado `frontend/src/style.css` con el diseño de switches y etiquetas editables de personas.
+- Actualizados `backend/budget/tests/test_api.py` y `frontend/src/stores/budget.test.ts`.
+
+Verificaciones:
+
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py test budget` pasó en `backend/` con 46 tests.
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py makemigrations --check --dry-run` no detectó migraciones pendientes.
+- `pnpm test` pasó en `frontend/` con 12 tests.
+- `pnpm build` pasó en `frontend/`.
+- `scripts/dev-services.sh restart` dejó activos Django en `8001` y Vite en `5173`; `http://localhost:8001/healthz/` respondió `ok`.
+- Playwright validó `Ajustes > Personas`: `Nuez` aparece como `admin`, el formulario entra en modo `Editar persona`, al apagar `Acceso a la app` se apaga `Admin`, y al activar `Admin` se activa también `Acceso a la app`.
+- Se corrigió la base local enlazando la persona `Nuez` con el usuario `elpapu@loo.mx` y eliminando el perfil duplicado vacío creado por la invitación previa.
+
+## 2026-04-21 - Edición y color de cuentas
+
+Objetivo: permitir que las cuentas de pago se puedan modificar desde Ajustes y que el admin pueda elegir el color de cada cuenta.
+
+Archivos tocados:
+
+- Actualizado `frontend/src/stores/budget.ts` con `updateAccount()` usando `PATCH /api/accounts/{id}/`.
+- Actualizado `frontend/src/App.vue` para que `Ajustes > Cuentas` cambie entre crear y editar, permita seleccionar color, activar/desactivar cuenta y editar nombre/tipo/saldo inicial.
+- Actualizado `frontend/src/style.css` para la lista editable de cuentas y el acomodo responsive.
+- Actualizados `backend/budget/tests/test_api.py`, `frontend/src/stores/budget.test.ts` y `docs/api.md`.
+
+Verificaciones:
+
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py test budget` pasó en `backend/` con 43 tests.
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py makemigrations --check --dry-run` no detectó migraciones pendientes.
+- `pnpm test` pasó en `frontend/` con 11 tests.
+- `pnpm build` pasó en `frontend/`.
+- `scripts/dev-services.sh restart` reinició la sesión tmux `burn-rate-dev`; `http://localhost:5173/` y `http://localhost:8001/healthz/` respondieron correctamente.
+- Playwright validó login local con `papa@example.com`, entrada a `Ajustes > Cuentas`, presencia del selector `Color de cuenta`, botón `Editar`, cambio del formulario a `Editar cuenta`, nombre precargado y botón `Guardar cambios`.
+
+## 2026-04-21 - Eliminación de invitaciones pendientes y script dev
+
+Objetivo: permitir que un admin elimine invitaciones no aceptadas y agregar un comando reproducible para arrancar o reiniciar los servicios de desarrollo.
+
+Archivos tocados:
+
+- Actualizado `backend/budget/views.py` para habilitar `DELETE /api/invitations/{id}/` solo cuando la invitación no está aceptada.
+- Actualizados `frontend/src/stores/budget.ts`, `frontend/src/App.vue` y `frontend/src/style.css` para mostrar la acción `Eliminar` en invitaciones no aceptadas y quitarla de invitaciones aceptadas.
+- Agregado `scripts/dev-services.sh` con `start`, `restart`, `stop` y `status` usando tmux, Docker Compose, Django en `8001` y Vite en `5173`.
+- Actualizados `README.md` y `docs/api.md`.
+
+Verificaciones:
+
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py test budget` pasó en `backend/` con 42 tests.
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py makemigrations --check --dry-run` no detectó migraciones pendientes.
+- `pnpm test` pasó en `frontend/` con 10 tests.
+- `pnpm build` pasó en `frontend/`.
+- `bash -n scripts/dev-services.sh` pasó.
+- `scripts/dev-services.sh restart` reinició la sesión tmux `burn-rate-dev`; `http://localhost:5173/` y `http://localhost:8001/healthz/` respondieron correctamente.
+- `DELETE /api/invitations/1/` sin sesión respondió `403`, confirmando que el endpoint queda protegido por autenticación/admin.
+
+## 2026-04-21 - Invitaciones, categorías y publicación Docker v0.1.3
+
+Objetivo: corregir el flujo de invitaciones para que el admin solo capture email y rol, mover nombre completo/nombre visible/password al paso obligatorio de aceptación, agregar edición de categorías y publicar una nueva imagen Docker.
+
+Archivos tocados:
+
+- Actualizado `backend/budget/models.py`, `backend/budget/serializers.py` y `backend/budget/auth_services.py` para permitir invitaciones sin nombres hasta la aceptación y evitar saludos vacíos en email.
+- Agregada migración `backend/budget/migrations/0008_invitation_names_optional.py`.
+- Actualizado `frontend/src/App.vue`, `frontend/src/stores/budget.ts` y `frontend/src/style.css` para simplificar el formulario de invitación y agregar edición de categorías desde `Ajustes > Categorías`.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md`, `docs/api.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.3`.
+
+Verificaciones:
+
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py test budget` pasó en `backend/` con 40 tests.
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py makemigrations --check --dry-run` no detectó migraciones pendientes.
+- `pnpm test` pasó en `frontend/` con 9 tests.
+- `pnpm build` pasó en `frontend/`.
+- `docker compose config` pasó.
+- `docker build --pull -t loomitz/burnrate:v0.1.3 -t loomitz/burnrate:latest .` construyó correctamente.
+- `docker run --rm --entrypoint sh ... loomitz/burnrate:v0.1.3 -c 'python manage.py check'` pasó dentro de la imagen.
+- `docker scout cves loomitz/burnrate:v0.1.3 --only-fixed` reportó 0 vulnerabilidades detectadas en la imagen local `linux/arm64`.
+- `docker buildx build --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.3 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura en Docker Hub.
+- `docker buildx imagetools inspect loomitz/burnrate:v0.1.3` confirmó el digest `sha256:adf370fec02c7f3b8f29531cbb4ae5f4a63c40133e4bc1a51df8cbed8fed762c` con `linux/amd64` y `linux/arm64`.
+- `docker buildx imagetools inspect loomitz/burnrate:latest` confirmó que `latest` apunta al mismo digest.
+- `docker scout cves --platform linux/amd64 loomitz/burnrate:v0.1.3 --only-fixed` reportó 0 vulnerabilidades detectadas.
+- `docker scout cves --platform linux/arm64 loomitz/burnrate:v0.1.3 --only-fixed` reportó 0 vulnerabilidades detectadas.
+- `uv run python manage.py test budget` contra la configuración Postgres local no pudo crear la base de pruebas por falta de permiso `CREATEDB`; se usó SQLite de pruebas para validar la suite local.
+
 ## 2026-04-21 - Onboarding Readiness Check
 
 Objetivo: agregar un onboarding muy sencillo que no configure la base desde la UI, pero sí revise conexión, migraciones y configuración inicial antes del primer admin.

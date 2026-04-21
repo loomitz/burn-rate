@@ -93,6 +93,26 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.data["color"], "#ca8a04")
         self.assertEqual(response.data["icon"], "paw")
 
+    def test_category_can_be_updated_by_admin(self):
+        response = self.client.patch(
+            f"/api/categories/{self.category.id}/",
+            {
+                "name": "Super y despensa",
+                "monthly_budget_cents": 250000,
+                "color": "#0284c7",
+                "icon": "shopping-cart",
+                "is_active": False,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["name"], "Super y despensa")
+        self.assertEqual(response.data["monthly_budget_cents"], 250000)
+        self.assertEqual(response.data["color"], "#0284c7")
+        self.assertEqual(response.data["icon"], "shopping-cart")
+        self.assertFalse(response.data["is_active"])
+
     def test_transaction_expense_requires_category_and_account(self):
         response = self.client.post(
             "/api/transactions/",
@@ -311,6 +331,50 @@ class BudgetApiTests(APITestCase):
         self.assertTrue(response.data["user_is_admin"])
         self.assertTrue(user.is_staff)
 
+    def test_member_admin_flag_implies_access(self):
+        response = self.client.post(
+            "/api/household-members/",
+            {
+                "name": "Nuez",
+                "color": "#9333ea",
+                "has_access": False,
+                "username": "nuez",
+                "email": "nuez@example.com",
+                "password": "BurnRate!2345",
+                "is_admin": True,
+            },
+            format="json",
+        )
+
+        user = User.objects.get(username="nuez")
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.data["access_enabled"])
+        self.assertTrue(response.data["user_is_admin"])
+        self.assertTrue(user.is_staff)
+
+    def test_member_update_can_link_existing_unassigned_user(self):
+        user = User.objects.create_user(username="nuez", email="nuez@example.com", password="BurnRate!2345")
+        member = HouseholdMember.objects.create(name="Nuez", color="#9333ea")
+
+        response = self.client.patch(
+            f"/api/household-members/{member.id}/",
+            {
+                "has_access": True,
+                "username": "nuez",
+                "email": "nuez@example.com",
+                "is_admin": True,
+            },
+            format="json",
+        )
+
+        user.refresh_from_db()
+        member.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(member.user, user)
+        self.assertTrue(response.data["access_enabled"])
+        self.assertTrue(response.data["user_is_admin"])
+        self.assertTrue(user.is_staff)
+
     def test_non_cash_account_rejects_initial_balance(self):
         response = self.client.post(
             "/api/accounts/",
@@ -324,6 +388,24 @@ class BudgetApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("initial_balance_cents", response.data)
+
+    def test_account_can_be_updated_with_color_and_active_state(self):
+        response = self.client.patch(
+            f"/api/accounts/{self.account.id}/",
+            {
+                "name": "Caja casa",
+                "color": "#2563eb",
+                "initial_balance_cents": 35000,
+                "is_active": False,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["name"], "Caja casa")
+        self.assertEqual(response.data["color"], "#2563eb")
+        self.assertEqual(response.data["initial_balance_cents"], 35000)
+        self.assertFalse(response.data["is_active"])
 
 
 class AuthBootstrapApiTests(APITestCase):
@@ -418,9 +500,6 @@ class InvitationApiTests(APITestCase):
     def create_invitation(self, **overrides):
         payload = {
             "email": "guest@example.com",
-            "full_name": "Guest User",
-            "display_name": "Guest",
-            "message": "Te invito a Burn Rate.",
             "expires_in_days": 5,
         }
         payload.update(overrides)
@@ -435,7 +514,8 @@ class InvitationApiTests(APITestCase):
         self.assertNotEqual(invitation.token_hash, token)
         self.assertEqual(len(invitation.token_hash), 64)
         self.assertEqual(create_response.data["status"], "pending")
-        self.assertEqual(create_response.data["message"], "Te invito a Burn Rate.")
+        self.assertEqual(create_response.data["full_name"], "")
+        self.assertEqual(create_response.data["display_name"], "")
         self.assertFalse(create_response.data["is_admin"])
         self.assertFalse(create_response.data["email_sent"])
 
@@ -461,15 +541,56 @@ class InvitationApiTests(APITestCase):
 
         self.assertEqual(resolve_response.status_code, 200)
         self.assertEqual(resolve_response.data["status"], "pending")
-        self.assertEqual(resolve_response.data["display_name"], "Guest")
-        self.assertEqual(resolve_response.data["message"], "Te invito a Burn Rate.")
+        self.assertEqual(resolve_response.data["display_name"], "")
         self.assertEqual(accept_response.status_code, 201)
         self.assertEqual(accept_response.data["user"]["email"], "guest@example.com")
         self.assertFalse(accept_response.data["user"]["is_staff"])
         self.assertEqual(accept_response.data["member"]["name"], "Invitada")
         invitation.refresh_from_db()
         self.assertEqual(invitation.status, "accepted")
+        self.assertEqual(invitation.full_name, "Guest Accepted")
+        self.assertEqual(invitation.display_name, "Invitada")
         self.assertIsNotNone(invitation.accepted_by)
+
+    def test_staff_only_needs_email_and_admin_flag_to_create_invitation(self):
+        response = self.create_invitation(email="admin-invite@example.com", is_admin=True)
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["email"], "admin-invite@example.com")
+        self.assertEqual(response.data["full_name"], "")
+        self.assertEqual(response.data["display_name"], "")
+        self.assertTrue(response.data["is_admin"])
+
+        invitation = Invitation.objects.get(email="admin-invite@example.com")
+        self.assertEqual(invitation.full_name, "")
+        self.assertEqual(invitation.display_name, "")
+        self.assertTrue(invitation.is_staff)
+
+    def test_invitation_accept_links_existing_unassigned_member(self):
+        create_response = self.create_invitation(email="nuez@example.com", is_admin=True)
+        token = create_response.data["token"]
+        existing_member = HouseholdMember.objects.create(name="Nuez", color="#9333ea")
+
+        self.client.logout()
+        accept_response = self.client.post(
+            "/api/invitations/accept/",
+            {
+                "token": token,
+                "email": "nuez@example.com",
+                "full_name": "Nuez Admin",
+                "display_name": "Nuez",
+                "password": "BurnRate!2345",
+            },
+            format="json",
+        )
+
+        existing_member.refresh_from_db()
+        user = User.objects.get(email="nuez@example.com")
+        self.assertEqual(accept_response.status_code, 201)
+        self.assertEqual(accept_response.data["member"]["id"], existing_member.id)
+        self.assertEqual(existing_member.user, user)
+        self.assertTrue(user.is_staff)
+        self.assertEqual(HouseholdMember.objects.filter(name__iexact="Nuez").count(), 1)
 
     @override_settings(
         BURN_RATE_SEND_INVITATION_EMAIL=True,
@@ -487,15 +608,19 @@ class InvitationApiTests(APITestCase):
         self.assertIn(response.data["token"], mail.outbox[0].body)
 
     def test_non_staff_cannot_manage_invitations(self):
+        pending_response = self.create_invitation(email="reader-delete@example.com")
+        invitation_id = pending_response.data["id"]
         User.objects.create_user(username="reader", password="testpass123")
         self.client.logout()
         self.client.login(username="reader", password="testpass123")
 
         list_response = self.client.get("/api/invitations/")
         create_response = self.create_invitation(email="reader-invite@example.com")
+        delete_response = self.client.delete(f"/api/invitations/{invitation_id}/")
 
         self.assertEqual(list_response.status_code, 403)
         self.assertEqual(create_response.status_code, 403)
+        self.assertEqual(delete_response.status_code, 403)
 
     def test_staff_can_revoke_invitation_and_accept_rejects_revoked_token(self):
         create_response = self.create_invitation(email="revoked@example.com")
@@ -522,6 +647,43 @@ class InvitationApiTests(APITestCase):
 
         self.assertEqual(accept_response.status_code, 400)
         self.assertFalse(User.objects.filter(email="revoked@example.com").exists())
+
+    def test_staff_can_delete_unaccepted_invitation(self):
+        create_response = self.create_invitation(email="delete-me@example.com")
+        token = create_response.data["token"]
+        invitation_id = create_response.data["id"]
+
+        delete_response = self.client.delete(f"/api/invitations/{invitation_id}/")
+        resolve_response = self.client.get(f"/api/invitations/resolve/?token={token}")
+
+        self.assertEqual(delete_response.status_code, 204)
+        self.assertFalse(Invitation.objects.filter(pk=invitation_id).exists())
+        self.assertEqual(resolve_response.status_code, 404)
+
+    def test_staff_cannot_delete_accepted_invitation(self):
+        create_response = self.create_invitation(email="accepted-delete@example.com")
+        token = create_response.data["token"]
+        invitation_id = create_response.data["id"]
+        self.client.logout()
+        accept_response = self.client.post(
+            "/api/invitations/accept/",
+            {
+                "token": token,
+                "email": "accepted-delete@example.com",
+                "full_name": "Accepted Delete",
+                "display_name": "Accepted",
+                "password": "BurnRate!2345",
+            },
+            format="json",
+        )
+        self.client.logout()
+        self.client.login(username="admin", password="testpass123")
+
+        delete_response = self.client.delete(f"/api/invitations/{invitation_id}/")
+
+        self.assertEqual(accept_response.status_code, 201)
+        self.assertEqual(delete_response.status_code, 400)
+        self.assertTrue(Invitation.objects.filter(pk=invitation_id).exists())
 
     def test_invitation_accept_uses_password_validators(self):
         create_response = self.create_invitation(email="weak@example.com")

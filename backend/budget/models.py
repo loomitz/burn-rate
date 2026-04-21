@@ -419,8 +419,8 @@ class ExpectedChargeDismissal(models.Model):
 
 class Invitation(models.Model):
     email = models.EmailField(db_index=True)
-    full_name = models.CharField(max_length=150)
-    display_name = models.CharField(max_length=120)
+    full_name = models.CharField(max_length=150, blank=True, default="")
+    display_name = models.CharField(max_length=120, blank=True, default="")
     message = models.TextField(blank=True)
     token_hash = models.CharField(max_length=64, unique=True, db_index=True)
     is_staff = models.BooleanField(default=False)
@@ -459,10 +459,6 @@ class Invitation(models.Model):
         self.full_name = " ".join(self.full_name.strip().split())
         self.display_name = " ".join(self.display_name.strip().split())
         self.message = self.message.strip()
-        if not self.full_name:
-            raise ValidationError({"full_name": "Escribe el nombre completo."})
-        if not self.display_name:
-            raise ValidationError({"display_name": "Escribe el nombre visible."})
 
     def save(self, *args, **kwargs):
         self.full_clean()

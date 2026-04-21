@@ -89,9 +89,6 @@ export interface ResolvedInvitation {
 
 export interface InvitationCreatePayload {
   email: string
-  full_name: string
-  display_name: string
-  message: string
   is_admin: boolean
 }
 
@@ -572,13 +569,28 @@ export const useBudgetStore = defineStore('budget', () => {
     await fetchAll()
   }
 
+  async function updateMember(id: number, payload: Partial<HouseholdMember>) {
+    await apiRequest(`/api/household-members/${id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
+    await fetchAll()
+  }
+
   async function createCategory(payload: Partial<Category>) {
     await apiRequest('/api/categories/', { method: 'POST', body: JSON.stringify(payload) })
     await fetchAll()
   }
 
+  async function updateCategory(id: number, payload: Partial<Category>) {
+    await apiRequest(`/api/categories/${id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
+    await fetchAll()
+  }
+
   async function createAccount(payload: Partial<Account>) {
     await apiRequest('/api/accounts/', { method: 'POST', body: JSON.stringify(payload) })
+    await fetchAll()
+  }
+
+  async function updateAccount(id: number, payload: Partial<Account>) {
+    await apiRequest(`/api/accounts/${id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
     await fetchAll()
   }
 
@@ -635,6 +647,11 @@ export const useBudgetStore = defineStore('budget', () => {
     })
     invitations.value = [invitation, ...invitations.value.filter((item) => item.id !== invitation.id)]
     return invitation
+  }
+
+  async function deleteInvitation(id: Invitation['id']) {
+    await apiRequest(`/api/invitations/${id}/`, { method: 'DELETE' })
+    invitations.value = invitations.value.filter((item) => item.id !== id)
   }
 
   async function resolveInvitation(token: string) {
@@ -697,8 +714,11 @@ export const useBudgetStore = defineStore('budget', () => {
     fetchInstallmentProjection,
     saveSettings,
     createMember,
+    updateMember,
     createCategory,
+    updateCategory,
     createAccount,
+    updateAccount,
     createTransaction,
     createRecurring,
     createInstallment,
@@ -706,6 +726,7 @@ export const useBudgetStore = defineStore('budget', () => {
     dismissCharge,
     fetchInvitations,
     createInvitation,
+    deleteInvitation,
     resolveInvitation,
     acceptInvitation,
   }
