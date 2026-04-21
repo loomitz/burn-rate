@@ -137,13 +137,13 @@ const installmentForm = reactive({
   category: '',
   account: '',
   start_date: selectedDate.value,
-  end_date: selectedDate.value,
-  first_payment_number: '1',
-  round_up_monthly_payment: false,
+  months_count: '12',
+  round_up_monthly_payment: true,
 })
 const commitmentEditForm = reactive({
   name: '',
   merchant: '',
+  category: '',
 })
 const settingsForm = reactive({ cutoff_day: 20 })
 const notice = reactive<{ type: NoticeType; message: string }>({ type: 'info', message: '' })
@@ -333,6 +333,7 @@ const projectedInstallmentPlans = computed(() =>
   (installmentProjection.value?.plans ?? []).filter((plan) => plan.projected_total_cents || plan.current_amount_cents),
 )
 const installmentPlanLookup = computed(() => new Map(installmentPlans.value.map((plan) => [plan.id, plan])))
+const installmentCalculatedEndDate = computed(() => installmentEndDateFor(installmentForm.start_date, installmentForm.months_count))
 const currentInstallmentTotal = computed(() => installmentProjection.value?.current_total_cents ?? 0)
 const registeredInstallmentTotal = computed(() =>
   projectedInstallmentPlans.value.reduce((total, plan) => total + plan.total_amount_cents, 0),
@@ -595,6 +596,20 @@ function formatIsoDate(value: Date) {
 
 function addMonths(value: Date, months: number) {
   return new Date(value.getFullYear(), value.getMonth() + months, value.getDate())
+}
+
+function addCalendarMonths(value: Date, months: number) {
+  const monthIndex = value.getMonth() + months
+  const year = value.getFullYear() + Math.floor(monthIndex / 12)
+  const month = ((monthIndex % 12) + 12) % 12
+  const lastDay = new Date(year, month + 1, 0).getDate()
+  return new Date(year, month, Math.min(value.getDate(), lastDay))
+}
+
+function installmentEndDateFor(startDate: string, monthsCount: string) {
+  const months = Number(monthsCount)
+  if (!startDate || !Number.isInteger(months) || months < 1) return ''
+  return formatIsoDate(addCalendarMonths(parseIsoDate(startDate), months - 1))
 }
 
 function budgetPeriodForDate(value: string, cutoffDay: number) {
@@ -1117,7 +1132,7 @@ async function submitInstallment() {
   const name = normalizeText(installmentForm.name)
   const merchant = normalizeText(installmentForm.merchant)
   const totalAmountCents = centsFromInput(installmentForm.total_amount)
-  const firstPaymentNumber = Number(installmentForm.first_payment_number)
+  const monthsCount = Number(installmentForm.months_count)
   if (!name) {
     showNotice('Escribe un nombre para la compra a meses.', 'error')
     return
@@ -1130,12 +1145,12 @@ async function submitInstallment() {
     showNotice('Escribe un monto total mayor a cero.', 'error')
     return
   }
-  if (!Number.isInteger(firstPaymentNumber) || firstPaymentNumber < 1) {
-    showNotice('Indica el número de pago inicial.', 'error')
+  if (!Number.isInteger(monthsCount) || monthsCount < 1) {
+    showNotice('Indica la cantidad de meses de la compra.', 'error')
     return
   }
-  if (installmentForm.end_date < installmentForm.start_date) {
-    showNotice('La fecha final no puede ir antes del inicio.', 'error')
+  if (!installmentCalculatedEndDate.value) {
+    showNotice('Indica una fecha válida para el primer pago.', 'error')
     return
   }
   await runAction('installment', 'Compra a meses guardada.', async () => {
@@ -1146,16 +1161,15 @@ async function submitInstallment() {
       category: Number(installmentForm.category),
       account: installmentForm.account ? Number(installmentForm.account) : null,
       start_date: installmentForm.start_date,
-      end_date: installmentForm.end_date,
-      first_payment_number: firstPaymentNumber,
+      months_count: monthsCount,
       round_up_monthly_payment: installmentForm.round_up_monthly_payment,
       is_active: true,
     })
     installmentForm.name = ''
     installmentForm.merchant = ''
     installmentForm.total_amount = ''
-    installmentForm.first_payment_number = '1'
-    installmentForm.round_up_monthly_payment = false
+    installmentForm.months_count = '12'
+    installmentForm.round_up_monthly_payment = true
     showCommitmentForm.value = false
     commitmentTab.value = 'msi'
   })
@@ -1169,11 +1183,16 @@ function isConfirmingCommitmentDelete(type: CommitmentEditKind, id: number) {
   return deleteConfirmCommitment.value?.type === type && deleteConfirmCommitment.value.id === id
 }
 
-function openCommitmentEdit(type: CommitmentEditKind, item: { id: number; name: string; merchant: string }) {
+function openCommitmentEdit(type: CommitmentEditKind, item: { id: number; name: string; merchant: string; category?: number | { id: number } }) {
   editingCommitment.value = { type, id: item.id }
   deleteConfirmCommitment.value = null
   commitmentEditForm.name = item.name
   commitmentEditForm.merchant = item.merchant
+  if (type === 'installment') {
+    commitmentEditForm.category = typeof item.category === 'object' ? String(item.category.id) : String(item.category ?? '')
+  } else {
+    commitmentEditForm.category = ''
+  }
 }
 
 function closeCommitmentEdit() {
@@ -1181,6 +1200,7 @@ function closeCommitmentEdit() {
   deleteConfirmCommitment.value = null
   commitmentEditForm.name = ''
   commitmentEditForm.merchant = ''
+  commitmentEditForm.category = ''
 }
 
 function startCommitmentDelete(type: CommitmentEditKind, id: number) {
@@ -1227,8 +1247,12 @@ async function saveInstallmentPlanEdit(plan: { id: number }) {
     showNotice('Escribe el comercio de la compra a meses.', 'error')
     return
   }
+  if (!commitmentEditForm.category) {
+    showNotice('Elige la categoría de la compra a meses.', 'error')
+    return
+  }
   await runAction(`edit-installment-${plan.id}`, 'Compra a meses actualizada.', async () => {
-    await store.updateInstallment(plan.id, { name, merchant })
+    await store.updateInstallment(plan.id, { name, merchant, category: Number(commitmentEditForm.category) })
     closeCommitmentEdit()
   })
 }
@@ -2151,11 +2175,10 @@ function categoryIconComponent(icon?: string | null) {
               <h2>Compra a meses</h2>
               <span>Plazo definido</span>
             </div>
-            <p>Indica el primer y último pago. Burn Rate proyecta los cargos mensuales hasta terminar el plazo.</p>
+            <p>Indica la fecha del primer pago y cuántos meses dura la compra. Burn Rate calcula el último cargo.</p>
             <div class="field-row">
               <label>Primer pago<input v-model="installmentForm.start_date" type="date" required /></label>
-              <label>Último pago<input v-model="installmentForm.end_date" type="date" required /></label>
-              <label>Pago inicial<input v-model="installmentForm.first_payment_number" type="number" inputmode="numeric" min="1" step="1" required /></label>
+              <label>Meses<input v-model="installmentForm.months_count" type="number" inputmode="numeric" min="1" step="1" required /></label>
             </div>
             <label class="switch-row rounding-switch">
               <input v-model="installmentForm.round_up_monthly_payment" type="checkbox" role="switch" />
@@ -2168,8 +2191,8 @@ function categoryIconComponent(icon?: string | null) {
             <div class="preview-box">
               <b>Cómo se verá</b>
               <span>Primer cargo {{ installmentForm.start_date }}</span>
-              <span>Último cargo {{ installmentForm.end_date }}</span>
-              <span>Empieza en pago {{ installmentForm.first_payment_number || 1 }}</span>
+              <span>Último cargo {{ installmentCalculatedEndDate || 'por calcular' }}</span>
+              <span>{{ installmentForm.months_count || 0 }} mensualidades</span>
               <span v-if="installmentForm.round_up_monthly_payment">Pago requerido redondeado al siguiente peso</span>
             </div>
           </section>
@@ -2333,6 +2356,15 @@ function categoryIconComponent(icon?: string | null) {
                 <label>Nombre<input v-model="commitmentEditForm.name" required /></label>
                 <label>Comercio<input v-model="commitmentEditForm.merchant" required /></label>
               </div>
+              <label>
+                Categoría
+                <select v-model="commitmentEditForm.category" required>
+                  <option value="">Categoría</option>
+                  <option v-for="category in activeCategories" :key="category.id" :value="category.id">
+                    {{ category.name }}{{ category.member_name ? ` - ${category.member_name}` : '' }}
+                  </option>
+                </select>
+              </label>
               <div class="commitment-readonly">
                 <span>Total {{ money(plan.total_amount_cents, settings.currency) }}</span>
                 <span>Inicio {{ installmentPlanDetail(plan.id)?.start_date ?? 'No disponible' }}</span>

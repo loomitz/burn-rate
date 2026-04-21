@@ -1,3 +1,4 @@
+from calendar import monthrange
 from datetime import timedelta
 
 from django.contrib.auth import authenticate
@@ -22,6 +23,14 @@ from .models import (
     Transaction,
 )
 from .services import account_balance
+
+
+def add_calendar_months(value, months: int):
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(value.day, monthrange(year, month)[1])
+    return value.replace(year=year, month=month, day=day)
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -584,6 +593,8 @@ class InstallmentPlanSerializer(serializers.ModelSerializer):
     member_name = serializers.CharField(source="category.member.name", read_only=True)
     account_name = serializers.CharField(source="account.name", read_only=True)
     monthly_amount_cents = serializers.IntegerField(read_only=True)
+    end_date = serializers.DateField(required=False)
+    months_count = serializers.IntegerField(write_only=True, min_value=1, required=False)
 
     class Meta:
         model = InstallmentPlan
@@ -600,6 +611,7 @@ class InstallmentPlanSerializer(serializers.ModelSerializer):
             "account_name",
             "start_date",
             "end_date",
+            "months_count",
             "first_payment_number",
             "installments_count",
             "round_up_monthly_payment",
@@ -608,13 +620,22 @@ class InstallmentPlanSerializer(serializers.ModelSerializer):
         read_only_fields = ["installments_count"]
 
     def validate(self, attrs):
+        months_count = attrs.pop("months_count", None)
         start_date = attrs.get("start_date", getattr(self.instance, "start_date", None))
         end_date = attrs.get("end_date", getattr(self.instance, "end_date", None))
         first_payment_number = attrs.get("first_payment_number", getattr(self.instance, "first_payment_number", 1))
         total = attrs.get("total_amount_cents", getattr(self.instance, "total_amount_cents", None))
         merchant = attrs.get("merchant", getattr(self.instance, "merchant", ""))
+        if months_count is not None:
+            if start_date is None:
+                raise serializers.ValidationError({"start_date": "Indica la fecha del primer pago."})
+            attrs["end_date"] = add_calendar_months(start_date, months_count - 1)
+            attrs["first_payment_number"] = 1
+            end_date = attrs["end_date"]
         if not merchant.strip():
             raise serializers.ValidationError({"merchant": "Escribe el comercio de la compra a meses."})
+        if start_date and not end_date:
+            raise serializers.ValidationError({"months_count": "Indica la cantidad de meses de la compra."})
         if start_date and end_date and end_date < start_date:
             raise serializers.ValidationError({"end_date": "La fecha final no puede ser anterior al inicio."})
         if first_payment_number < 1:

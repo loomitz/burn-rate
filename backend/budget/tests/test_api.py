@@ -391,6 +391,31 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.data["monthly_amount_cents"], 100000)
         self.assertTrue(MerchantConcept.objects.filter(name="Liverpool").exists())
 
+    def test_installment_plan_accepts_months_count_from_first_payment_date(self):
+        response = self.client.post(
+            "/api/installment-plans/",
+            {
+                "name": "Amazon heredada",
+                "merchant": "Amazon",
+                "total_amount_cents": 1200000,
+                "category": self.category.id,
+                "account": self.account.id,
+                "start_date": "2025-06-25",
+                "months_count": 12,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["end_date"], "2026-05-25")
+        self.assertEqual(response.data["first_payment_number"], 1)
+        self.assertEqual(response.data["installments_count"], 12)
+
+        projection = self.client.get("/api/installments/projection/?date=2026-04-25")
+
+        self.assertEqual(projection.data["plans"][0]["current_payment_number"], 11)
+        self.assertEqual(projection.data["plans"][0]["remaining_payments"], 1)
+
     def test_installment_plan_accepts_rounded_up_required_payment(self):
         response = self.client.post(
             "/api/installment-plans/",
@@ -401,8 +426,7 @@ class BudgetApiTests(APITestCase):
                 "category": self.category.id,
                 "account": self.account.id,
                 "start_date": "2026-04-21",
-                "end_date": "2027-03-21",
-                "round_up_monthly_payment": True,
+                "months_count": 12,
             },
             format="json",
         )
@@ -418,7 +442,12 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(first_expected.data["charges"][0]["amount_cents"], 22700)
         self.assertEqual(final_expected.data["charges"][0]["amount_cents"], 21738)
 
-    def test_installment_plan_update_only_allows_name_and_merchant(self):
+    def test_installment_plan_update_allows_name_merchant_and_category(self):
+        target_category = Category.objects.create(
+            name="Tecnologia",
+            scope=Category.Scope.GLOBAL,
+            monthly_budget_cents=300000,
+        )
         plan = InstallmentPlan.objects.create(
             name="Laptop",
             merchant="Liverpool",
@@ -431,7 +460,7 @@ class BudgetApiTests(APITestCase):
 
         response = self.client.patch(
             f"/api/installment-plans/{plan.id}/",
-            {"name": "Laptop trabajo", "merchant": "Liverpool Online"},
+            {"name": "Laptop trabajo", "merchant": "Liverpool Online", "category": target_category.id},
             format="json",
         )
         blocked_response = self.client.patch(
@@ -444,6 +473,7 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(plan.name, "Laptop trabajo")
         self.assertEqual(plan.merchant, "Liverpool Online")
+        self.assertEqual(plan.category_id, target_category.id)
         self.assertEqual(blocked_response.status_code, 400)
         self.assertEqual(set(blocked_response.data["fields"]), {"start_date", "total_amount_cents"})
         self.assertEqual(plan.total_amount_cents, 1200000)

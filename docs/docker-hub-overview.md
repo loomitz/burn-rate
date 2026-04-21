@@ -7,7 +7,7 @@ Está pensada para instalarse detrás de una VPN, red privada o reverse proxy co
 ## Imagen
 
 ```bash
-docker pull loomitz/burnrate:v0.1.7
+docker pull loomitz/burnrate:v0.1.8
 ```
 
 También está disponible:
@@ -35,7 +35,7 @@ La imagen soporta:
 - Envío de invitaciones por SMTP si hay credenciales configuradas.
 - Link copiable de invitación aunque no exista SMTP.
 - Sesiones autorrenovables.
-- Compras a meses con pago inicial configurable y redondeo opcional del pago requerido al siguiente peso.
+- Compras a meses con fecha del primer pago, cantidad de meses y redondeo del pago requerido al siguiente peso.
 - Endpoint `/healthz/` para healthchecks.
 
 ## Instalación rápida con Docker Compose
@@ -45,7 +45,7 @@ Crea un archivo `docker-compose.yml`:
 ```yaml
 services:
   app:
-    image: loomitz/burnrate:v0.1.7
+    image: loomitz/burnrate:v0.1.8
     environment:
       DB_NAME: ${DB_NAME:-burn_rate}
       DB_USER: ${DB_USER:-burn_rate}
@@ -220,7 +220,7 @@ DJANGO_CSRF_COOKIE_SECURE=true
 DJANGO_TRUST_X_FORWARDED_PROTO=true
 ```
 
-La imagen `v0.1.7` fue revisada con Docker Scout y publicada con 0 vulnerabilidades detectadas en `linux/amd64` y `linux/arm64` al momento de la publicación.
+La imagen `v0.1.8` fue revisada con Docker Scout y publicada con 0 vulnerabilidades detectadas en `linux/amd64` y `linux/arm64` al momento de la publicación.
 
 ## Código fuente
 
@@ -232,6 +232,7 @@ https://github.com/loomitz/burn-rate
 
 ## Tags
 
+- `v0.1.8`: flujo de compras a meses por fecha del primer pago y meses, redondeo requerido por defecto y edición de categoría.
 - `v0.1.7`: redondeo opcional del pago requerido en compras a meses y soporte multi-arquitectura.
 - `v0.1.6`: edición segura de compromisos, eliminación solo para admins, logo de documentación actualizado y soporte multi-arquitectura.
 - `v0.1.5`: MSI iniciadas, comercios compartidos en compromisos y soporte multi-arquitectura.

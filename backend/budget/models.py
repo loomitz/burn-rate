@@ -373,7 +373,7 @@ class InstallmentPlan(models.Model):
     end_date = models.DateField()
     first_payment_number = models.PositiveSmallIntegerField(default=1)
     installments_count = models.PositiveSmallIntegerField(default=1)
-    round_up_monthly_payment = models.BooleanField(default=False)
+    round_up_monthly_payment = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

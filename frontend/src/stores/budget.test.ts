@@ -257,7 +257,7 @@ describe('budget store auth flow', () => {
     })
   })
 
-  it('creates installment plans with a starting payment number', async () => {
+  it('creates installment plans with first payment date and months count', async () => {
     const payload = {
       name: 'Laptop heredada',
       merchant: 'Liverpool',
@@ -265,8 +265,7 @@ describe('budget store auth flow', () => {
       category: 2,
       account: 1,
       start_date: '2026-04-21',
-      end_date: '2026-12-21',
-      first_payment_number: 4,
+      months_count: 12,
       round_up_monthly_payment: true,
       is_active: true,
     }
@@ -388,8 +387,8 @@ describe('budget store auth flow', () => {
     expect(fetchMock.mock.calls.map((call) => call[0])).toContain('/api/installment-plans/')
   })
 
-  it('updates installment plans with only name and merchant', async () => {
-    const payload = { name: 'Laptop trabajo', merchant: 'Liverpool Online' }
+  it('updates installment plans with name, merchant, and category', async () => {
+    const payload = { name: 'Laptop trabajo', merchant: 'Liverpool Online', category: 5 }
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
     mockFetchAllResponses()
 

@@ -167,7 +167,7 @@ Use `PATCH /api/accounts/{id}/` to edit an existing account without deleting his
 }
 ```
 
-`installment-plans` accepts `first_payment_number` for purchases already in progress. For example, if the first payment to track in Burn Rate is payment 4 and the last payment is in December, the API calculates the full payment count from that offset and keeps the monthly amount based on the original purchase total:
+`installment-plans` accepts the first payment date and `months_count`; the API calculates `end_date` from that count. For a purchase already in progress, use the original first payment date so the current payment number is calculated from the calendar:
 
 ```json
 {
@@ -176,12 +176,14 @@ Use `PATCH /api/accounts/{id}/` to edit an existing account without deleting his
   "total_amount_cents": 1200000,
   "category": 2,
   "account": 1,
-  "start_date": "2026-04-21",
-  "end_date": "2026-12-21",
-  "first_payment_number": 4,
+  "start_date": "2025-06-25",
+  "months_count": 12,
+  "round_up_monthly_payment": true,
   "is_active": true
 }
 ```
+
+`first_payment_number` is still accepted for old integrations, but the browser flow uses `months_count`. `round_up_monthly_payment` defaults to `true`; set it to `false` only when the bank does not round each required payment to the next full peso.
 
 `transactions` for expenses require a merchant/name. The API sets `created_by` from the logged-in Django user and returns `created_by_username` for audit visibility in the UI.
 Creating an expense, recurring expense, or installment plan also records the merchant/name in the merchant concept catalog, normalizing extra spaces and merging case-insensitive duplicates.

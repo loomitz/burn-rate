@@ -206,6 +206,9 @@ export interface InstallmentPlan {
   is_active: boolean
 }
 
+export type InstallmentPlanCreatePayload = Partial<InstallmentPlan> & { months_count?: number }
+export type InstallmentPlanUpdatePayload = Partial<Pick<InstallmentPlan, 'name' | 'merchant' | 'category'>>
+
 export interface ExpectedCharge {
   key: string
   source_type: 'recurring' | 'installment'
@@ -621,12 +624,12 @@ export const useBudgetStore = defineStore('budget', () => {
     await fetchAll()
   }
 
-  async function createInstallment(payload: Partial<InstallmentPlan>) {
+  async function createInstallment(payload: InstallmentPlanCreatePayload) {
     await apiRequest('/api/installment-plans/', { method: 'POST', body: JSON.stringify(payload) })
     await fetchAll()
   }
 
-  async function updateInstallment(id: InstallmentPlan['id'], payload: Pick<InstallmentPlan, 'name' | 'merchant'>) {
+  async function updateInstallment(id: InstallmentPlan['id'], payload: InstallmentPlanUpdatePayload) {
     await apiRequest(`/api/installment-plans/${id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
     await fetchAll()
   }

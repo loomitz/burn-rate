@@ -78,7 +78,7 @@ class CommitmentEditableFieldsMixin:
         blocked_fields = sorted(set(request.data.keys()) - self.editable_fields)
         if blocked_fields:
             return Response(
-                {"detail": "Solo se puede editar nombre y comercio.", "fields": blocked_fields},
+                {"detail": "Solo se pueden editar los campos permitidos de este compromiso.", "fields": blocked_fields},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         kwargs["partial"] = True
@@ -350,6 +350,7 @@ class RecurringExpenseViewSet(StaffDestroyMixin, CommitmentEditableFieldsMixin, 
 
 
 class InstallmentPlanViewSet(StaffDestroyMixin, CommitmentEditableFieldsMixin, viewsets.ModelViewSet):
+    editable_fields = {"name", "merchant", "category"}
     queryset = InstallmentPlan.objects.select_related("category", "category__member", "account").all()
     serializer_class = InstallmentPlanSerializer
 
