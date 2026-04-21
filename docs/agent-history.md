@@ -25,6 +25,10 @@ Verificaciones:
 - `docker scout cves loomitz/burnrate:v0.1.2 --only-fixed` reportó 0 vulnerabilidades detectadas en la imagen local `linux/arm64`.
 - Smoke test con PostgreSQL temporal: `/healthz/`, `/`, y `/api/onboarding/status/` respondieron correctamente, con `ready=true`, DB conectada, migraciones aplicadas y primer admin pendiente.
 - `docker run --rm ... loomitz/burnrate:v0.1.2 ... python manage.py check` pasó dentro de la imagen.
+- `docker buildx build --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.2 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura en Docker Hub.
+- `docker manifest inspect loomitz/burnrate:v0.1.2` confirmó `linux/amd64` y `linux/arm64` en el manifiesto publicado.
+- `docker scout cves --platform linux/amd64 loomitz/burnrate:v0.1.2 --only-fixed` reportó 0 vulnerabilidades detectadas.
+- `docker scout cves --platform linux/arm64 loomitz/burnrate:v0.1.2 --only-fixed` reportó 0 vulnerabilidades detectadas.
 - `uv run python manage.py test` contra la configuración Postgres local no pudo crear la base de pruebas por falta de permiso `CREATEDB`; se usó SQLite de pruebas para validar la suite local.
 
 ## 2026-04-21 - Docker Hub overview document
