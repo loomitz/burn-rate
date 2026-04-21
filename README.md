@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Logos/light-mode.svg" alt="Burn Rate" width="220" />
+  <img src="Logos/blanco.svg" alt="Burn Rate" width="220" />
 </p>
 
 # Burn Rate
