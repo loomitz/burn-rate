@@ -1,5 +1,48 @@
 # Agent History
 
+## 2026-04-21 - Comercios en suscripciones y MSI
+
+Objetivo: separar el nombre interno del compromiso y el comercio real en suscripciones y compras a meses, compartiendo el mismo catálogo de comercios usado por gastos.
+
+Archivos tocados:
+
+- Agregado `merchant` a `RecurringExpense` e `InstallmentPlan` con migración `0010_installmentplan_merchant_recurringexpense_merchant.py` y backfill desde el nombre existente.
+- Actualizados los serializers y servicios para exigir comercio, normalizarlo, registrarlo en `MerchantConcept`, exponerlo en cargos esperados/proyección MSI y usarlo como `Transaction.merchant` al confirmar un cargo automático.
+- Actualizado `frontend/src/App.vue` para agregar campo `Comercio` a `Cargo mensual` y `Compra a meses`, con las mismas sugerencias usadas en gastos.
+- Actualizados tipos/tests frontend y docs de dominio/API/producto/arquitectura.
+
+Verificaciones:
+
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py makemigrations --check --dry-run` no detectó migraciones pendientes.
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py test budget` pasó en `backend/` con 49 tests.
+- `pnpm test` pasó en `frontend/` con 14 tests.
+- `pnpm build` pasó en `frontend/`.
+- `scripts/dev-services.sh restart` aplicó la migración local; `http://localhost:8001/healthz/` respondió `ok`.
+- Se verificó que no quedaran suscripciones ni compras MSI locales con `merchant` vacío.
+- Playwright validó `Cargos > Agregar`: `Cargo mensual` y `Compra a meses` muestran `Comercio` y reutilizan sugerencias del catálogo compartido.
+
+## 2026-04-21 - Compras MSI ya iniciadas
+
+Objetivo: permitir que el estado inicial registre compras a meses que ya van en un pago avanzado, como pago 4 u 11, para que el avance y el monto mensual se calculen sobre el plazo real.
+
+Archivos tocados:
+
+- Agregado `first_payment_number` a `InstallmentPlan` con migración `0009_installmentplan_first_payment_number.py`.
+- Actualizado `backend/budget/services.py` para calcular el número de pago proyectado desde `first_payment_number` y mantener el total de mensualidades completo.
+- Actualizado `backend/budget/serializers.py` y `backend/budget/admin.py` para exponer y validar el nuevo campo.
+- Actualizado `frontend/src/App.vue` para agregar `Pago inicial` al formulario de compra a meses y enviarlo al API.
+- Actualizados `frontend/src/stores/budget.ts`, `docs/domain.md`, `docs/api.md`, `docs/product.md` y `docs/architecture.md`.
+- Agregadas pruebas de dominio y API para una compra que se registra desde el pago 4.
+
+Verificaciones:
+
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py test budget` pasó en `backend/` con 48 tests.
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py makemigrations --check --dry-run` no detectó migraciones pendientes.
+- `pnpm test` pasó en `frontend/` con 13 tests.
+- `pnpm build` pasó en `frontend/`.
+- `scripts/dev-services.sh restart` aplicó la migración local y dejó activos Django en `8001` y Vite en `5173`; `http://localhost:8001/healthz/` respondió `ok`.
+- Playwright validó `Cargos > Agregar > Compra a meses`: el campo `Pago inicial` aparece, acepta `4` y el preview muestra `Empieza en pago 4`.
+
 ## 2026-04-21 - Registro y switches de personas
 
 Objetivo: corregir el caso donde un usuario aceptado como admin podía aparecer como persona sin login, permitir editar personas existentes y hacer explícita la relación entre acceso a la app y admin.

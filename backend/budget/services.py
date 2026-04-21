@@ -30,6 +30,7 @@ class ExpectedCharge:
     source_type: str
     source_id: int
     name: str
+    merchant: str
     amount_cents: int
     date: date
     period_start: date
@@ -128,6 +129,7 @@ def expected_charges_for_period(period: BudgetPeriod):
                 source_type="recurring",
                 source_id=recurring.id,
                 name=recurring.name,
+                merchant=recurring.merchant,
                 amount_cents=recurring.amount_cents,
                 date=charge_date,
                 period_start=period.start,
@@ -154,8 +156,9 @@ def expected_charges_for_period(period: BudgetPeriod):
         ).exists()
         if already_confirmed:
             continue
-        first_period = get_budget_period(plan.start_date)
-        payment_number = (period.end.year - first_period.end.year) * 12 + period.end.month - first_period.end.month + 1
+        payment_number = installment_payment_number_for_period(plan, period)
+        if payment_number < 1 or payment_number > plan.installments_count:
+            continue
         base_amount = plan.total_amount_cents // plan.installments_count
         remainder = plan.total_amount_cents % plan.installments_count
         amount = base_amount + (remainder if payment_number == plan.installments_count else 0)
@@ -166,6 +169,7 @@ def expected_charges_for_period(period: BudgetPeriod):
                 source_type="installment",
                 source_id=plan.id,
                 name=plan.name,
+                merchant=plan.merchant,
                 amount_cents=amount,
                 date=charge_date,
                 period_start=period.start,
@@ -181,12 +185,17 @@ def expected_charges_for_period(period: BudgetPeriod):
     return charges
 
 
+def installment_payment_number_for_period(plan: InstallmentPlan, period: BudgetPeriod) -> int:
+    first_period = get_budget_period(plan.start_date)
+    month_offset = (period.end.year - first_period.end.year) * 12 + period.end.month - first_period.end.month
+    return plan.first_payment_number + month_offset
+
+
 def installment_charge_for_period(plan: InstallmentPlan, period: BudgetPeriod) -> dict | None:
     if not plan.is_active or plan.start_date > period.end or plan.end_date < period.start:
         return None
 
-    first_period = get_budget_period(plan.start_date)
-    payment_number = (period.end.year - first_period.end.year) * 12 + period.end.month - first_period.end.month + 1
+    payment_number = installment_payment_number_for_period(plan, period)
     if payment_number < 1 or payment_number > plan.installments_count:
         return None
 
@@ -228,6 +237,7 @@ def installment_projection(value: date | None = None, months_ahead: int = 6) -> 
                 {
                     "id": plan.id,
                     "name": plan.name,
+                    "merchant": plan.merchant,
                     "amount_cents": payment["amount_cents"],
                     "payment_number": payment["payment_number"],
                     "payments_total": payment["payments_total"],
@@ -272,6 +282,7 @@ def installment_projection(value: date | None = None, months_ahead: int = 6) -> 
             {
                 "id": plan.id,
                 "name": plan.name,
+                "merchant": plan.merchant,
                 "total_amount_cents": plan.total_amount_cents,
                 "current_amount_cents": current_payment["amount_cents"] if current_payment else 0,
                 "current_payment_number": current_payment["payment_number"] if current_payment else None,
@@ -448,7 +459,7 @@ def confirm_expected_charge(source_type: str, source_id: int, charge_date: date,
 
     transaction = Transaction(
         transaction_type=Transaction.TransactionType.EXPENSE,
-        merchant=charge.name,
+        merchant=charge.merchant,
         amount_cents=charge.amount_cents,
         date=charge_date,
         account=account,

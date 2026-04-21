@@ -29,7 +29,7 @@ The first UI is optimized for phones:
 - Bottom navigation with four product jobs: `Plan`, `Gastos`, `MSI`, and `Ajustes`.
 - Quick expense capture and a separate recent movements tab inside `Gastos`.
 - Budget cards with available balance, overspend state, and a full-screen click-through expense detail for the active category.
-- `MSI` groups recurring subscription actions, automatic MSI progress, six-period payment projection, liquidation markers, and new commitment creation.
+- `MSI` groups recurring subscription actions, automatic MSI progress, six-period payment projection, liquidation markers, and new commitment creation with a starting payment number for already-running purchases.
 - `Ajustes` is shown to every authenticated user. Admin-only setup controls appear first for cutoff day, accounts, household people, and category setup; the theme preference panel sits just above the large logout action at the bottom of the screen.
 
 The frontend applies resolved visual theme state at the document root with `data-theme`. The saved theme preference can be `auto`, `light`, or `dark`; `auto` follows `prefers-color-scheme`. The selected preference is persisted in browser `localStorage` under `burn-rate-theme`. Theme styling is centralized in `frontend/src/style.css` through CSS custom properties so the same Vue screens work in both dark and light mode.
@@ -52,9 +52,9 @@ The container entrypoint can wait for Postgres, run migrations, and run `collect
 4. Authenticated sessions are renewed through `/api/auth/refresh/` while the app is in active use.
 5. Vue loads settings, members, categories, accounts, transactions, commitments, summary, and expected charges.
 6. Budget summaries are calculated by Django on request.
-7. Recurring expenses and installment plans generate expected charges for the current period.
-8. A pending recurring expected charge can be confirmed into a real expense or dismissed for that period.
-9. MSI plans are projected through `/api/installments/projection/` so the frontend can show the current period payment, the next six period totals, and which plans finish in each projected cycle without turning MSI into manual payable rows.
+7. Recurring expenses and installment plans generate expected charges for the current period, carrying both the internal commitment name and the merchant that will be used on the resulting expense.
+8. A pending recurring expected charge can be confirmed into a real expense or dismissed for that period; confirmed expenses use the commitment merchant as `Transaction.merchant`.
+9. MSI plans are projected through `/api/installments/projection/` so the frontend can show the current period payment, the next six period totals, the correct payment number for purchases that started before Burn Rate, and which plans finish in each projected cycle without turning MSI into manual payable rows.
 
 ## Documentation Flow
 

@@ -353,6 +353,7 @@ class ExpectedChargesView(APIView):
                     "source_type": charge.source_type,
                     "source_id": charge.source_id,
                     "name": charge.name,
+                    "merchant": charge.merchant,
                     "amount_cents": charge.amount_cents,
                     "date": charge.date,
                     "period_start": charge.period_start,

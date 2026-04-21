@@ -61,13 +61,13 @@ class TransactionAdmin(admin.ModelAdmin):
 
 @admin.register(RecurringExpense)
 class RecurringExpenseAdmin(admin.ModelAdmin):
-    list_display = ["name", "amount_cents", "category", "start_date", "end_date", "is_active"]
+    list_display = ["name", "merchant", "amount_cents", "category", "start_date", "end_date", "is_active"]
     list_filter = ["is_active"]
 
 
 @admin.register(InstallmentPlan)
 class InstallmentPlanAdmin(admin.ModelAdmin):
-    list_display = ["name", "total_amount_cents", "monthly_amount_cents", "installments_count", "category"]
+    list_display = ["name", "merchant", "total_amount_cents", "monthly_amount_cents", "first_payment_number", "installments_count", "category"]
     list_filter = ["is_active"]
 
 

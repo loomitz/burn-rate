@@ -43,7 +43,7 @@ Transactions are manual financial movements.
 
 For expenses in personal categories, the member is inferred from the category. Every transaction records the Django user who created it when the movement comes through the API, so the UI can show who registered an expense when more than one person has access.
 
-Expense merchant/concept names are also stored in a reusable catalog. Saving an expense with a new merchant creates a catalog entry; future expense capture can search and reuse that saved name.
+Expense merchant/concept names are also stored in a reusable catalog. Saving an expense, recurring expense, or installment plan with a new merchant creates a catalog entry; future expense and commitment capture can search and reuse that saved name.
 
 ## Accounts
 
@@ -58,15 +58,15 @@ Allowed account types:
 
 ## Recurring Expenses
 
-A recurring expense is a monthly commitment such as a subscription. It has an amount, category, optional account, start date, optional end date, and charge day.
+A recurring expense is a monthly commitment such as a subscription. It has an internal name, merchant, amount, category, optional account, start date, optional end date, and charge day.
 
 For each active period, Burn Rate generates a pending expected charge unless it was already confirmed or dismissed.
 
 ## Installment Plans
 
-An installment plan represents a purchase at months without interest. The user enters total amount, category, optional account, first payment date, and last payment date.
+An installment plan represents a purchase at months without interest. The user enters an internal name, merchant, total amount, category, optional account, first payment date tracked by Burn Rate, last payment date, and the payment number represented by that first tracked date.
 
-Burn Rate calculates the number of monthly payments from the start and end month. Each period consumes only that period's monthly payment. Any cent remainder is added to the final payment.
+Burn Rate calculates total monthly payments from the start and end month plus the first tracked payment number. This lets the initial setup register purchases that are already on payment 4, 11, or any later month without treating prior payments as future spending. Each period consumes only that period's monthly payment. Any cent remainder is added to the final payment.
 
 MSI payments are automatic budget commitments. They affect the budget summary as expected spending without requiring a manual `Pagar` action from the commitments screen. The commitments UI groups MSI separately and shows the current period payment plus a six-period forward projection so the household can see when MSI pressure falls or accumulates.
 

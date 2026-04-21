@@ -166,6 +166,7 @@ class ExpectedChargeTests(TestCase):
     def test_recurring_expense_generates_expected_charge_for_active_period(self):
         RecurringExpense.objects.create(
             name="Netflix",
+            merchant="Netflix",
             amount_cents=29900,
             category=self.category,
             account=self.card,
@@ -177,11 +178,13 @@ class ExpectedChargeTests(TestCase):
 
         self.assertEqual(len(charges), 1)
         self.assertEqual(charges[0].name, "Netflix")
+        self.assertEqual(charges[0].merchant, "Netflix")
         self.assertEqual(charges[0].amount_cents, 29900)
 
     def test_installment_plan_consumes_only_monthly_payment(self):
         InstallmentPlan.objects.create(
             name="Laptop",
+            merchant="Liverpool",
             total_amount_cents=1200000,
             category=self.category,
             account=self.card,
@@ -197,6 +200,7 @@ class ExpectedChargeTests(TestCase):
     def test_installment_projection_includes_current_and_next_six_periods(self):
         InstallmentPlan.objects.create(
             name="Laptop",
+            merchant="Liverpool",
             total_amount_cents=1200000,
             category=self.category,
             account=self.card,
@@ -213,4 +217,25 @@ class ExpectedChargeTests(TestCase):
         self.assertEqual(projection["periods"][2]["total_cents"], 400000)
         self.assertEqual(projection["periods"][3]["total_cents"], 0)
         self.assertEqual(projection["plans"][0]["current_payment_number"], 1)
+        self.assertEqual(projection["plans"][0]["merchant"], "Liverpool")
         self.assertEqual(projection["plans"][0]["remaining_payments"], 2)
+
+    def test_installment_plan_can_start_from_existing_payment_number(self):
+        plan = InstallmentPlan.objects.create(
+            name="Laptop heredada",
+            merchant="Liverpool",
+            total_amount_cents=1200000,
+            category=self.category,
+            account=self.card,
+            start_date=date(2026, 4, 21),
+            end_date=date(2026, 12, 21),
+            first_payment_number=4,
+        )
+
+        projection = installment_projection(date(2026, 4, 25))
+
+        self.assertEqual(plan.installments_count, 12)
+        self.assertEqual(projection["current_total_cents"], 100000)
+        self.assertEqual(projection["plans"][0]["current_payment_number"], 4)
+        self.assertEqual(projection["plans"][0]["payments_total"], 12)
+        self.assertEqual(projection["plans"][0]["remaining_payments"], 8)

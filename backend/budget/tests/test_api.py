@@ -195,6 +195,7 @@ class BudgetApiTests(APITestCase):
     def test_can_create_recurring_and_confirm_expected_charge(self):
         recurring = RecurringExpense.objects.create(
             name="Internet",
+            merchant="Telmex",
             amount_cents=59900,
             category=self.category,
             account=self.account,
@@ -206,6 +207,7 @@ class BudgetApiTests(APITestCase):
 
         self.assertEqual(expected.status_code, 200)
         self.assertEqual(expected.data["charges"][0]["source_id"], recurring.id)
+        self.assertEqual(expected.data["charges"][0]["merchant"], "Telmex")
 
         confirmed = self.client.post(
             "/api/expected-charges/confirm/",
@@ -219,13 +221,35 @@ class BudgetApiTests(APITestCase):
         )
 
         self.assertEqual(confirmed.status_code, 201)
+        self.assertEqual(confirmed.data["merchant"], "Telmex")
         self.assertEqual(confirmed.data["amount_cents"], 59900)
+
+    def test_recurring_expense_api_accepts_shared_merchant(self):
+        response = self.client.post(
+            "/api/recurring-expenses/",
+            {
+                "name": "Internet mensual",
+                "merchant": "Telmex",
+                "amount_cents": 59900,
+                "category": self.category.id,
+                "account": self.account.id,
+                "start_date": "2026-04-01",
+                "charge_day": 1,
+                "is_active": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["merchant"], "Telmex")
+        self.assertTrue(MerchantConcept.objects.filter(name="Telmex").exists())
 
     def test_installment_plan_requires_valid_dates(self):
         response = self.client.post(
             "/api/installment-plans/",
             {
                 "name": "Laptop",
+                "merchant": "Liverpool",
                 "total_amount_cents": 1200000,
                 "category": self.category.id,
                 "account": self.account.id,
@@ -241,6 +265,7 @@ class BudgetApiTests(APITestCase):
     def test_installment_plan_generates_monthly_expected_charge(self):
         plan = InstallmentPlan.objects.create(
             name="Laptop",
+            merchant="Liverpool",
             total_amount_cents=1200000,
             category=self.category,
             account=self.account,
@@ -252,11 +277,36 @@ class BudgetApiTests(APITestCase):
 
         self.assertEqual(expected.status_code, 200)
         self.assertEqual(expected.data["charges"][0]["source_id"], plan.id)
+        self.assertEqual(expected.data["charges"][0]["merchant"], "Liverpool")
         self.assertEqual(expected.data["charges"][0]["amount_cents"], 400000)
+
+    def test_installment_plan_accepts_existing_payment_number(self):
+        response = self.client.post(
+            "/api/installment-plans/",
+            {
+                "name": "Laptop heredada",
+                "merchant": "Liverpool",
+                "total_amount_cents": 1200000,
+                "category": self.category.id,
+                "account": self.account.id,
+                "start_date": "2026-04-21",
+                "end_date": "2026-12-21",
+                "first_payment_number": 4,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["merchant"], "Liverpool")
+        self.assertEqual(response.data["first_payment_number"], 4)
+        self.assertEqual(response.data["installments_count"], 12)
+        self.assertEqual(response.data["monthly_amount_cents"], 100000)
+        self.assertTrue(MerchantConcept.objects.filter(name="Liverpool").exists())
 
     def test_installment_projection_endpoint_groups_current_and_future_payments(self):
         InstallmentPlan.objects.create(
             name="Laptop",
+            merchant="Liverpool",
             total_amount_cents=1200000,
             category=self.category,
             account=self.account,
@@ -270,6 +320,7 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.data["current_total_cents"], 400000)
         self.assertEqual(len(response.data["periods"]), 7)
         self.assertEqual(response.data["periods"][0]["plans"][0]["name"], "Laptop")
+        self.assertEqual(response.data["periods"][0]["plans"][0]["merchant"], "Liverpool")
         self.assertEqual(response.data["plans"][0]["remaining_payments"], 2)
 
     def test_non_admin_cannot_change_settings_accounts_people_or_categories(self):

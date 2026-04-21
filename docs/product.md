@@ -37,7 +37,7 @@ The primary phone navigation follows the product jobs:
 
 - `Plan`: whole-house budget cycles with a compact past-to-current selector, category status cards first, centered progress bars, direct color-matched category expense actions, category expense detail, attention items styled like ledger cards, and a collapsed summary for totals.
 - `Gastos`: guided expense capture with searchable category and account cards, account color cues, reusable merchant/concept suggestions, a final expense details block for merchant, amount, date, and note, and recent movement review.
-- `Cargos`: recurring charges, interest-free installment pressure, a compact inline cycle total, transparent action buttons for each pending charge, MSI totals by cycle with liquidation markers, and new commitment creation using plain labels.
+- `Cargos`: recurring charges and interest-free installment pressure with separate internal label and merchant, a compact inline cycle total, transparent action buttons for each pending charge, MSI totals by cycle with liquidation markers, and new commitment creation that can start from payment 1 or from an already-running payment number.
 - `Ajustes`: admin-only setup sections for cutoff day, accounts, household people, and categories, then theme for every authenticated user, and a large logout action at the end of the screen.
 
 Accounts are managed from `Ajustes` instead of being a separate main tab because the normal daily flow is planning, spending, and commitment review.
@@ -56,8 +56,8 @@ Logout also lives in `Ajustes` so the daily Plan screen stays focused on budget 
 - Category color and searchable curated icon selection for quick visual scanning.
 - Payment media or accounts with simple balances.
 - Manual expenses, income, and transfers.
-- Recurring monthly expenses.
-- Interest-free installment plans.
+- Recurring monthly expenses with merchant/provider tracking.
+- Interest-free installment plans with merchant tracking, including purchases already in progress during initial setup.
 - Monthly budget periods using a configurable cutoff day.
 
 ## Out of Scope For MVP

@@ -174,6 +174,7 @@ export interface MerchantConcept {
 export interface RecurringExpense {
   id: number
   name: string
+  merchant: string
   amount_cents: number
   category: number
   category_name: string
@@ -189,6 +190,7 @@ export interface RecurringExpense {
 export interface InstallmentPlan {
   id: number
   name: string
+  merchant: string
   total_amount_cents: number
   monthly_amount_cents: number
   category: number
@@ -198,6 +200,7 @@ export interface InstallmentPlan {
   account_name: string | null
   start_date: string
   end_date: string
+  first_payment_number: number
   installments_count: number
   is_active: boolean
 }
@@ -207,6 +210,7 @@ export interface ExpectedCharge {
   source_type: 'recurring' | 'installment'
   source_id: number
   name: string
+  merchant: string
   amount_cents: number
   date: string
   category: { id: number; name: string; scope: string; color: string; icon: string }
@@ -220,6 +224,7 @@ export interface ExpectedCharge {
 export interface InstallmentProjectionPlan {
   id: number
   name: string
+  merchant: string
   amount_cents?: number
   total_amount_cents: number
   current_amount_cents?: number

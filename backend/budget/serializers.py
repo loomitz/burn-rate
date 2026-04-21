@@ -555,6 +555,7 @@ class RecurringExpenseSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "merchant",
             "amount_cents",
             "category",
             "category_name",
@@ -570,6 +571,9 @@ class RecurringExpenseSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         start_date = attrs.get("start_date", getattr(self.instance, "start_date", None))
         end_date = attrs.get("end_date", getattr(self.instance, "end_date", None))
+        merchant = attrs.get("merchant", getattr(self.instance, "merchant", ""))
+        if not merchant.strip():
+            raise serializers.ValidationError({"merchant": "Escribe el comercio del cargo mensual."})
         if end_date and start_date and end_date < start_date:
             raise serializers.ValidationError({"end_date": "La fecha final no puede ser anterior al inicio."})
         return attrs
@@ -586,6 +590,7 @@ class InstallmentPlanSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "merchant",
             "total_amount_cents",
             "monthly_amount_cents",
             "category",
@@ -595,6 +600,7 @@ class InstallmentPlanSerializer(serializers.ModelSerializer):
             "account_name",
             "start_date",
             "end_date",
+            "first_payment_number",
             "installments_count",
             "is_active",
         ]
@@ -603,9 +609,15 @@ class InstallmentPlanSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         start_date = attrs.get("start_date", getattr(self.instance, "start_date", None))
         end_date = attrs.get("end_date", getattr(self.instance, "end_date", None))
+        first_payment_number = attrs.get("first_payment_number", getattr(self.instance, "first_payment_number", 1))
         total = attrs.get("total_amount_cents", getattr(self.instance, "total_amount_cents", None))
+        merchant = attrs.get("merchant", getattr(self.instance, "merchant", ""))
+        if not merchant.strip():
+            raise serializers.ValidationError({"merchant": "Escribe el comercio de la compra a meses."})
         if start_date and end_date and end_date < start_date:
             raise serializers.ValidationError({"end_date": "La fecha final no puede ser anterior al inicio."})
+        if first_payment_number < 1:
+            raise serializers.ValidationError({"first_payment_number": "El primer pago debe ser al menos 1."})
         if total is not None and total <= 0:
             raise serializers.ValidationError({"total_amount_cents": "El monto debe ser positivo."})
         return attrs

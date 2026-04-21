@@ -327,6 +327,7 @@ class Command(BaseCommand):
         internet, _ = RecurringExpense.objects.update_or_create(
             name="Internet casa",
             defaults={
+                "merchant": "Telmex",
                 "amount_cents": pesos(3500),
                 "category": global_categories["Internet"],
                 "account": accounts["BBVA principal"],
@@ -339,6 +340,7 @@ class Command(BaseCommand):
         RecurringExpense.objects.update_or_create(
             name="Yoga mensual",
             defaults={
+                "merchant": "Estudio de yoga",
                 "amount_cents": pesos(1100),
                 "category": global_categories["Yoga"],
                 "account": accounts["Tarjeta dorada"],
@@ -351,6 +353,7 @@ class Command(BaseCommand):
         RecurringExpense.objects.update_or_create(
             name="Gasto personal Oli recurrente",
             defaults={
+                "merchant": "Gasto personal Oli",
                 "amount_cents": pesos(600),
                 "category": personal_categories["Oli"],
                 "account": accounts["Debito Santander"],
@@ -363,6 +366,7 @@ class Command(BaseCommand):
         RecurringExpense.objects.update_or_create(
             name="Streaming Mama",
             defaults={
+                "merchant": "Netflix",
                 "amount_cents": pesos(399),
                 "category": personal_categories["Mama"],
                 "account": accounts["Tarjeta dorada"],
@@ -375,6 +379,7 @@ class Command(BaseCommand):
         RecurringExpense.objects.update_or_create(
             name="Seguro perros",
             defaults={
+                "merchant": "Seguro mascotas",
                 "amount_cents": pesos(780),
                 "category": global_categories["Perros"],
                 "account": accounts["BBVA principal"],
@@ -390,6 +395,7 @@ class Command(BaseCommand):
         family_msi, _ = InstallmentPlan.objects.update_or_create(
             name="Demo MSI familia - categoria Meses",
             defaults={
+                "merchant": "Liverpool",
                 "total_amount_cents": pesos(8865),
                 "category": global_categories["Meses"],
                 "account": accounts["Tarjeta dorada"],
@@ -401,6 +407,7 @@ class Command(BaseCommand):
         mama_msi, _ = InstallmentPlan.objects.update_or_create(
             name="Demo MSI personal Mama",
             defaults={
+                "merchant": "Amazon",
                 "total_amount_cents": pesos(3000),
                 "category": personal_categories["Mama"],
                 "account": accounts["Tarjeta dorada"],
@@ -412,6 +419,7 @@ class Command(BaseCommand):
         papa_msi, _ = InstallmentPlan.objects.update_or_create(
             name="Demo MSI personal Papa",
             defaults={
+                "merchant": "Best Buy",
                 "total_amount_cents": pesos(2400),
                 "category": personal_categories["Papa"],
                 "account": accounts["Tarjeta dorada"],

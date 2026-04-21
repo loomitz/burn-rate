@@ -314,6 +314,7 @@ class Transaction(models.Model):
 
 class RecurringExpense(models.Model):
     name = models.CharField(max_length=160)
+    merchant = models.CharField(max_length=160, blank=True)
     amount_cents = models.PositiveIntegerField()
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="recurring_expenses")
     account = models.ForeignKey(
@@ -337,12 +338,20 @@ class RecurringExpense(models.Model):
         return self.category.member if self.category.scope == Category.Scope.PERSONAL else None
 
     def clean(self) -> None:
+        if not self.merchant:
+            raise ValidationError({"merchant": "Los cargos mensuales requieren comercio."})
         if self.end_date and self.end_date < self.start_date:
             raise ValidationError({"end_date": "La fecha final no puede ser anterior al inicio."})
 
     def save(self, *args, **kwargs):
+        is_new = self._state.adding
+        previous_merchant = "" if is_new else type(self).objects.filter(pk=self.pk).values_list("merchant", flat=True).first() or ""
+        self.merchant = normalize_merchant_concept_name(self.merchant)
         self.full_clean()
-        return super().save(*args, **kwargs)
+        result = super().save(*args, **kwargs)
+        if is_new or merchant_concept_lookup_key(previous_merchant) != merchant_concept_lookup_key(self.merchant):
+            MerchantConcept.record(self.merchant)
+        return result
 
     def __str__(self) -> str:
         return self.name
@@ -350,6 +359,7 @@ class RecurringExpense(models.Model):
 
 class InstallmentPlan(models.Model):
     name = models.CharField(max_length=160)
+    merchant = models.CharField(max_length=160, blank=True)
     total_amount_cents = models.PositiveIntegerField()
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="installment_plans")
     account = models.ForeignKey(
@@ -361,6 +371,7 @@ class InstallmentPlan(models.Model):
     )
     start_date = models.DateField()
     end_date = models.DateField()
+    first_payment_number = models.PositiveSmallIntegerField(default=1)
     installments_count = models.PositiveSmallIntegerField(default=1)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -377,15 +388,25 @@ class InstallmentPlan(models.Model):
         return self.total_amount_cents // self.installments_count
 
     def clean(self) -> None:
+        if not self.merchant:
+            raise ValidationError({"merchant": "Las compras a meses requieren comercio."})
         if self.end_date < self.start_date:
             raise ValidationError({"end_date": "La fecha final no puede ser anterior al inicio."})
+        if self.first_payment_number < 1:
+            raise ValidationError({"first_payment_number": "El primer pago debe ser al menos 1."})
         if self.installments_count < 1:
             raise ValidationError({"installments_count": "Debe existir al menos una mensualidad."})
 
     def save(self, *args, **kwargs):
-        self.installments_count = count_calendar_months(self.start_date, self.end_date)
+        is_new = self._state.adding
+        previous_merchant = "" if is_new else type(self).objects.filter(pk=self.pk).values_list("merchant", flat=True).first() or ""
+        self.merchant = normalize_merchant_concept_name(self.merchant)
+        self.installments_count = count_calendar_months(self.start_date, self.end_date) + self.first_payment_number - 1
         self.full_clean()
-        return super().save(*args, **kwargs)
+        result = super().save(*args, **kwargs)
+        if is_new or merchant_concept_lookup_key(previous_merchant) != merchant_concept_lookup_key(self.merchant):
+            MerchantConcept.record(self.merchant)
+        return result
 
     def __str__(self) -> str:
         return self.name

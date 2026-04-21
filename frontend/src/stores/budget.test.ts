@@ -235,4 +235,90 @@ describe('budget store auth flow', () => {
       body: JSON.stringify({ has_access: true, username: 'nuez', is_admin: true }),
     })
   })
+
+  it('creates installment plans with a starting payment number', async () => {
+    const payload = {
+      name: 'Laptop heredada',
+      merchant: 'Liverpool',
+      total_amount_cents: 1200000,
+      category: 2,
+      account: 1,
+      start_date: '2026-04-21',
+      end_date: '2026-12-21',
+      first_payment_number: 4,
+      is_active: true,
+    }
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ currency: 'MXN', cutoff_day: 20 }))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        period: { start: '2026-04-21', end: '2026-05-20' },
+        scope: 'total',
+        totals: { budget_cents: 0, spent_cents: 0, expected_cents: 0, consumed_cents: 0, available_cents: 0 },
+        categories: [],
+      }),
+    )
+    fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+
+    const store = useBudgetStore()
+
+    await store.createInstallment(payload)
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/installment-plans/')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  })
+
+  it('creates recurring expenses with a shared merchant', async () => {
+    const payload = {
+      name: 'Internet mensual',
+      merchant: 'Telmex',
+      amount_cents: 59900,
+      category: 2,
+      account: 1,
+      start_date: '2026-04-21',
+      end_date: null,
+      charge_day: 5,
+      is_active: true,
+    }
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ currency: 'MXN', cutoff_day: 20 }))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        period: { start: '2026-04-21', end: '2026-05-20' },
+        scope: 'total',
+        totals: { budget_cents: 0, spent_cents: 0, expected_cents: 0, consumed_cents: 0, available_cents: 0 },
+        categories: [],
+      }),
+    )
+    fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+
+    const store = useBudgetStore()
+
+    await store.createRecurring(payload)
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/recurring-expenses/')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  })
 })

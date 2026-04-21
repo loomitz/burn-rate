@@ -152,8 +152,39 @@ Use `PATCH /api/categories/{id}/` with any of those fields plus `is_active` to e
 
 Use `PATCH /api/accounts/{id}/` to edit an existing account without deleting historical transactions.
 
+`recurring-expenses` uses `name` for the household label and `merchant` for the actual store/provider written to the confirmed automatic expense:
+
+```json
+{
+  "name": "Internet casa",
+  "merchant": "Telmex",
+  "amount_cents": 59900,
+  "category": 2,
+  "account": 1,
+  "start_date": "2026-04-21",
+  "charge_day": 5,
+  "is_active": true
+}
+```
+
+`installment-plans` accepts `first_payment_number` for purchases already in progress. For example, if the first payment to track in Burn Rate is payment 4 and the last payment is in December, the API calculates the full payment count from that offset and keeps the monthly amount based on the original purchase total:
+
+```json
+{
+  "name": "Laptop",
+  "merchant": "Liverpool",
+  "total_amount_cents": 1200000,
+  "category": 2,
+  "account": 1,
+  "start_date": "2026-04-21",
+  "end_date": "2026-12-21",
+  "first_payment_number": 4,
+  "is_active": true
+}
+```
+
 `transactions` for expenses require a merchant/name. The API sets `created_by` from the logged-in Django user and returns `created_by_username` for audit visibility in the UI.
-Creating an expense also records the merchant/name in the merchant concept catalog, normalizing extra spaces and merging case-insensitive duplicates.
+Creating an expense, recurring expense, or installment plan also records the merchant/name in the merchant concept catalog, normalizing extra spaces and merging case-insensitive duplicates.
 
 Example expense payload:
 
@@ -231,7 +262,7 @@ Payload:
 }
 ```
 
-Creates a real `expense` transaction.
+Creates a real `expense` transaction. The transaction `merchant` comes from the commitment `merchant`, not from the internal commitment `name`.
 
 `POST /api/expected-charges/dismiss/`
 

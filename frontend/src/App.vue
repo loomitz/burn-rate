@@ -47,6 +47,7 @@ type CommitmentTab = 'subscriptions' | 'msi'
 type CommitmentKind = 'subscription' | 'msi'
 type SettingsPanel = 'accounts' | 'people' | 'categories' | 'invitations'
 type NoticeType = 'success' | 'error' | 'info'
+type MerchantSuggestionTarget = 'expense' | 'recurring' | 'installment'
 type ThemePreference = 'auto' | 'light' | 'dark'
 type ResolvedTheme = 'light' | 'dark'
 type BudgetCycleOption = { value: string; label: string; start: string; end: string; offset: number }
@@ -74,6 +75,7 @@ const selectedCategoryId = ref<number | null>(null)
 const expenseCategorySearch = ref('')
 const expenseAccountSearch = ref('')
 const merchantSuggestionsOpen = ref(false)
+const merchantSuggestionTarget = ref<MerchantSuggestionTarget>('expense')
 const inviteToken = ref(inviteTokenFromLocation())
 const inviteLoading = ref(false)
 const copiedInvitationId = ref<number | string | null>(null)
@@ -116,6 +118,7 @@ const categoryForm = reactive({
 })
 const recurringForm = reactive({
   name: '',
+  merchant: '',
   amount: '',
   category: '',
   account: '',
@@ -125,11 +128,13 @@ const recurringForm = reactive({
 })
 const installmentForm = reactive({
   name: '',
+  merchant: '',
   total_amount: '',
   category: '',
   account: '',
   start_date: selectedDate.value,
   end_date: selectedDate.value,
+  first_payment_number: '1',
 })
 const settingsForm = reactive({ cutoff_day: 20 })
 const notice = reactive<{ type: NoticeType; message: string }>({ type: 'info', message: '' })
@@ -337,7 +342,7 @@ const filteredExpenseAccounts = computed(() => {
   })
 })
 const merchantConceptSuggestions = computed(() => {
-  const query = lookupText(expenseForm.merchant)
+  const query = lookupText(merchantValueForTarget())
   return merchantConcepts.value
     .filter((concept) => {
       const name = lookupText(concept.name)
@@ -346,7 +351,6 @@ const merchantConceptSuggestions = computed(() => {
     })
     .slice(0, 6)
 })
-const showMerchantSuggestions = computed(() => merchantSuggestionsOpen.value && merchantConceptSuggestions.value.length > 0)
 const accountFormTitle = computed(() => (editingAccountId.value ? 'Editar cuenta' : 'Crear cuenta'))
 const accountSubmitLabel = computed(() => {
   if (actionBusy.value === 'account') return 'Guardando...'
@@ -615,8 +619,31 @@ function clearNotice() {
   notice.message = ''
 }
 
-function openMerchantSuggestions() {
+function merchantValueForTarget(target = merchantSuggestionTarget.value) {
+  if (target === 'recurring') return recurringForm.merchant
+  if (target === 'installment') return installmentForm.merchant
+  return expenseForm.merchant
+}
+
+function setMerchantValueForTarget(target: MerchantSuggestionTarget, value: string) {
+  if (target === 'recurring') {
+    recurringForm.merchant = value
+    return
+  }
+  if (target === 'installment') {
+    installmentForm.merchant = value
+    return
+  }
+  expenseForm.merchant = value
+}
+
+function showMerchantSuggestionList(target: MerchantSuggestionTarget) {
+  return merchantSuggestionsOpen.value && merchantSuggestionTarget.value === target && merchantConceptSuggestions.value.length > 0
+}
+
+function openMerchantSuggestions(target: MerchantSuggestionTarget = 'expense') {
   if (merchantSuggestionsTimer) window.clearTimeout(merchantSuggestionsTimer)
+  merchantSuggestionTarget.value = target
   merchantSuggestionsOpen.value = true
 }
 
@@ -629,7 +656,7 @@ function closeMerchantSuggestionsSoon() {
 
 function chooseMerchantConcept(name: string) {
   if (merchantSuggestionsTimer) window.clearTimeout(merchantSuggestionsTimer)
-  expenseForm.merchant = name
+  setMerchantValueForTarget(merchantSuggestionTarget.value, name)
   merchantSuggestionsOpen.value = false
 }
 
@@ -1030,10 +1057,15 @@ function resetCategoryForm() {
 
 async function submitRecurring() {
   const name = normalizeText(recurringForm.name)
+  const merchant = normalizeText(recurringForm.merchant)
   const amountCents = centsFromInput(recurringForm.amount)
   const chargeDay = Math.min(28, Math.max(1, Number(recurringForm.charge_day) || 1))
   if (!name) {
     showNotice('Escribe un nombre para el cargo mensual.', 'error')
+    return
+  }
+  if (!merchant) {
+    showNotice('Escribe el comercio del cargo mensual.', 'error')
     return
   }
   if (amountCents <= 0) {
@@ -1047,6 +1079,7 @@ async function submitRecurring() {
   await runAction('recurring', 'Cargo mensual guardado.', async () => {
     await store.createRecurring({
       name,
+      merchant,
       amount_cents: amountCents,
       category: Number(recurringForm.category),
       account: recurringForm.account ? Number(recurringForm.account) : null,
@@ -1056,6 +1089,7 @@ async function submitRecurring() {
       is_active: true,
     })
     recurringForm.name = ''
+    recurringForm.merchant = ''
     recurringForm.amount = ''
     showCommitmentForm.value = false
     commitmentTab.value = 'subscriptions'
@@ -1064,13 +1098,23 @@ async function submitRecurring() {
 
 async function submitInstallment() {
   const name = normalizeText(installmentForm.name)
+  const merchant = normalizeText(installmentForm.merchant)
   const totalAmountCents = centsFromInput(installmentForm.total_amount)
+  const firstPaymentNumber = Number(installmentForm.first_payment_number)
   if (!name) {
     showNotice('Escribe un nombre para la compra a meses.', 'error')
     return
   }
+  if (!merchant) {
+    showNotice('Escribe el comercio de la compra a meses.', 'error')
+    return
+  }
   if (totalAmountCents <= 0) {
     showNotice('Escribe un monto total mayor a cero.', 'error')
+    return
+  }
+  if (!Number.isInteger(firstPaymentNumber) || firstPaymentNumber < 1) {
+    showNotice('Indica el número de pago inicial.', 'error')
     return
   }
   if (installmentForm.end_date < installmentForm.start_date) {
@@ -1080,15 +1124,19 @@ async function submitInstallment() {
   await runAction('installment', 'Compra a meses guardada.', async () => {
     await store.createInstallment({
       name,
+      merchant,
       total_amount_cents: totalAmountCents,
       category: Number(installmentForm.category),
       account: installmentForm.account ? Number(installmentForm.account) : null,
       start_date: installmentForm.start_date,
       end_date: installmentForm.end_date,
+      first_payment_number: firstPaymentNumber,
       is_active: true,
     })
     installmentForm.name = ''
+    installmentForm.merchant = ''
     installmentForm.total_amount = ''
+    installmentForm.first_payment_number = '1'
     showCommitmentForm.value = false
     commitmentTab.value = 'msi'
   })
@@ -1766,13 +1814,13 @@ function categoryIconComponent(icon?: string | null) {
                 autocomplete="off"
                 aria-autocomplete="list"
                 aria-controls="merchant-concept-suggestions"
-                :aria-expanded="showMerchantSuggestions"
-                @focus="openMerchantSuggestions"
-                @input="openMerchantSuggestions"
+                :aria-expanded="showMerchantSuggestionList('expense')"
+                @focus="openMerchantSuggestions('expense')"
+                @input="openMerchantSuggestions('expense')"
                 @blur="closeMerchantSuggestionsSoon"
               />
               <div
-                v-if="showMerchantSuggestions"
+                v-if="showMerchantSuggestionList('expense')"
                 id="merchant-concept-suggestions"
                 class="merchant-suggestions"
                 role="listbox"
@@ -1849,6 +1897,41 @@ function categoryIconComponent(icon?: string | null) {
         <form v-if="commitmentKind === 'subscription'" class="commitment-form form-stack" @submit.prevent="submitRecurring">
           <div class="field-row">
             <label>Nombre<input v-model="recurringForm.name" required /></label>
+            <div class="form-field merchant-field">
+              <label for="recurring-merchant">Comercio</label>
+              <input
+                id="recurring-merchant"
+                v-model="recurringForm.merchant"
+                placeholder="Netflix, CFE, gimnasio"
+                required
+                autocomplete="off"
+                aria-autocomplete="list"
+                aria-controls="recurring-merchant-suggestions"
+                :aria-expanded="showMerchantSuggestionList('recurring')"
+                @focus="openMerchantSuggestions('recurring')"
+                @input="openMerchantSuggestions('recurring')"
+                @blur="closeMerchantSuggestionsSoon"
+              />
+              <div
+                v-if="showMerchantSuggestionList('recurring')"
+                id="recurring-merchant-suggestions"
+                class="merchant-suggestions"
+                role="listbox"
+                aria-label="Sugerencias de comercios y conceptos"
+              >
+                <button
+                  v-for="concept in merchantConceptSuggestions"
+                  :key="concept.id"
+                  type="button"
+                  role="option"
+                  @mousedown.prevent
+                  @click="chooseMerchantConcept(concept.name)"
+                >
+                  <span>{{ concept.name }}</span>
+                  <small>{{ concept.usage_count }} {{ concept.usage_count === 1 ? 'uso' : 'usos' }}</small>
+                </button>
+              </div>
+            </div>
             <label>Monto mensual<input v-model="recurringForm.amount" inputmode="decimal" required /></label>
           </div>
           <div class="field-row">
@@ -1895,6 +1978,41 @@ function categoryIconComponent(icon?: string | null) {
         <form v-else class="commitment-form form-stack" @submit.prevent="submitInstallment">
           <div class="field-row">
             <label>Nombre<input v-model="installmentForm.name" required /></label>
+            <div class="form-field merchant-field">
+              <label for="installment-merchant">Comercio</label>
+              <input
+                id="installment-merchant"
+                v-model="installmentForm.merchant"
+                placeholder="Liverpool, Amazon, banco"
+                required
+                autocomplete="off"
+                aria-autocomplete="list"
+                aria-controls="installment-merchant-suggestions"
+                :aria-expanded="showMerchantSuggestionList('installment')"
+                @focus="openMerchantSuggestions('installment')"
+                @input="openMerchantSuggestions('installment')"
+                @blur="closeMerchantSuggestionsSoon"
+              />
+              <div
+                v-if="showMerchantSuggestionList('installment')"
+                id="installment-merchant-suggestions"
+                class="merchant-suggestions"
+                role="listbox"
+                aria-label="Sugerencias de comercios y conceptos"
+              >
+                <button
+                  v-for="concept in merchantConceptSuggestions"
+                  :key="concept.id"
+                  type="button"
+                  role="option"
+                  @mousedown.prevent
+                  @click="chooseMerchantConcept(concept.name)"
+                >
+                  <span>{{ concept.name }}</span>
+                  <small>{{ concept.usage_count }} {{ concept.usage_count === 1 ? 'uso' : 'usos' }}</small>
+                </button>
+              </div>
+            </div>
             <label>Monto total<input v-model="installmentForm.total_amount" inputmode="decimal" required /></label>
           </div>
           <div class="field-row">
@@ -1924,11 +2042,13 @@ function categoryIconComponent(icon?: string | null) {
             <div class="field-row">
               <label>Primer pago<input v-model="installmentForm.start_date" type="date" required /></label>
               <label>Último pago<input v-model="installmentForm.end_date" type="date" required /></label>
+              <label>Pago inicial<input v-model="installmentForm.first_payment_number" type="number" inputmode="numeric" min="1" step="1" required /></label>
             </div>
             <div class="preview-box">
               <b>Cómo se verá</b>
               <span>Primer cargo {{ installmentForm.start_date }}</span>
               <span>Último cargo {{ installmentForm.end_date }}</span>
+              <span>Empieza en pago {{ installmentForm.first_payment_number || 1 }}</span>
             </div>
           </section>
           <div class="action-row">
@@ -1966,7 +2086,7 @@ function categoryIconComponent(icon?: string | null) {
             <div>
               <b>{{ charge.name }}</b>
               <span>
-                {{ charge.category.name }}
+                {{ charge.merchant }} · {{ charge.category.name }}
                 <template v-if="charge.member"> · {{ charge.member.name }}</template>
               </span>
             </div>
@@ -1987,7 +2107,7 @@ function categoryIconComponent(icon?: string | null) {
               <div>
                 <b>{{ plan.name }}</b>
                 <span>
-                  {{ plan.category.name }}
+                  {{ plan.merchant }} · {{ plan.category.name }}
                   <template v-if="plan.member"> · {{ plan.member.name }}</template>
                 </span>
               </div>
