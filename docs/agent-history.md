@@ -1,5 +1,19 @@
 # Agent History
 
+## 2026-04-21 - Docker Hub overview document
+
+Objetivo: guardar en el repo el texto de overview para Docker Hub, en español y listo para publicar.
+
+Archivos tocados:
+
+- Agregado `docs/docker-hub-overview.md` con descripción, instalación por Docker Compose, variables, primer uso, invitaciones, healthcheck, actualización, seguridad, repo y tags.
+- Actualizado `docs/README.md` para enlazar el overview dentro del índice documental.
+- Actualizado este historial técnico.
+
+Verificaciones:
+
+- Revisión de Markdown y contenido contra la imagen publicada `loomitz/burnrate:v0.1.1`.
+
 ## 2026-04-21 - Docker Scout hardening y compose template
 
 Objetivo: mejorar la calificación de seguridad de la imagen Docker antes de publicar una nueva versión y documentar un template de instalación con Docker Compose.
