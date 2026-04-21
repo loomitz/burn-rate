@@ -5,7 +5,16 @@ from django.core import mail
 from django.test import override_settings
 from rest_framework.test import APITestCase
 
-from budget.models import Account, Category, HouseholdMember, InstallmentPlan, Invitation, MerchantConcept, RecurringExpense
+from budget.models import (
+    Account,
+    AppSettings,
+    Category,
+    HouseholdMember,
+    InstallmentPlan,
+    Invitation,
+    MerchantConcept,
+    RecurringExpense,
+)
 
 
 class BudgetApiTests(APITestCase):
@@ -318,6 +327,19 @@ class BudgetApiTests(APITestCase):
 
 
 class AuthBootstrapApiTests(APITestCase):
+    def test_onboarding_status_checks_database_and_initial_config(self):
+        response = self.client.get("/api/onboarding/status/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["ready"])
+        self.assertTrue(response.data["database"]["connected"])
+        self.assertTrue(response.data["migrations"]["applied"])
+        self.assertEqual(response.data["migrations"]["pending_count"], 0)
+        self.assertTrue(response.data["initial_config"]["needs_first_admin"])
+        self.assertFalse(response.data["initial_config"]["has_users"])
+        self.assertIn("password_configured", response.data["database"]["configured"])
+        self.assertEqual(AppSettings.objects.count(), 0)
+
     def test_bootstrap_status_and_claim_create_first_admin_session(self):
         status_response = self.client.get("/api/bootstrap/status/")
 

@@ -7,7 +7,7 @@ Está pensada para instalarse detrás de una VPN, red privada o reverse proxy co
 ## Imagen
 
 ```bash
-docker pull loomitz/burnrate:v0.1.1
+docker pull loomitz/burnrate:v0.1.2
 ```
 
 También está disponible:
@@ -29,6 +29,7 @@ La imagen soporta:
 - WhiteNoise para archivos estáticos.
 - PostgreSQL como base de datos persistente.
 - Migraciones automáticas al arrancar.
+- Revisión inicial de conexión, migraciones y configuración mínima antes del primer admin.
 - Flujo de bienvenida para crear el primer administrador.
 - Invitaciones para agregar más usuarios de la casa.
 - Envío de invitaciones por SMTP si hay credenciales configuradas.
@@ -43,7 +44,7 @@ Crea un archivo `docker-compose.yml`:
 ```yaml
 services:
   app:
-    image: loomitz/burnrate:v0.1.1
+    image: loomitz/burnrate:v0.1.2
     environment:
       DB_NAME: ${DB_NAME:-burn_rate}
       DB_USER: ${DB_USER:-burn_rate}
@@ -139,7 +140,9 @@ http://127.0.0.1:8000
 
 ## Primer uso
 
-En una base de datos limpia, Burn Rate muestra un flujo de bienvenida para crear el primer administrador desde el navegador.
+En una base de datos limpia, Burn Rate primero revisa que la conexión a PostgreSQL, las migraciones y la configuración inicial estén listas. Si algo falla, muestra una lista sencilla con el punto bloqueado y un botón para volver a revisar después de corregir Docker Compose o reiniciar el contenedor.
+
+Cuando esa revisión pasa, Burn Rate muestra el flujo de bienvenida para crear el primer administrador desde el navegador.
 
 Ese primer usuario captura:
 
@@ -216,7 +219,7 @@ DJANGO_CSRF_COOKIE_SECURE=true
 DJANGO_TRUST_X_FORWARDED_PROTO=true
 ```
 
-La imagen `v0.1.1` fue revisada con Docker Scout y publicada con 0 vulnerabilidades detectadas en `linux/amd64` y `linux/arm64` al momento de la publicación.
+La imagen `v0.1.2` fue revisada con Docker Scout y publicada con 0 vulnerabilidades detectadas en `linux/amd64` y `linux/arm64` al momento de la publicación.
 
 ## Código fuente
 
@@ -228,5 +231,5 @@ https://github.com/loomitz/burn-rate
 
 ## Tags
 
-- `v0.1.1`: versión actual endurecida con Docker Scout y soporte multi-arquitectura.
+- `v0.1.2`: versión actual con onboarding de revisión inicial, endurecida con Docker Scout y soporte multi-arquitectura.
 - `latest`: apunta a la versión estable más reciente.

@@ -12,6 +12,8 @@ const store = useBudgetStore()
 const {
   user,
   authReady,
+  onboardingStatus,
+  onboardingReady,
   settings,
   members,
   activeCategories,
@@ -166,6 +168,45 @@ const themeCycleLabel = computed(() => `Tema: ${themeStatusLabel.value}`)
 const themeStatusLabel = computed(() => {
   if (theme.value === 'auto') return `Auto / ${activeTheme.value === 'dark' ? 'Dark' : 'Light'}`
   return theme.value === 'dark' ? 'Dark' : 'Light'
+})
+const databaseConfiguredLabel = computed(() => {
+  const configured = onboardingStatus.value?.database.configured
+  if (!configured) return 'Sin datos de conexión'
+  const host = configured.host || 'localhost'
+  const port = configured.port || '5432'
+  return `${configured.engine} · ${configured.name} · ${configured.user}@${host}:${port}`
+})
+const onboardingChecklist = computed(() => {
+  const status = onboardingStatus.value
+  return [
+    {
+      key: 'database',
+      label: 'Conexión a DB',
+      ok: Boolean(status?.database.connected),
+      detail: status?.database.connected ? databaseConfiguredLabel.value : status?.database.message || 'No se pudo conectar con PostgreSQL.',
+    },
+    {
+      key: 'migrations',
+      label: 'Migraciones',
+      ok: Boolean(status?.migrations.applied),
+      detail:
+        status?.migrations.pending_count === 0
+          ? 'Base de datos al día.'
+          : status?.migrations.pending_count == null
+            ? 'No se pudieron revisar las migraciones.'
+            : `${status.migrations.pending_count} migraciones pendientes.`,
+    },
+    {
+      key: 'initial-config',
+      label: 'Configuración inicial',
+      ok: Boolean(status?.initial_config.ready),
+      detail: status?.initial_config.needs_first_admin
+        ? 'Lista para crear el primer admin.'
+        : status?.initial_config.has_users
+          ? 'Usuarios existentes detectados.'
+          : 'Configuración base pendiente.',
+    },
+  ]
 })
 
 const visibleCategories = computed(() => activeCategories.value)
@@ -583,6 +624,12 @@ async function submitClaim() {
     claimForm.password = ''
     claimForm.confirmPassword = ''
     settingsForm.cutoff_day = settings.value.cutoff_day
+  })
+}
+
+async function refreshOnboardingStatus() {
+  await runAction('onboarding-status', 'Revisión actualizada.', async () => {
+    await store.fetchOnboardingStatus()
   })
 }
 
@@ -1068,6 +1115,41 @@ function categoryIconComponent(icon?: string | null) {
     </section>
   </main>
 
+  <main v-else-if="!onboardingReady" class="login-shell">
+    <section class="login-panel onboarding-panel">
+      <button class="login-theme-button" type="button" :aria-label="themeCycleLabel" :title="themeCycleLabel" @click="cycleThemePreference">
+        <component :is="themeCycleIcon" aria-hidden="true" />
+      </button>
+      <div class="login-brand">
+        <img class="login-logo" :src="themeLogo" alt="Burn Rate" width="400" height="430" />
+        <div>
+          <h1>Revisión inicial</h1>
+          <p>Verifica que Docker Compose esté apuntando a una base PostgreSQL lista.</p>
+        </div>
+      </div>
+      <section class="onboarding-checklist" aria-label="Estado inicial de Burn Rate">
+        <div
+          v-for="item in onboardingChecklist"
+          :key="item.key"
+          class="onboarding-check"
+          :class="{ ready: item.ok, blocked: !item.ok }"
+        >
+          <span aria-hidden="true">{{ item.ok ? 'OK' : '!' }}</span>
+          <div>
+            <strong>{{ item.label }}</strong>
+            <p>{{ item.detail }}</p>
+          </div>
+        </div>
+        <button class="primary expense-primary" type="button" :disabled="actionBusy === 'onboarding-status'" @click="refreshOnboardingStatus">
+          {{ actionBusy === 'onboarding-status' ? 'Revisando...' : 'Revisar otra vez' }}
+        </button>
+        <p class="status-line error" role="alert">
+          Ajusta DB_HOST, DB_NAME, DB_USER, DB_PASSWORD y DB_PORT en Docker Compose, reinicia el contenedor y vuelve a revisar.
+        </p>
+      </section>
+    </section>
+  </main>
+
   <main v-else-if="firstRunClaimRequired" class="login-shell">
     <section class="login-panel claim-panel">
       <button class="login-theme-button" type="button" :aria-label="themeCycleLabel" :title="themeCycleLabel" @click="cycleThemePreference">
@@ -1081,6 +1163,15 @@ function categoryIconComponent(icon?: string | null) {
         </div>
       </div>
       <form class="form-stack login-form" @submit.prevent="submitClaim">
+        <section class="onboarding-checklist compact" aria-label="Revisión inicial completa">
+          <div v-for="item in onboardingChecklist" :key="item.key" class="onboarding-check ready">
+            <span aria-hidden="true">OK</span>
+            <div>
+              <strong>{{ item.label }}</strong>
+              <p>{{ item.detail }}</p>
+            </div>
+          </div>
+        </section>
         <label>
           Nombre completo
           <input v-model="claimForm.full_name" autocomplete="name" placeholder="Luis Hernández" required />

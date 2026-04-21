@@ -46,6 +46,7 @@ Logout also lives in `Ajustes` so the daily Plan screen stays focused on budget 
 ## In Scope
 
 - Local authenticated users for the same household.
+- Read-only onboarding status that checks database connectivity, migrations, and initial app configuration before login or first-admin claim.
 - First-run setup where the first user claims the installation as the initial admin.
 - Admin-issued invitations for additional household users, with optional email delivery and a copyable link fallback.
 - Household members with optional app access.

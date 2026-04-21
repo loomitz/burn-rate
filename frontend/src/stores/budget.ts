@@ -21,6 +21,32 @@ export interface BootstrapStatus {
   requires_claim?: boolean
 }
 
+export interface OnboardingStatus {
+  ready: boolean
+  database: {
+    connected: boolean
+    message: string
+    configured: {
+      engine: string
+      name: string
+      user: string
+      host: string
+      port: string
+      password_configured: boolean
+    }
+  }
+  migrations: {
+    applied: boolean
+    pending_count: number | null
+  }
+  initial_config: {
+    ready: boolean
+    needs_first_admin: boolean
+    has_users: boolean
+    settings_ready: boolean
+  }
+}
+
 export interface ClaimPayload {
   email: string
   full_name: string
@@ -279,6 +305,7 @@ function normalizeInvitationList(response: InvitationListResponse) {
 export const useBudgetStore = defineStore('budget', () => {
   const user = ref<User | null>(null)
   const authReady = ref(false)
+  const onboardingStatus = ref<OnboardingStatus | null>(null)
   const bootstrapStatus = ref<BootstrapStatus | null>(null)
   const settings = ref<Settings>({ ...DEFAULT_SETTINGS })
   const members = ref<HouseholdMember[]>([])
@@ -301,6 +328,7 @@ export const useBudgetStore = defineStore('budget', () => {
 
   const activeCategories = computed(() => categories.value.filter((category) => category.is_active))
   const activeAccounts = computed(() => accounts.value.filter((account) => account.is_active))
+  const onboardingReady = computed(() => onboardingStatus.value?.ready !== false)
   const firstRunClaimRequired = computed(() => {
     const status = bootstrapStatus.value
     if (!status) return false
@@ -344,6 +372,11 @@ export const useBudgetStore = defineStore('budget', () => {
     }
   }
 
+  async function fetchOnboardingStatus() {
+    onboardingStatus.value = await apiRequest<OnboardingStatus>('/api/onboarding/status/')
+    return onboardingStatus.value
+  }
+
   async function setAuthenticatedUser(nextUser: User | null) {
     if (!nextUser) {
       clearBudgetData(true)
@@ -359,6 +392,11 @@ export const useBudgetStore = defineStore('budget', () => {
     authReady.value = false
     error.value = ''
     try {
+      await fetchOnboardingStatus()
+      if (!onboardingReady.value) {
+        clearBudgetData(true)
+        return
+      }
       await apiRequest('/api/auth/csrf/')
       await fetchBootstrapStatus()
       if (firstRunClaimRequired.value) {
@@ -625,6 +663,8 @@ export const useBudgetStore = defineStore('budget', () => {
   return {
     user,
     authReady,
+    onboardingStatus,
+    onboardingReady,
     bootstrapStatus,
     settings,
     members,
@@ -651,6 +691,7 @@ export const useBudgetStore = defineStore('budget', () => {
     logout,
     clearBudgetData,
     fetchAll,
+    fetchOnboardingStatus,
     fetchSummary,
     fetchExpectedCharges,
     fetchInstallmentProjection,

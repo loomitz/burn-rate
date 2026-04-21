@@ -1,6 +1,6 @@
 # API
 
-All endpoints require an authenticated Django session except `auth/csrf`, `auth/login`, bootstrap claim/status, and invitation resolve/accept.
+All endpoints require an authenticated Django session except `auth/csrf`, `auth/login`, onboarding status, bootstrap claim/status, and invitation resolve/accept.
 
 ## Auth
 
@@ -9,6 +9,42 @@ All endpoints require an authenticated Django session except `auth/csrf`, `auth/
 - `POST /api/auth/logout/`: ends the session.
 - `GET /api/auth/me/`: returns current user.
 - `POST /api/auth/refresh/`: renews/touches the current session and returns current user.
+
+## Onboarding
+
+- `GET /api/onboarding/status/`: public read-only startup check used before login or first-admin claim.
+
+Response shape:
+
+```json
+{
+  "ready": true,
+  "database": {
+    "connected": true,
+    "message": "Conexion a base de datos lista.",
+    "configured": {
+      "engine": "postgresql",
+      "name": "burn_rate",
+      "user": "burn_rate",
+      "host": "db",
+      "port": "5432",
+      "password_configured": true
+    }
+  },
+  "migrations": {
+    "applied": true,
+    "pending_count": 0
+  },
+  "initial_config": {
+    "ready": true,
+    "needs_first_admin": true,
+    "has_users": false,
+    "settings_ready": true
+  }
+}
+```
+
+The endpoint does not write Docker or database configuration. It only checks the environment-provided database connection, pending migrations, default app settings availability, and whether the installation still needs the first admin.
 
 ## Bootstrap
 

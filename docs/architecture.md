@@ -14,7 +14,7 @@ Burn Rate is organized as a full monorepo:
 
 Django owns the data model, validation, period calculations, expected-charge generation, and budget summaries. Django REST Framework exposes CRUD endpoints and derived budget endpoints.
 
-Business calculations live in `budget/services.py` so they can be tested without going through HTTP.
+Business calculations live in `budget/services.py` so they can be tested without going through HTTP. Startup readiness checks for onboarding live in `budget/setup_services.py` and verify the configured database connection, migration state, and initial settings availability without writing environment configuration.
 
 Authentication uses Django sessions with sliding renewal. Users are local to the installation. A fresh database is claimed from the web UI by the first admin; later users are created through admin-issued invitation links or, for local development, Django admin/the `create_local_user` management command.
 
@@ -46,14 +46,15 @@ The container entrypoint can wait for Postgres, run migrations, and run `collect
 
 ## Data Flow
 
-1. Vue checks bootstrap status before showing login. If no users exist, the first admin claims the installation.
-2. Users log in through `/api/auth/login/` or accept an invitation through `/api/invitations/accept/`.
-3. Authenticated sessions are renewed through `/api/auth/refresh/` while the app is in active use.
-4. Vue loads settings, members, categories, accounts, transactions, commitments, summary, and expected charges.
-5. Budget summaries are calculated by Django on request.
-6. Recurring expenses and installment plans generate expected charges for the current period.
-7. A pending recurring expected charge can be confirmed into a real expense or dismissed for that period.
-8. MSI plans are projected through `/api/installments/projection/` so the frontend can show the current period payment, the next six period totals, and which plans finish in each projected cycle without turning MSI into manual payable rows.
+1. Vue checks onboarding status before showing login. If database, migrations, or initial settings are not ready, it shows a read-only checklist and retry action.
+2. Vue checks bootstrap status after onboarding passes. If no users exist, the first admin claims the installation.
+3. Users log in through `/api/auth/login/` or accept an invitation through `/api/invitations/accept/`.
+4. Authenticated sessions are renewed through `/api/auth/refresh/` while the app is in active use.
+5. Vue loads settings, members, categories, accounts, transactions, commitments, summary, and expected charges.
+6. Budget summaries are calculated by Django on request.
+7. Recurring expenses and installment plans generate expected charges for the current period.
+8. A pending recurring expected charge can be confirmed into a real expense or dismissed for that period.
+9. MSI plans are projected through `/api/installments/projection/` so the frontend can show the current period payment, the next six period totals, and which plans finish in each projected cycle without turning MSI into manual payable rows.
 
 ## Documentation Flow
 

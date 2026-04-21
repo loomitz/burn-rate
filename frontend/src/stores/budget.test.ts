@@ -11,6 +11,28 @@ function jsonResponse(data: unknown, status = 200) {
 
 describe('budget store auth flow', () => {
   const fetchMock = vi.fn()
+  const readyOnboardingStatus = {
+    ready: true,
+    database: {
+      connected: true,
+      message: 'Conexion a base de datos lista.',
+      configured: {
+        engine: 'postgresql',
+        name: 'burn_rate',
+        user: 'burn_rate',
+        host: 'db',
+        port: '5432',
+        password_configured: true,
+      },
+    },
+    migrations: { applied: true, pending_count: 0 },
+    initial_config: {
+      ready: true,
+      needs_first_admin: true,
+      has_users: false,
+      settings_ready: true,
+    },
+  }
 
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -19,6 +41,7 @@ describe('budget store auth flow', () => {
   })
 
   it('keeps auth unresolved until bootstrap status chooses first-run claim', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(readyOnboardingStatus))
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ has_users: false, can_claim: true }))
 
@@ -29,9 +52,38 @@ describe('budget store auth flow', () => {
 
     expect(store.authReady).toBe(true)
     expect(store.user).toBeNull()
+    expect(store.onboardingReady).toBe(true)
     expect(store.firstRunClaimRequired).toBe(true)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual(['/api/auth/csrf/', '/api/bootstrap/status/'])
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      '/api/onboarding/status/',
+      '/api/auth/csrf/',
+      '/api/bootstrap/status/',
+    ])
+  })
+
+  it('stops bootstrap on onboarding checks before auth endpoints', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        ...readyOnboardingStatus,
+        ready: false,
+        database: {
+          ...readyOnboardingStatus.database,
+          connected: false,
+          message: 'connection refused',
+        },
+      }),
+    )
+
+    const store = useBudgetStore()
+
+    await store.bootstrap()
+
+    expect(store.authReady).toBe(true)
+    expect(store.onboardingReady).toBe(false)
+    expect(store.user).toBeNull()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/onboarding/status/')
   })
 
   it('clears local budget data on logout even after loading household state', async () => {

@@ -1,5 +1,32 @@
 # Agent History
 
+## 2026-04-21 - Onboarding Readiness Check
+
+Objetivo: agregar un onboarding muy sencillo que no configure la base desde la UI, pero sí revise conexión, migraciones y configuración inicial antes del primer admin.
+
+Archivos tocados:
+
+- Agregado `backend/budget/setup_services.py` con el chequeo de conexión a base de datos, migraciones pendientes y disponibilidad de configuración inicial.
+- Agregado `GET /api/onboarding/status/` sin autenticación para que la pantalla inicial pueda mostrar el estado antes de login o claim.
+- Actualizado el store de Pinia para consultar onboarding antes de CSRF, bootstrap y sesión.
+- Actualizado `frontend/src/App.vue` y `frontend/src/style.css` con una pantalla de revisión inicial y un checklist compacto en el flujo de primer admin.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md`, `docs/api.md`, `docs/product.md`, `docs/architecture.md`, `docs/docker-hub-overview.md` y este historial técnico para la etiqueta `loomitz/burnrate:v0.1.2`.
+
+Verificaciones:
+
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py test` pasó en `backend/` con 38 tests.
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py makemigrations --check --dry-run` reportó que no hay migraciones pendientes.
+- `DJANGO_DEBUG=false ... uv run python manage.py check --deploy` pasó con settings seguros de prueba.
+- `pnpm test` pasó en `frontend/` con 9 tests.
+- `pnpm build` pasó en `frontend/`.
+- `docker compose config` pasó.
+- Playwright cargó la app local en viewport móvil y confirmó que el shell principal sigue renderizando después del nuevo prechequeo.
+- `docker build --pull -t loomitz/burnrate:v0.1.2 -t loomitz/burnrate:latest .` construyó correctamente.
+- `docker scout cves loomitz/burnrate:v0.1.2 --only-fixed` reportó 0 vulnerabilidades detectadas en la imagen local `linux/arm64`.
+- Smoke test con PostgreSQL temporal: `/healthz/`, `/`, y `/api/onboarding/status/` respondieron correctamente, con `ready=true`, DB conectada, migraciones aplicadas y primer admin pendiente.
+- `docker run --rm ... loomitz/burnrate:v0.1.2 ... python manage.py check` pasó dentro de la imagen.
+- `uv run python manage.py test` contra la configuración Postgres local no pudo crear la base de pruebas por falta de permiso `CREATEDB`; se usó SQLite de pruebas para validar la suite local.
+
 ## 2026-04-21 - Docker Hub overview document
 
 Objetivo: guardar en el repo el texto de overview para Docker Hub, en español y listo para publicar.

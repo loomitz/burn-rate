@@ -276,17 +276,20 @@ p {
 
 .auth-panel,
 .claim-panel,
-.invite-panel {
+.invite-panel,
+.onboarding-panel {
   grid-template-rows: minmax(260px, 0.86fr) auto;
 }
 
 .claim-panel .login-brand,
-.invite-panel .login-brand {
+.invite-panel .login-brand,
+.onboarding-panel .login-brand {
   justify-content: end;
 }
 
 .claim-panel .login-brand h1,
-.invite-panel .login-brand h1 {
+.invite-panel .login-brand h1,
+.onboarding-panel .login-brand h1 {
   color: var(--ink);
   font-size: 24px;
   font-weight: 900;
@@ -299,6 +302,69 @@ p {
   font-size: 13px;
   font-weight: 850;
   text-align: center;
+}
+
+.onboarding-checklist {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.onboarding-checklist.compact {
+  border: 1px solid color-mix(in srgb, var(--green) 16%, var(--line));
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm);
+  background: color-mix(in srgb, var(--green) 5%, var(--surface));
+}
+
+.onboarding-check {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: var(--space-sm);
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+}
+
+.onboarding-check span {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  border-radius: var(--radius-control);
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.onboarding-check.ready span {
+  border: 1px solid color-mix(in srgb, var(--green) 24%, var(--line));
+  color: var(--green-dark);
+  background: color-mix(in srgb, var(--green) 12%, var(--surface));
+}
+
+.onboarding-check.blocked span {
+  border: 1px solid color-mix(in srgb, var(--danger) 26%, var(--line));
+  color: var(--danger-dark);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+}
+
+.onboarding-check strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.onboarding-check p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .auth-password-row {

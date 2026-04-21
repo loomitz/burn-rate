@@ -49,6 +49,7 @@ from .services import (
     get_budget_period,
     installment_projection,
 )
+from .setup_services import build_onboarding_status
 
 
 class IsStaffForUnsafe(BasePermission):
@@ -114,6 +115,13 @@ class AuthRefreshView(APIView):
     def post(self, request):
         request.session.modified = True
         return Response({"user": UserSerializer(request.user).data})
+
+
+class OnboardingStatusView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response(build_onboarding_status())
 
 
 class BootstrapStatusView(APIView):

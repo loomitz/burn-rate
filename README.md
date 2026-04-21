@@ -19,6 +19,7 @@ La instalación objetivo de esta versión es sencilla: un contenedor `app` que s
 ## Qué incluye
 
 - Flujo de bienvenida para reclamar el primer administrador cuando la base de datos no tiene usuarios.
+- Revisión inicial de conexión a base de datos, migraciones y configuración mínima antes del registro.
 - Registro del primer usuario desde el navegador con email, nombre completo, nombre visible y password.
 - Invitaciones creadas por administradores para sumar a otra persona de la casa.
 - Envío de invitación por email si SMTP está configurado.
@@ -72,7 +73,7 @@ docker compose up --build app
 http://127.0.0.1:8000
 ```
 
-Si la instalación es nueva, Burn Rate mostrará el flujo de bienvenida para crear el primer administrador. No hace falta correr un comando manual para crear ese usuario.
+Si la instalación es nueva, Burn Rate primero revisa que la conexión a PostgreSQL, las migraciones y la configuración inicial estén listas. Después muestra el flujo de bienvenida para crear el primer administrador. No hace falta correr un comando manual para crear ese usuario.
 
 5. Verifica el healthcheck:
 
@@ -86,12 +87,12 @@ La base de datos no publica puertos al host por defecto. Solo se expone la aplic
 
 Si vas a instalar desde Docker Hub sin clonar este repositorio, crea un archivo `docker-compose.yml` con este template:
 
-La imagen `loomitz/burnrate:v0.1.1` está publicada para `linux/amd64` y `linux/arm64`.
+La imagen `loomitz/burnrate:v0.1.2` está publicada para `linux/amd64` y `linux/arm64`.
 
 ```yaml
 services:
   app:
-    image: loomitz/burnrate:v0.1.1
+    image: loomitz/burnrate:v0.1.2
     environment:
       DB_NAME: ${DB_NAME:-burn_rate}
       DB_USER: ${DB_USER:-burn_rate}
@@ -174,14 +175,16 @@ docker compose up -d
 
 ## Flujo inicial
 
-1. En una base limpia, la pantalla inicial detecta que no hay usuarios y muestra la bienvenida.
-2. El primer usuario registra email, nombre completo, nombre visible y password.
-3. Ese usuario queda como `staff` y `superuser`, se crea su miembro de casa y la sesión inicia automáticamente.
-4. En `Ajustes` se configuran cuentas, personas, categorías y día de corte.
-5. Desde `Ajustes > Invitar`, el admin puede invitar a una segunda persona.
-6. La invitación captura email, nombre completo, nombre visible, mensaje personalizado y si la persona será admin.
-7. Si hay SMTP y `BURN_RATE_PUBLIC_URL`, se envía email. Si no, el admin copia el link y lo manda por el canal que prefiera.
-8. La persona invitada abre el link, confirma o corrige sus datos, define password y entra con su nombre visible.
+1. Burn Rate consulta `/api/onboarding/status/` para confirmar conexión a base de datos, migraciones aplicadas y configuración inicial disponible.
+2. Si algo falla, la pantalla inicial muestra el punto bloqueado y permite revisar otra vez después de corregir Docker Compose o reiniciar el contenedor.
+3. En una base limpia y lista, la pantalla inicial detecta que no hay usuarios y muestra la bienvenida.
+4. El primer usuario registra email, nombre completo, nombre visible y password.
+5. Ese usuario queda como `staff` y `superuser`, se crea su miembro de casa y la sesión inicia automáticamente.
+6. En `Ajustes` se configuran cuentas, personas, categorías y día de corte.
+7. Desde `Ajustes > Invitar`, el admin puede invitar a una segunda persona.
+8. La invitación captura email, nombre completo, nombre visible, mensaje personalizado y si la persona será admin.
+9. Si hay SMTP y `BURN_RATE_PUBLIC_URL`, se envía email. Si no, el admin copia el link y lo manda por el canal que prefiera.
+10. La persona invitada abre el link, confirma o corrige sus datos, define password y entra con su nombre visible.
 
 El nombre visible es el que se usa dentro de la aplicación. Puede ser un nombre corto o un apodo familiar, por ejemplo `Mamá`, `Papá`, `Casa`, `Lau` o `Fer`.
 
@@ -206,7 +209,7 @@ Si estas variables no están completas, el flujo sigue funcionando y muestra el 
 
 | Variable | Uso |
 | --- | --- |
-| `BURN_RATE_IMAGE` | Imagen usada por el `docker-compose.yml` del repo. Por defecto `loomitz/burnrate:v0.1.1`. |
+| `BURN_RATE_IMAGE` | Imagen usada por el `docker-compose.yml` del repo. Por defecto `loomitz/burnrate:v0.1.2`. |
 | `APP_BIND` | Interfaz del host donde Docker publica la app. Por defecto `127.0.0.1`. |
 | `APP_PORT` | Puerto del host para acceder a Burn Rate. Por defecto `8000`. |
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Credenciales de PostgreSQL. |
