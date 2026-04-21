@@ -4,7 +4,17 @@ from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 
-from budget.models import Account, Category, HouseholdMember, InstallmentPlan, RecurringExpense, Transaction
+from budget.models import (
+    Account,
+    BudgetAllocation,
+    Category,
+    CategoryBudgetChange,
+    CategoryOverspendRecord,
+    HouseholdMember,
+    InstallmentPlan,
+    RecurringExpense,
+    Transaction,
+)
 from budget.services import build_budget_summary, expected_charges_for_period, get_budget_period, installment_projection
 
 
@@ -112,6 +122,98 @@ class BudgetSummaryTests(TestCase):
 
         self.assertEqual(same_period["totals"]["budget_cents"], 500000)
         self.assertEqual(next_period["totals"]["budget_cents"], 800000)
+
+    def test_category_budget_change_applies_from_effective_cycle_only(self):
+        previous_period = build_budget_summary(date(2026, 3, 25), scope="family")
+        current_period = build_budget_summary(date(2026, 4, 25), scope="family")
+        self.assertEqual(previous_period["totals"]["budget_cents"], 500000)
+        self.assertEqual(current_period["totals"]["budget_cents"], 500000)
+
+        self.global_category.monthly_budget_cents = 800000
+        self.global_category.save()
+        CategoryBudgetChange.objects.create(
+            category=self.global_category,
+            amount_cents=800000,
+            effective_date=date(2026, 4, 25),
+            period_start=date(2026, 4, 21),
+            period_end=date(2026, 5, 20),
+        )
+        BudgetAllocation.objects.filter(category=self.global_category, period_start__gte=date(2026, 4, 21)).update(
+            amount_cents=800000
+        )
+
+        previous_after_change = build_budget_summary(date(2026, 3, 25), scope="family")
+        current_after_change = build_budget_summary(date(2026, 4, 25), scope="family")
+
+        self.assertEqual(previous_after_change["totals"]["budget_cents"], 500000)
+        self.assertEqual(current_after_change["totals"]["budget_cents"], 800000)
+
+    def test_carryover_category_tracks_real_balance_and_projected_available(self):
+        travel = Category.objects.create(
+            name="Viajes",
+            scope=Category.Scope.GLOBAL,
+            monthly_budget_cents=100000,
+            budget_behavior=Category.BudgetBehavior.CARRYOVER,
+            carryover_initial_balance_cents=10000,
+            carryover_start_date=date(2026, 3, 21),
+        )
+        CategoryBudgetChange.objects.create(
+            category=travel,
+            amount_cents=100000,
+            effective_date=date(2026, 3, 21),
+            period_start=date(2026, 3, 21),
+            period_end=date(2026, 4, 20),
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Hotel",
+            amount_cents=30000,
+            date=date(2026, 4, 25),
+            account=self.cash,
+            category=travel,
+            created_by=self.user,
+        )
+        RecurringExpense.objects.create(
+            name="Apartado viaje",
+            merchant="Agencia",
+            amount_cents=40000,
+            category=travel,
+            account=self.cash,
+            start_date=date(2026, 4, 21),
+            charge_day=28,
+        )
+
+        summary = build_budget_summary(date(2026, 4, 25), scope="family")
+        row = next(category for category in summary["categories"] if category["category_name"] == "Viajes")
+
+        self.assertEqual(row["budget_behavior"], Category.BudgetBehavior.CARRYOVER)
+        self.assertEqual(row["carryover_real_balance_cents"], 180000)
+        self.assertEqual(row["real_available_cents"], 180000)
+        self.assertEqual(row["expected_cents"], 40000)
+        self.assertEqual(row["projected_available_cents"], 140000)
+        self.assertEqual(row["available_cents"], 140000)
+
+    def test_monthly_categories_record_closed_cycle_overspend_history(self):
+        self.personal_category.overspend_tracking_start_date = date(2026, 3, 21)
+        self.personal_category.save()
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Boutique",
+            amount_cents=125000,
+            date=date(2026, 3, 25),
+            account=self.cash,
+            category=self.personal_category,
+            created_by=self.user,
+        )
+
+        summary = build_budget_summary(date(2026, 4, 25), scope="member", member_id=self.member.id)
+        row = summary["categories"][0]
+
+        record = CategoryOverspendRecord.objects.get(category=self.personal_category, period_start=date(2026, 3, 21))
+        self.assertEqual(record.overspend_cents, 25000)
+        self.assertEqual(row["overspend_count"], 1)
+        self.assertEqual(row["overspend_total_cents"], 25000)
+        self.assertEqual(row["last_overspend_cents"], 25000)
 
     def test_transfer_and_income_do_not_affect_budget_spend(self):
         bank = Account.objects.create(name="Debito", account_type=Account.AccountType.BANK)

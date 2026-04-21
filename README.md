@@ -25,6 +25,7 @@ La instalación objetivo de esta versión es sencilla: un contenedor `app` que s
 - Envío de invitación por email si SMTP está configurado.
 - Link copiable de invitación aunque no exista configuración de email.
 - Sesiones autorrenovables por actividad, regreso a pestaña visible y refresco periódico.
+- Categorías mensuales que registran excedentes por ciclo y categorías acumulables con saldo global.
 - Compras a meses con fecha del primer pago, cantidad de meses y redondeo del pago requerido al siguiente peso.
 - Contenedor único de aplicación con migraciones automáticas al arrancar.
 - PostgreSQL privado dentro de Docker Compose por defecto.
@@ -88,12 +89,12 @@ La base de datos no publica puertos al host por defecto. Solo se expone la aplic
 
 Si vas a instalar desde Docker Hub sin clonar este repositorio, crea un archivo `docker-compose.yml` con este template:
 
-La imagen `loomitz/burnrate:v0.1.8` está publicada para `linux/amd64` y `linux/arm64`.
+La imagen `loomitz/burnrate:v0.1.9` está publicada para `linux/amd64` y `linux/arm64`.
 
 ```yaml
 services:
   app:
-    image: loomitz/burnrate:v0.1.8
+    image: loomitz/burnrate:v0.1.9
     environment:
       DB_NAME: ${DB_NAME:-burn_rate}
       DB_USER: ${DB_USER:-burn_rate}
@@ -210,7 +211,7 @@ Si estas variables no están completas, el flujo sigue funcionando y muestra el 
 
 | Variable | Uso |
 | --- | --- |
-| `BURN_RATE_IMAGE` | Imagen usada por el `docker-compose.yml` del repo. Por defecto `loomitz/burnrate:v0.1.8`. |
+| `BURN_RATE_IMAGE` | Imagen usada por el `docker-compose.yml` del repo. Por defecto `loomitz/burnrate:v0.1.9`. |
 | `APP_BIND` | Interfaz del host donde Docker publica la app. Por defecto `127.0.0.1`. |
 | `APP_PORT` | Puerto del host para acceder a Burn Rate. Por defecto `8000`. |
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Credenciales de PostgreSQL. |

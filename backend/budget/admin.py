@@ -5,6 +5,8 @@ from .models import (
     AppSettings,
     BudgetAllocation,
     Category,
+    CategoryBudgetChange,
+    CategoryOverspendRecord,
     ExpectedChargeDismissal,
     HouseholdMember,
     InstallmentPlan,
@@ -31,13 +33,25 @@ class HouseholdMemberAdmin(admin.ModelAdmin):
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    list_display = ["name", "scope", "member", "monthly_budget_cents", "is_active"]
-    list_filter = ["scope", "is_active"]
+    list_display = ["name", "scope", "member", "monthly_budget_cents", "budget_behavior", "is_active"]
+    list_filter = ["scope", "budget_behavior", "is_active"]
 
 
 @admin.register(BudgetAllocation)
 class BudgetAllocationAdmin(admin.ModelAdmin):
     list_display = ["category", "period_start", "period_end", "amount_cents"]
+    list_filter = ["period_start"]
+
+
+@admin.register(CategoryBudgetChange)
+class CategoryBudgetChangeAdmin(admin.ModelAdmin):
+    list_display = ["category", "amount_cents", "effective_date", "period_start", "period_end", "created_at"]
+    list_filter = ["period_start"]
+
+
+@admin.register(CategoryOverspendRecord)
+class CategoryOverspendRecordAdmin(admin.ModelAdmin):
+    list_display = ["category", "period_start", "period_end", "budget_cents", "spent_cents", "overspend_cents"]
     list_filter = ["period_start"]
 
 

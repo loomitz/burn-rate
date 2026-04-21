@@ -257,6 +257,76 @@ describe('budget store auth flow', () => {
     })
   })
 
+  it('creates monthly reset categories by default payload', async () => {
+    const payload = {
+      name: 'Despensa',
+      scope: 'global' as const,
+      member: null,
+      monthly_budget_cents: 200000,
+      budget_behavior: 'monthly_reset' as const,
+      color: '#e11d48',
+      icon: 'shopping-cart',
+      is_active: true,
+      order: 0,
+    }
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    mockFetchAllResponses()
+
+    const store = useBudgetStore()
+
+    await store.createCategory(payload)
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/categories/')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  })
+
+  it('creates carryover categories with initial balance and start date', async () => {
+    const payload = {
+      name: 'Viajes',
+      scope: 'global' as const,
+      member: null,
+      monthly_budget_cents: 250000,
+      budget_behavior: 'carryover' as const,
+      carryover_initial_balance_cents: -50000,
+      carryover_start_date: '2026-04-21',
+      color: '#0284c7',
+      icon: 'plane',
+      is_active: true,
+      order: 0,
+    }
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    mockFetchAllResponses()
+
+    const store = useBudgetStore()
+
+    await store.createCategory(payload)
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/categories/')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  })
+
+  it('updates category budget with an effective date', async () => {
+    const payload = { monthly_budget_cents: 150000, budget_effective_date: '2026-04-21' }
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    mockFetchAllResponses()
+
+    const store = useBudgetStore()
+
+    await store.updateCategory(8, payload)
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/categories/8/')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  })
+
   it('creates installment plans with first payment date and months count', async () => {
     const payload = {
       name: 'Laptop heredada',

@@ -77,6 +77,10 @@ class Category(models.Model):
         GLOBAL = "global", "Global"
         PERSONAL = "personal", "Personal"
 
+    class BudgetBehavior(models.TextChoices):
+        MONTHLY_RESET = "monthly_reset", "Se reinicia cada mes"
+        CARRYOVER = "carryover", "Acumula saldo"
+
     name = models.CharField(max_length=140)
     color = models.CharField(max_length=7, default="#0f766e")
     icon = models.CharField(max_length=40, default="tag")
@@ -91,6 +95,14 @@ class Category(models.Model):
         related_name="categories",
     )
     monthly_budget_cents = models.PositiveIntegerField(default=0)
+    budget_behavior = models.CharField(
+        max_length=24,
+        choices=BudgetBehavior.choices,
+        default=BudgetBehavior.MONTHLY_RESET,
+    )
+    carryover_initial_balance_cents = models.IntegerField(default=0)
+    carryover_start_date = models.DateField(null=True, blank=True)
+    overspend_tracking_start_date = models.DateField(default=timezone.localdate)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -113,6 +125,12 @@ class Category(models.Model):
             raise ValidationError({"member": "Las categorias personales requieren una persona."})
         if self.scope == self.Scope.GLOBAL and self.member_id is not None:
             raise ValidationError({"member": "Las categorias globales no deben tener persona."})
+        if self.budget_behavior == self.BudgetBehavior.CARRYOVER and self.carryover_start_date is None:
+            raise ValidationError({"carryover_start_date": "Las categorias acumulables requieren fecha de inicio."})
+        if self.budget_behavior == self.BudgetBehavior.MONTHLY_RESET and self.carryover_start_date is not None:
+            raise ValidationError({"carryover_start_date": "Solo las categorias acumulables usan fecha de inicio."})
+        if self.budget_behavior == self.BudgetBehavior.MONTHLY_RESET and self.carryover_initial_balance_cents != 0:
+            raise ValidationError({"carryover_initial_balance_cents": "Solo las categorias acumulables usan saldo inicial."})
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -142,6 +160,43 @@ class BudgetAllocation(models.Model):
 
     def __str__(self) -> str:
         return f"{self.category}: {self.amount_cents} ({self.period_start} - {self.period_end})"
+
+
+class CategoryBudgetChange(models.Model):
+    category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="budget_changes")
+    amount_cents = models.PositiveIntegerField()
+    effective_date = models.DateField()
+    period_start = models.DateField()
+    period_end = models.DateField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["category__name", "period_start", "created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.category}: {self.amount_cents} desde {self.period_start}"
+
+
+class CategoryOverspendRecord(models.Model):
+    category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="overspend_records")
+    period_start = models.DateField()
+    period_end = models.DateField()
+    budget_cents = models.PositiveIntegerField(default=0)
+    spent_cents = models.PositiveIntegerField(default=0)
+    overspend_cents = models.PositiveIntegerField(default=0)
+    recorded_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["category__name", "-period_start"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["category", "period_start", "period_end"],
+                name="unique_category_overspend_period",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.category}: excedente {self.overspend_cents} ({self.period_start} - {self.period_end})"
 
 
 class Account(models.Model):

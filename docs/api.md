@@ -144,7 +144,20 @@ The response includes `access_enabled`, `user_username`, `user_email`, and `user
 }
 ```
 
-Use `PATCH /api/categories/{id}/` with any of those fields plus `is_active` to edit an existing category without deleting historical transactions.
+Categories default to `budget_behavior="monthly_reset"`. To create a category that accumulates unused budget, set `budget_behavior="carryover"` and include `carryover_initial_balance_cents` plus `carryover_start_date`:
+
+```json
+{
+  "name": "Viajes",
+  "scope": "global",
+  "monthly_budget_cents": 250000,
+  "budget_behavior": "carryover",
+  "carryover_initial_balance_cents": -50000,
+  "carryover_start_date": "2026-04-21"
+}
+```
+
+`budget_behavior`, `carryover_initial_balance_cents`, and `carryover_start_date` are creation-time configuration. They cannot be changed later. Use `PATCH /api/categories/{id}/` with name, color, icon, scope, member, `is_active`, or `monthly_budget_cents` to edit an existing category without deleting historical transactions. When `monthly_budget_cents` changes, include `budget_effective_date`; the new budget applies from that budget cycle forward.
 
 `icon` is a stable key from the frontend's curated local icon catalog. Existing categories default to `tag`; old keys such as `paw`, `bolt`, and `box` remain valid. The frontend can also normalize `lucide:`-prefixed values to the same local keys when the icon exists in the curated catalog.
 
@@ -236,8 +249,19 @@ The category row includes:
 - `expected_cents`
 - `consumed_cents`
 - `available_cents`
+- `real_available_cents`
+- `projected_available_cents`
+- `carryover_real_balance_cents`
+- `budget_behavior`
+- `overspend_count`
+- `overspend_total_cents`
+- `last_overspend_cents`
+- `last_overspend_period_start`
+- `last_overspend_period_end`
 - `percent_available`
 - `is_overspent`
+
+For `monthly_reset` categories, `available_cents` is the cycle budget minus real spend and pending expected charges, while the overspend fields summarize closed cycles where real spend exceeded the budget. For `carryover` categories, `real_available_cents` is the accumulated real balance and `projected_available_cents`/`available_cents` subtract pending expected charges as the current free amount.
 
 The frontend uses `category_id` from these rows to let the user click a category card and inspect the matching expense transactions for the active period.
 

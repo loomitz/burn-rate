@@ -132,6 +132,11 @@ export interface Category {
   member: number | null
   member_name: string | null
   monthly_budget_cents: number
+  budget_behavior: 'monthly_reset' | 'carryover'
+  carryover_initial_balance_cents: number
+  carryover_start_date: string | null
+  overspend_tracking_start_date: string
+  budget_effective_date?: string
 }
 
 export interface Account {
@@ -272,8 +277,18 @@ export interface BudgetCategorySummary {
   expected_cents: number
   consumed_cents: number
   available_cents: number
+  real_available_cents: number
+  projected_available_cents: number
+  carryover_real_balance_cents: number | null
+  carryover_start_date: string | null
   percent_available: number
   is_overspent: boolean
+  budget_behavior: 'monthly_reset' | 'carryover'
+  overspend_count: number
+  overspend_total_cents: number
+  last_overspend_cents: number
+  last_overspend_period_start: string | null
+  last_overspend_period_end: string | null
 }
 
 export interface BudgetSummary {
@@ -285,6 +300,7 @@ export interface BudgetSummary {
     spent_cents: number
     expected_cents: number
     available_cents: number
+    real_available_cents?: number
   }
   breakdown: Array<{
     key: string
@@ -294,6 +310,7 @@ export interface BudgetSummary {
     spent_cents: number
     expected_cents: number
     available_cents: number
+    real_available_cents?: number
   }>
   categories: BudgetCategorySummary[]
 }

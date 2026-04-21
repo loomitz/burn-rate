@@ -22,7 +22,7 @@ from .models import (
     RecurringExpense,
     Transaction,
 )
-from .services import account_balance
+from .services import account_balance, record_category_budget_change
 
 
 def add_calendar_months(value, months: int):
@@ -431,6 +431,8 @@ class HouseholdMemberSerializer(serializers.ModelSerializer):
 
 class CategorySerializer(serializers.ModelSerializer):
     member_name = serializers.CharField(source="member.name", read_only=True)
+    carryover_start_date = serializers.DateField(required=False, allow_null=True)
+    budget_effective_date = serializers.DateField(write_only=True, required=False)
 
     class Meta:
         model = Category
@@ -445,16 +447,75 @@ class CategorySerializer(serializers.ModelSerializer):
             "member",
             "member_name",
             "monthly_budget_cents",
+            "budget_behavior",
+            "carryover_initial_balance_cents",
+            "carryover_start_date",
+            "overspend_tracking_start_date",
+            "budget_effective_date",
         ]
 
     def validate(self, attrs):
         scope = attrs.get("scope", getattr(self.instance, "scope", Category.Scope.GLOBAL))
         member = attrs.get("member", getattr(self.instance, "member", None))
+        budget_behavior = attrs.get("budget_behavior", getattr(self.instance, "budget_behavior", Category.BudgetBehavior.MONTHLY_RESET))
+        carryover_start_date = attrs.get("carryover_start_date", getattr(self.instance, "carryover_start_date", None))
+        carryover_initial_balance = attrs.get(
+            "carryover_initial_balance_cents",
+            getattr(self.instance, "carryover_initial_balance_cents", 0),
+        )
+        monthly_budget = attrs.get("monthly_budget_cents", getattr(self.instance, "monthly_budget_cents", None))
+        budget_effective_date = attrs.get("budget_effective_date")
         if scope == Category.Scope.PERSONAL and member is None:
             raise serializers.ValidationError({"member": "Las categorias personales requieren una persona."})
         if scope == Category.Scope.GLOBAL and member is not None:
             raise serializers.ValidationError({"member": "Las categorias globales no deben tener persona."})
+        if self.instance and budget_behavior != self.instance.budget_behavior:
+            raise serializers.ValidationError({"budget_behavior": "El comportamiento de presupuesto solo se define al crear."})
+        if self.instance:
+            if "carryover_initial_balance_cents" in attrs and carryover_initial_balance != self.instance.carryover_initial_balance_cents:
+                raise serializers.ValidationError({"carryover_initial_balance_cents": "El saldo inicial solo se define al crear."})
+            if "carryover_start_date" in attrs and carryover_start_date != self.instance.carryover_start_date:
+                raise serializers.ValidationError({"carryover_start_date": "La fecha de inicio acumulable solo se define al crear."})
+            if monthly_budget is not None and monthly_budget != self.instance.monthly_budget_cents and budget_effective_date is None:
+                raise serializers.ValidationError({"budget_effective_date": "Indica la fecha efectiva del cambio de presupuesto."})
+        if budget_behavior == Category.BudgetBehavior.CARRYOVER:
+            initial_data = self.initial_data if hasattr(self, "initial_data") else {}
+            if not self.instance and "carryover_initial_balance_cents" not in initial_data:
+                raise serializers.ValidationError({"carryover_initial_balance_cents": "Indica el saldo inicial acumulable."})
+            if carryover_start_date is None:
+                raise serializers.ValidationError({"carryover_start_date": "Indica la fecha de inicio acumulable."})
+        if budget_behavior == Category.BudgetBehavior.MONTHLY_RESET:
+            if carryover_start_date is not None:
+                raise serializers.ValidationError({"carryover_start_date": "Solo las categorias acumulables usan fecha de inicio."})
+            if carryover_initial_balance != 0:
+                raise serializers.ValidationError({"carryover_initial_balance_cents": "Solo las categorias acumulables usan saldo inicial."})
         return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        budget_effective_date = validated_data.pop("budget_effective_date", None)
+        category = super().create(validated_data)
+        effective_date = (
+            category.carryover_start_date
+            if category.budget_behavior == Category.BudgetBehavior.CARRYOVER
+            else budget_effective_date or category.overspend_tracking_start_date
+        )
+        record_category_budget_change(category, category.monthly_budget_cents, effective_date)
+        return category
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        budget_effective_date = validated_data.pop("budget_effective_date", None)
+        previous_budget = instance.monthly_budget_cents
+        category = super().update(instance, validated_data)
+        if category.monthly_budget_cents != previous_budget:
+            record_category_budget_change(
+                category,
+                category.monthly_budget_cents,
+                budget_effective_date,
+                previous_amount_cents=previous_budget,
+            )
+        return category
 
 
 class BudgetAllocationSerializer(serializers.ModelSerializer):

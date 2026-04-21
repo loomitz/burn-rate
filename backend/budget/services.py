@@ -11,6 +11,8 @@ from .models import (
     AppSettings,
     BudgetAllocation,
     Category,
+    CategoryBudgetChange,
+    CategoryOverspendRecord,
     ExpectedChargeDismissal,
     InstallmentPlan,
     RecurringExpense,
@@ -77,14 +79,77 @@ def project_budget_periods(value: date | None = None, months_ahead: int = 6) -> 
     return [get_budget_period(add_months(current_period.end, offset)) for offset in range(months_ahead + 1)]
 
 
+def previous_budget_period(period: BudgetPeriod) -> BudgetPeriod:
+    return get_budget_period(add_months(period.end, -1))
+
+
+def period_key(period: BudgetPeriod) -> tuple[date, date]:
+    return period.start, period.end
+
+
+def iter_budget_periods(start_period: BudgetPeriod, end_period: BudgetPeriod):
+    period = start_period
+    while period_key(period) <= period_key(end_period):
+        yield period
+        period = get_budget_period(add_months(period.end, 1))
+
+
+def budget_amount_for_period(category: Category, period: BudgetPeriod) -> int:
+    changes = CategoryBudgetChange.objects.filter(category=category).order_by("period_start", "created_at")
+    latest_change = changes.filter(period_start__lte=period.start).order_by("-period_start", "-created_at").first()
+    if latest_change:
+        return latest_change.amount_cents
+    first_change = changes.first()
+    if first_change:
+        return first_change.amount_cents
+    return category.monthly_budget_cents
+
+
+def ensure_category_allocation(category: Category, period: BudgetPeriod) -> BudgetAllocation:
+    allocation, _ = BudgetAllocation.objects.get_or_create(
+        category=category,
+        period_start=period.start,
+        period_end=period.end,
+        defaults={"amount_cents": budget_amount_for_period(category, period)},
+    )
+    return allocation
+
+
 def ensure_allocations(period: BudgetPeriod) -> None:
     for category in Category.objects.filter(is_active=True):
-        BudgetAllocation.objects.get_or_create(
+        ensure_category_allocation(category, period)
+
+
+def record_category_budget_change(
+    category: Category,
+    amount_cents: int,
+    effective_date: date,
+    previous_amount_cents: int | None = None,
+) -> CategoryBudgetChange:
+    effective_period = get_budget_period(effective_date)
+    current_period = get_budget_period(timezone.localdate())
+    has_changes = CategoryBudgetChange.objects.filter(category=category).exists()
+
+    if previous_amount_cents is not None and not has_changes and period_key(effective_period) > period_key(current_period):
+        CategoryBudgetChange.objects.create(
             category=category,
-            period_start=period.start,
-            period_end=period.end,
-            defaults={"amount_cents": category.monthly_budget_cents},
+            amount_cents=previous_amount_cents,
+            effective_date=timezone.localdate(),
+            period_start=current_period.start,
+            period_end=current_period.end,
         )
+
+    change = CategoryBudgetChange.objects.create(
+        category=category,
+        amount_cents=amount_cents,
+        effective_date=effective_date,
+        period_start=effective_period.start,
+        period_end=effective_period.end,
+    )
+    BudgetAllocation.objects.filter(category=category, period_start__gte=effective_period.start).update(
+        amount_cents=amount_cents
+    )
+    return change
 
 
 def categories_for_scope(scope: str, member_id: int | None = None):
@@ -96,6 +161,98 @@ def categories_for_scope(scope: str, member_id: int | None = None):
     if scope == "total":
         return queryset
     return queryset
+
+
+def category_real_spend(category: Category, start_date: date, end_date: date) -> int:
+    return (
+        Transaction.objects.filter(
+            transaction_type__in=[Transaction.TransactionType.EXPENSE, Transaction.TransactionType.EXPECTED_CHARGE],
+            category=category,
+            date__gte=start_date,
+            date__lte=end_date,
+        ).aggregate(total=Sum("amount_cents"))["total"]
+        or 0
+    )
+
+
+def carryover_balance_for_period(category: Category, period: BudgetPeriod) -> int:
+    if category.carryover_start_date is None:
+        return 0
+    start_period = get_budget_period(category.carryover_start_date)
+    if period_key(period) < period_key(start_period):
+        return category.carryover_initial_balance_cents
+
+    credited = 0
+    for credit_period in iter_budget_periods(start_period, period):
+        credited += ensure_category_allocation(category, credit_period).amount_cents
+
+    spent = category_real_spend(category, category.carryover_start_date, period.end)
+    return category.carryover_initial_balance_cents + credited - spent
+
+
+def sync_monthly_overspend_record(category: Category, period: BudgetPeriod) -> None:
+    if category.budget_behavior != Category.BudgetBehavior.MONTHLY_RESET:
+        return
+    tracking_period = get_budget_period(category.overspend_tracking_start_date)
+    if period_key(period) < period_key(tracking_period) or period.end >= timezone.localdate():
+        return
+
+    budget = ensure_category_allocation(category, period).amount_cents
+    spent = category_real_spend(category, period.start, period.end)
+    overspend = max(spent - budget, 0)
+    if overspend:
+        CategoryOverspendRecord.objects.update_or_create(
+            category=category,
+            period_start=period.start,
+            period_end=period.end,
+            defaults={"budget_cents": budget, "spent_cents": spent, "overspend_cents": overspend},
+        )
+    else:
+        CategoryOverspendRecord.objects.filter(
+            category=category,
+            period_start=period.start,
+            period_end=period.end,
+        ).delete()
+
+
+def sync_closed_overspend_records(categories: list[Category], requested_period: BudgetPeriod) -> None:
+    active_period = get_budget_period(timezone.localdate())
+    last_closed_period = previous_budget_period(active_period)
+    if period_key(requested_period) < period_key(last_closed_period):
+        last_period = requested_period
+    else:
+        last_period = last_closed_period
+
+    for category in categories:
+        if category.budget_behavior != Category.BudgetBehavior.MONTHLY_RESET:
+            continue
+        tracking_period = get_budget_period(category.overspend_tracking_start_date)
+        if period_key(tracking_period) > period_key(last_period):
+            continue
+        for period in iter_budget_periods(tracking_period, last_period):
+            sync_monthly_overspend_record(category, period)
+
+
+def overspend_history_for_categories(category_ids: list[int]) -> dict[int, dict]:
+    history: dict[int, dict] = {}
+    records = CategoryOverspendRecord.objects.filter(category_id__in=category_ids).order_by("category_id", "period_start")
+    for record in records:
+        item = history.setdefault(
+            record.category_id,
+            {
+                "overspend_count": 0,
+                "overspend_total_cents": 0,
+                "last_overspend_cents": 0,
+                "last_overspend_period_start": None,
+                "last_overspend_period_end": None,
+            },
+        )
+        item["overspend_count"] += 1
+        item["overspend_total_cents"] += record.overspend_cents
+        item["last_overspend_cents"] = record.overspend_cents
+        item["last_overspend_period_start"] = record.period_start
+        item["last_overspend_period_end"] = record.period_end
+    return history
 
 
 def expected_charges_for_period(period: BudgetPeriod):
@@ -314,6 +471,7 @@ def build_budget_summary(value: date | None = None, scope: str = "family", membe
     ensure_allocations(period)
     normalized_scope = "family" if scope == "global" else scope
     categories = list(categories_for_scope(normalized_scope, member_id).select_related("member"))
+    sync_closed_overspend_records(categories, period)
     category_ids = [category.id for category in categories]
     allocations = {
         allocation.category_id: allocation.amount_cents
@@ -345,7 +503,14 @@ def build_budget_summary(value: date | None = None, scope: str = "family", membe
         )
 
     items = []
-    totals = {"budget_cents": 0, "spent_cents": 0, "expected_cents": 0, "available_cents": 0}
+    overspend_history = overspend_history_for_categories(category_ids)
+    totals = {
+        "budget_cents": 0,
+        "spent_cents": 0,
+        "expected_cents": 0,
+        "available_cents": 0,
+        "real_available_cents": 0,
+    }
     breakdown: dict[str, dict] = {}
 
     for category in categories:
@@ -353,11 +518,25 @@ def build_budget_summary(value: date | None = None, scope: str = "family", membe
         spent = spent_by_category.get(category.id, 0)
         expected = pending_expected_by_category.get(category.id, 0)
         consumed = spent + expected
-        available = budget - consumed
+        if category.budget_behavior == Category.BudgetBehavior.CARRYOVER:
+            real_available = carryover_balance_for_period(category, period)
+        else:
+            real_available = budget - spent
+        available = real_available - expected
         percent_available = 0 if budget == 0 else round((available / budget) * 100, 2)
         member_payload = None
         if category.member:
             member_payload = {"id": category.member.id, "name": category.member.name, "color": category.member.color}
+        history_payload = overspend_history.get(
+            category.id,
+            {
+                "overspend_count": 0,
+                "overspend_total_cents": 0,
+                "last_overspend_cents": 0,
+                "last_overspend_period_start": None,
+                "last_overspend_period_end": None,
+            },
+        )
 
         items.append(
             {
@@ -367,19 +546,28 @@ def build_budget_summary(value: date | None = None, scope: str = "family", membe
                 "member": member_payload,
                 "color": category.color,
                 "icon": category.icon,
+                "budget_behavior": category.budget_behavior,
                 "budget_cents": budget,
                 "spent_cents": spent,
                 "expected_cents": expected,
                 "consumed_cents": consumed,
                 "available_cents": available,
+                "real_available_cents": real_available,
+                "projected_available_cents": available,
+                "carryover_real_balance_cents": real_available
+                if category.budget_behavior == Category.BudgetBehavior.CARRYOVER
+                else None,
+                "carryover_start_date": category.carryover_start_date,
                 "percent_available": percent_available,
                 "is_overspent": available < 0,
+                **history_payload,
             }
         )
         totals["budget_cents"] += budget
         totals["spent_cents"] += spent
         totals["expected_cents"] += expected
         totals["available_cents"] += available
+        totals["real_available_cents"] += real_available
 
         key = "family" if category.scope == Category.Scope.GLOBAL else f"member:{category.member_id}"
         label = "Familia" if category.scope == Category.Scope.GLOBAL else category.member.name
@@ -394,12 +582,14 @@ def build_budget_summary(value: date | None = None, scope: str = "family", membe
                 "spent_cents": 0,
                 "expected_cents": 0,
                 "available_cents": 0,
+                "real_available_cents": 0,
             },
         )
         bucket["budget_cents"] += budget
         bucket["spent_cents"] += spent
         bucket["expected_cents"] += expected
         bucket["available_cents"] += available
+        bucket["real_available_cents"] += real_available
 
     return {
         "period": {"start": period.start, "end": period.end},

@@ -116,6 +116,10 @@ const categoryForm = reactive({
   scope: 'global',
   member: '',
   monthly_budget: '',
+  budget_behavior: 'monthly_reset' as 'monthly_reset' | 'carryover',
+  carryover_initial_balance: '',
+  carryover_start_date: selectedDate.value,
+  budget_effective_date: selectedDate.value,
   color: '#e11d48',
   icon: 'tag',
   is_active: true,
@@ -384,6 +388,15 @@ const categoryFormTitle = computed(() => (editingCategoryId.value ? 'Editar cate
 const categorySubmitLabel = computed(() => {
   if (actionBusy.value === 'category') return 'Guardando...'
   return editingCategoryId.value ? 'Guardar cambios' : 'Crear categoría'
+})
+const editingCategory = computed(() => categories.value.find((category) => category.id === editingCategoryId.value) ?? null)
+const categoryBudgetChanged = computed(() => {
+  if (!editingCategory.value) return false
+  return centsFromInput(categoryForm.monthly_budget) !== editingCategory.value.monthly_budget_cents
+})
+const categoryBehaviorLabel = computed(() => {
+  if (categoryForm.budget_behavior === 'carryover') return 'Acumula saldo'
+  return 'Se reinicia cada mes'
 })
 const filteredCategoryIcons = computed(() => {
   const query = iconSearch.value.trim().toLowerCase()
@@ -1033,6 +1046,7 @@ async function submitCategory() {
   const name = normalizeText(categoryForm.name)
   const memberId = categoryForm.scope === 'personal' ? Number(categoryForm.member) : null
   const monthlyBudgetCents = centsFromInput(categoryForm.monthly_budget)
+  const carryoverInitialBalanceCents = centsFromInput(categoryForm.carryover_initial_balance || '0')
   if (!name) {
     showNotice('Escribe un nombre para la categoría.', 'error')
     return
@@ -1045,8 +1059,16 @@ async function submitCategory() {
     showNotice('Escribe un presupuesto mensual mayor a cero.', 'error')
     return
   }
+  if (!editingCategoryId.value && categoryForm.budget_behavior === 'carryover' && !categoryForm.carryover_start_date) {
+    showNotice('Indica la fecha de inicio acumulable.', 'error')
+    return
+  }
+  if (editingCategoryId.value && categoryBudgetChanged.value && !categoryForm.budget_effective_date) {
+    showNotice('Indica la fecha del cambio de presupuesto.', 'error')
+    return
+  }
   await runAction('category', editingCategoryId.value ? 'Categoría actualizada.' : 'Categoría guardada en el plan.', async () => {
-    const payload = {
+    const payload: Partial<Category> = {
       name,
       scope: categoryForm.scope as 'global' | 'personal',
       member: memberId,
@@ -1057,8 +1079,16 @@ async function submitCategory() {
       order: 0,
     }
     if (editingCategoryId.value) {
+      if (categoryBudgetChanged.value) {
+        payload.budget_effective_date = categoryForm.budget_effective_date
+      }
       await store.updateCategory(editingCategoryId.value, payload)
     } else {
+      payload.budget_behavior = categoryForm.budget_behavior
+      if (categoryForm.budget_behavior === 'carryover') {
+        payload.carryover_initial_balance_cents = carryoverInitialBalanceCents
+        payload.carryover_start_date = categoryForm.carryover_start_date
+      }
       await store.createCategory(payload)
     }
     resetCategoryForm()
@@ -1071,6 +1101,10 @@ function editCategory(category: Category) {
   categoryForm.scope = category.scope
   categoryForm.member = category.member ? String(category.member) : ''
   categoryForm.monthly_budget = String(category.monthly_budget_cents / 100)
+  categoryForm.budget_behavior = category.budget_behavior
+  categoryForm.carryover_initial_balance = String(category.carryover_initial_balance_cents / 100)
+  categoryForm.carryover_start_date = category.carryover_start_date || selectedDate.value
+  categoryForm.budget_effective_date = selectedDate.value
   categoryForm.color = category.color
   categoryForm.icon = category.icon || 'tag'
   categoryForm.is_active = category.is_active
@@ -1082,6 +1116,10 @@ function resetCategoryForm() {
   categoryForm.scope = 'global'
   categoryForm.member = ''
   categoryForm.monthly_budget = ''
+  categoryForm.budget_behavior = 'monthly_reset'
+  categoryForm.carryover_initial_balance = ''
+  categoryForm.carryover_start_date = selectedDate.value
+  categoryForm.budget_effective_date = selectedDate.value
   categoryForm.color = '#e11d48'
   categoryForm.icon = 'tag'
   categoryForm.is_active = true
@@ -1678,10 +1716,14 @@ function categoryIconComponent(icon?: string | null) {
 
       <section class="budget-hero detail-hero">
         <div class="summary-top">
-          <span>Disponible</span>
+          <span>{{ selectedCategory.budget_behavior === 'carryover' ? 'Disponible libre' : 'Disponible' }}</span>
           <strong>{{ money(selectedCategory.available_cents, settings.currency) }}</strong>
         </div>
         <div class="hero-metrics">
+          <article v-if="selectedCategory.budget_behavior === 'carryover'">
+            <span>Saldo real</span>
+            <b>{{ money(selectedCategory.real_available_cents, settings.currency) }}</b>
+          </article>
           <article>
             <span>Presupuesto</span>
             <b>{{ money(selectedCategory.budget_cents, settings.currency) }}</b>
@@ -1693,6 +1735,10 @@ function categoryIconComponent(icon?: string | null) {
           <article>
             <span>Esperado</span>
             <b>{{ money(selectedCategory.expected_cents, settings.currency) }}</b>
+          </article>
+          <article v-if="selectedCategory.budget_behavior === 'monthly_reset'">
+            <span>Excedentes</span>
+            <b>{{ selectedCategory.overspend_count }}</b>
           </article>
         </div>
         <div class="meter hero-meter">
@@ -1788,10 +1834,18 @@ function categoryIconComponent(icon?: string | null) {
                 </span>
                 <div>
                   <h2>{{ item.category_name }}</h2>
-                  <p>{{ item.spent_cents ? money(item.spent_cents, settings.currency) : '$0.00' }} de {{ money(item.budget_cents, settings.currency) }}</p>
+                  <p v-if="item.budget_behavior === 'carryover'">
+                    Saldo {{ money(item.real_available_cents, settings.currency) }} · libre {{ money(item.available_cents, settings.currency) }}
+                  </p>
+                  <p v-else>
+                    {{ item.spent_cents ? money(item.spent_cents, settings.currency) : '$0.00' }} de {{ money(item.budget_cents, settings.currency) }}
+                  </p>
+                  <small v-if="item.budget_behavior === 'monthly_reset' && item.overspend_count">
+                    {{ item.overspend_count }} excedentes · {{ money(item.overspend_total_cents, settings.currency) }}
+                  </small>
                 </div>
                 <span class="status-pill" :class="{ warning: item.is_overspent }">
-                  {{ item.is_overspent ? 'Revisar' : 'Bien' }}
+                  {{ item.is_overspent ? 'Revisar' : item.budget_behavior === 'carryover' ? 'Acumula' : 'Bien' }}
                 </span>
               </div>
               <div class="meter" aria-hidden="true">
@@ -2614,6 +2668,25 @@ function categoryIconComponent(icon?: string | null) {
                 <button type="button" :class="{ active: categoryForm.scope === 'global' }" @click="categoryForm.scope = 'global'">Familia</button>
                 <button type="button" :class="{ active: categoryForm.scope === 'personal' }" @click="categoryForm.scope = 'personal'">Personal</button>
               </div>
+              <div v-if="!editingCategoryId" class="segmented blue-segmented">
+                <button
+                  type="button"
+                  :class="{ active: categoryForm.budget_behavior === 'monthly_reset' }"
+                  @click="categoryForm.budget_behavior = 'monthly_reset'"
+                >
+                  Mensual
+                </button>
+                <button
+                  type="button"
+                  :class="{ active: categoryForm.budget_behavior === 'carryover' }"
+                  @click="categoryForm.budget_behavior = 'carryover'"
+                >
+                  Acumulable
+                </button>
+              </div>
+              <div v-else class="commitment-readonly">
+                <span>Tipo {{ categoryBehaviorLabel }}</span>
+              </div>
               <label>Nombre<input v-model="categoryForm.name" required /></label>
               <label v-if="categoryForm.scope === 'personal'">
                 Persona
@@ -2623,6 +2696,14 @@ function categoryIconComponent(icon?: string | null) {
                 </select>
               </label>
               <label>Presupuesto mensual<input v-model="categoryForm.monthly_budget" inputmode="decimal" required /></label>
+              <div v-if="!editingCategoryId && categoryForm.budget_behavior === 'carryover'" class="field-row">
+                <label>Saldo inicial<input v-model="categoryForm.carryover_initial_balance" inputmode="decimal" required /></label>
+                <label>Inicio<input v-model="categoryForm.carryover_start_date" type="date" required /></label>
+              </div>
+              <label v-if="editingCategoryId && categoryBudgetChanged">
+                Fecha del cambio
+                <input v-model="categoryForm.budget_effective_date" type="date" required />
+              </label>
               <div class="field-group">
                 <span>Icono</span>
                 <button class="icon-select-button" type="button" :style="{ '--category-color': categoryForm.color }" @click="openIconGallery($event)">
@@ -2671,11 +2752,12 @@ function categoryIconComponent(icon?: string | null) {
                 </span>
                 <div>
                   <b>{{ category.name }}</b>
-                  <span>
-                    {{ category.scope === 'global' ? 'Familia' : category.member_name || 'Personal' }} ·
-                    {{ money(category.monthly_budget_cents, settings.currency) }} ·
-                    {{ category.is_active ? 'activa' : 'inactiva' }}
-                  </span>
+	                  <span>
+	                    {{ category.scope === 'global' ? 'Familia' : category.member_name || 'Personal' }} ·
+	                    {{ money(category.monthly_budget_cents, settings.currency) }} ·
+	                    {{ category.budget_behavior === 'carryover' ? 'acumulable' : 'mensual' }} ·
+	                    {{ category.is_active ? 'activa' : 'inactiva' }}
+	                  </span>
                 </div>
                 <button class="secondary" type="button" @click="editCategory(category)">Editar</button>
               </article>

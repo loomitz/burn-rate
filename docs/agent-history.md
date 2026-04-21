@@ -1,5 +1,25 @@
 # Agent History
 
+## 2026-04-21 - Categorías acumulables y excedentes mensuales
+
+Objetivo: permitir que algunas categorías acumulen saldo entre ciclos, conservar el comportamiento mensual actual para las existentes y registrar excedentes de categorías normales por ciclo cerrado.
+
+Archivos tocados:
+
+- Agregados `budget_behavior`, saldo inicial, fecha de inicio acumulable y fecha de inicio de tracking de excedentes a `Category` con migración `0013_category_budget_behavior_and_more.py`.
+- Agregados `CategoryBudgetChange` y `CategoryOverspendRecord` para auditar cambios de presupuesto y excedentes por ciclo.
+- Actualizados serializers y servicios para impedir convertir categorías existentes, exigir fecha efectiva al cambiar presupuesto y calcular saldo real/proyectado de categorías acumulables.
+- Actualizado `frontend/src/App.vue` para crear categorías mensuales o acumulables, mostrar el tipo como lectura en edición y pedir fecha cuando cambia el presupuesto.
+- Actualizados tipos, pruebas frontend y documentación de API/Docker para `loomitz/burnrate:v0.1.9`.
+
+Verificaciones:
+
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py makemigrations --check --dry-run` no detectó migraciones pendientes.
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py test budget` pasó en `backend/` con 66 tests.
+- `pnpm test` pasó en `frontend/` con 21 tests.
+- `pnpm build` pasó en `frontend/`.
+- `uv run python manage.py migrate` aplicó la migración local y `/api/onboarding/status/` respondió `ready: true` sin migraciones pendientes.
+
 ## 2026-04-21 - Comercios en suscripciones y MSI
 
 Objetivo: separar el nombre interno del compromiso y el comercio real en suscripciones y compras a meses, compartiendo el mismo catálogo de comercios usado por gastos.

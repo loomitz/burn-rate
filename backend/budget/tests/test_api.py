@@ -9,6 +9,7 @@ from budget.models import (
     Account,
     AppSettings,
     Category,
+    CategoryBudgetChange,
     ExpectedChargeDismissal,
     HouseholdMember,
     InstallmentPlan,
@@ -94,6 +95,44 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data["color"], "#ca8a04")
         self.assertEqual(response.data["icon"], "paw")
+        self.assertEqual(response.data["budget_behavior"], Category.BudgetBehavior.MONTHLY_RESET)
+
+    def test_category_can_be_created_as_carryover_budget(self):
+        response = self.client.post(
+            "/api/categories/",
+            {
+                "name": "Viajes",
+                "scope": "global",
+                "monthly_budget_cents": 250000,
+                "budget_behavior": Category.BudgetBehavior.CARRYOVER,
+                "carryover_initial_balance_cents": -50000,
+                "carryover_start_date": "2026-04-21",
+                "color": "#0284c7",
+                "icon": "plane",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["budget_behavior"], Category.BudgetBehavior.CARRYOVER)
+        self.assertEqual(response.data["carryover_initial_balance_cents"], -50000)
+        self.assertEqual(response.data["carryover_start_date"], "2026-04-21")
+        self.assertTrue(CategoryBudgetChange.objects.filter(category_id=response.data["id"], amount_cents=250000).exists())
+
+    def test_carryover_category_requires_initial_balance_and_start_date(self):
+        response = self.client.post(
+            "/api/categories/",
+            {
+                "name": "Viajes",
+                "scope": "global",
+                "monthly_budget_cents": 250000,
+                "budget_behavior": Category.BudgetBehavior.CARRYOVER,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("carryover_initial_balance_cents", response.data)
 
     def test_category_can_be_updated_by_admin(self):
         response = self.client.patch(
@@ -101,6 +140,7 @@ class BudgetApiTests(APITestCase):
             {
                 "name": "Super y despensa",
                 "monthly_budget_cents": 250000,
+                "budget_effective_date": "2026-04-21",
                 "color": "#0284c7",
                 "icon": "shopping-cart",
                 "is_active": False,
@@ -114,6 +154,42 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.data["color"], "#0284c7")
         self.assertEqual(response.data["icon"], "shopping-cart")
         self.assertFalse(response.data["is_active"])
+        self.assertTrue(CategoryBudgetChange.objects.filter(category=self.category, amount_cents=250000).exists())
+
+    def test_category_budget_change_requires_effective_date(self):
+        response = self.client.patch(
+            f"/api/categories/{self.category.id}/",
+            {"monthly_budget_cents": 250000},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("budget_effective_date", response.data)
+
+    def test_category_budget_can_be_decreased_with_effective_date(self):
+        response = self.client.patch(
+            f"/api/categories/{self.category.id}/",
+            {"monthly_budget_cents": 150000, "budget_effective_date": "2026-04-21"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["monthly_budget_cents"], 150000)
+        self.assertTrue(CategoryBudgetChange.objects.filter(category=self.category, amount_cents=150000).exists())
+
+    def test_category_budget_behavior_cannot_be_changed_after_create(self):
+        response = self.client.patch(
+            f"/api/categories/{self.category.id}/",
+            {
+                "budget_behavior": Category.BudgetBehavior.CARRYOVER,
+                "carryover_initial_balance_cents": 0,
+                "carryover_start_date": "2026-04-21",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("budget_behavior", response.data)
 
     def test_transaction_expense_requires_category_and_account(self):
         response = self.client.post(
