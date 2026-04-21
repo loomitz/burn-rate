@@ -9,11 +9,13 @@ from budget.models import (
     Account,
     AppSettings,
     Category,
+    ExpectedChargeDismissal,
     HouseholdMember,
     InstallmentPlan,
     Invitation,
     MerchantConcept,
     RecurringExpense,
+    Transaction,
 )
 
 
@@ -244,6 +246,92 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.data["merchant"], "Telmex")
         self.assertTrue(MerchantConcept.objects.filter(name="Telmex").exists())
 
+    def test_recurring_expense_update_only_allows_name_and_merchant(self):
+        recurring = RecurringExpense.objects.create(
+            name="Internet",
+            merchant="Telmex",
+            amount_cents=59900,
+            category=self.category,
+            account=self.account,
+            start_date=date(2026, 4, 1),
+            charge_day=1,
+        )
+
+        response = self.client.patch(
+            f"/api/recurring-expenses/{recurring.id}/",
+            {"name": "Internet casa", "merchant": "Telmex Hogar"},
+            format="json",
+        )
+        blocked_response = self.client.patch(
+            f"/api/recurring-expenses/{recurring.id}/",
+            {"amount_cents": 70000, "start_date": "2026-05-01"},
+            format="json",
+        )
+
+        recurring.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(recurring.name, "Internet casa")
+        self.assertEqual(recurring.merchant, "Telmex Hogar")
+        self.assertEqual(blocked_response.status_code, 400)
+        self.assertEqual(set(blocked_response.data["fields"]), {"amount_cents", "start_date"})
+        self.assertEqual(recurring.amount_cents, 59900)
+        self.assertEqual(recurring.start_date, date(2026, 4, 1))
+
+    def test_can_delete_recurring_expense_without_deleting_confirmed_transactions(self):
+        recurring = RecurringExpense.objects.create(
+            name="Internet",
+            merchant="Telmex",
+            amount_cents=59900,
+            category=self.category,
+            account=self.account,
+            start_date=date(2026, 4, 1),
+            charge_day=1,
+        )
+        dismissal = ExpectedChargeDismissal.objects.create(
+            source_type=ExpectedChargeDismissal.SourceType.RECURRING,
+            source_id=recurring.id,
+            period_start=date(2026, 5, 1),
+            created_by=self.user,
+        )
+        transaction = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPECTED_CHARGE,
+            merchant="Telmex",
+            amount_cents=59900,
+            date=date(2026, 5, 1),
+            account=self.account,
+            category=self.category,
+            recurring_expense=recurring,
+            created_by=self.user,
+        )
+
+        response = self.client.delete(f"/api/recurring-expenses/{recurring.id}/")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(RecurringExpense.objects.filter(id=recurring.id).exists())
+        self.assertFalse(ExpectedChargeDismissal.objects.filter(id=dismissal.id).exists())
+        transaction.refresh_from_db()
+        self.assertIsNone(transaction.recurring_expense_id)
+        self.assertEqual(transaction.merchant, "Telmex")
+
+    def test_non_admin_cannot_delete_recurring_expense(self):
+        recurring = RecurringExpense.objects.create(
+            name="Internet",
+            merchant="Telmex",
+            amount_cents=59900,
+            category=self.category,
+            account=self.account,
+            start_date=date(2026, 4, 1),
+            charge_day=1,
+        )
+        User.objects.create_user(username="reader", password="testpass123")
+        self.client.logout()
+        self.client.login(username="reader", password="testpass123")
+
+        response = self.client.delete(f"/api/recurring-expenses/{recurring.id}/")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(RecurringExpense.objects.filter(id=recurring.id).exists())
+
     def test_installment_plan_requires_valid_dates(self):
         response = self.client.post(
             "/api/installment-plans/",
@@ -302,6 +390,92 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.data["installments_count"], 12)
         self.assertEqual(response.data["monthly_amount_cents"], 100000)
         self.assertTrue(MerchantConcept.objects.filter(name="Liverpool").exists())
+
+    def test_installment_plan_update_only_allows_name_and_merchant(self):
+        plan = InstallmentPlan.objects.create(
+            name="Laptop",
+            merchant="Liverpool",
+            total_amount_cents=1200000,
+            category=self.category,
+            account=self.account,
+            start_date=date(2026, 4, 21),
+            end_date=date(2026, 6, 21),
+        )
+
+        response = self.client.patch(
+            f"/api/installment-plans/{plan.id}/",
+            {"name": "Laptop trabajo", "merchant": "Liverpool Online"},
+            format="json",
+        )
+        blocked_response = self.client.patch(
+            f"/api/installment-plans/{plan.id}/",
+            {"total_amount_cents": 900000, "start_date": "2026-05-21"},
+            format="json",
+        )
+
+        plan.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(plan.name, "Laptop trabajo")
+        self.assertEqual(plan.merchant, "Liverpool Online")
+        self.assertEqual(blocked_response.status_code, 400)
+        self.assertEqual(set(blocked_response.data["fields"]), {"start_date", "total_amount_cents"})
+        self.assertEqual(plan.total_amount_cents, 1200000)
+        self.assertEqual(plan.start_date, date(2026, 4, 21))
+
+    def test_can_delete_installment_plan_without_deleting_confirmed_transactions(self):
+        plan = InstallmentPlan.objects.create(
+            name="Laptop",
+            merchant="Liverpool",
+            total_amount_cents=1200000,
+            category=self.category,
+            account=self.account,
+            start_date=date(2026, 4, 21),
+            end_date=date(2026, 6, 21),
+        )
+        dismissal = ExpectedChargeDismissal.objects.create(
+            source_type=ExpectedChargeDismissal.SourceType.INSTALLMENT,
+            source_id=plan.id,
+            period_start=date(2026, 5, 1),
+            created_by=self.user,
+        )
+        transaction = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPECTED_CHARGE,
+            merchant="Liverpool",
+            amount_cents=400000,
+            date=date(2026, 5, 21),
+            account=self.account,
+            category=self.category,
+            installment_plan=plan,
+            created_by=self.user,
+        )
+
+        response = self.client.delete(f"/api/installment-plans/{plan.id}/")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(InstallmentPlan.objects.filter(id=plan.id).exists())
+        self.assertFalse(ExpectedChargeDismissal.objects.filter(id=dismissal.id).exists())
+        transaction.refresh_from_db()
+        self.assertIsNone(transaction.installment_plan_id)
+        self.assertEqual(transaction.merchant, "Liverpool")
+
+    def test_non_admin_cannot_delete_installment_plan(self):
+        plan = InstallmentPlan.objects.create(
+            name="Laptop",
+            merchant="Liverpool",
+            total_amount_cents=1200000,
+            category=self.category,
+            account=self.account,
+            start_date=date(2026, 4, 21),
+            end_date=date(2026, 6, 21),
+        )
+        User.objects.create_user(username="reader", password="testpass123")
+        self.client.logout()
+        self.client.login(username="reader", password="testpass123")
+
+        response = self.client.delete(f"/api/installment-plans/{plan.id}/")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(InstallmentPlan.objects.filter(id=plan.id).exists())
 
     def test_installment_projection_endpoint_groups_current_and_future_payments(self):
         InstallmentPlan.objects.create(

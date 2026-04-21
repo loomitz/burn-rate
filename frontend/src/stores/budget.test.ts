@@ -40,6 +40,27 @@ describe('budget store auth flow', () => {
     vi.stubGlobal('fetch', fetchMock)
   })
 
+  function mockFetchAllResponses() {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ currency: 'MXN', cutoff_day: 20 }))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        period: { start: '2026-04-21', end: '2026-05-20' },
+        scope: 'total',
+        totals: { budget_cents: 0, spent_cents: 0, expected_cents: 0, consumed_cents: 0, available_cents: 0 },
+        categories: [],
+      }),
+    )
+    fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+  }
+
   it('keeps auth unresolved until bootstrap status chooses first-run claim', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(readyOnboardingStatus))
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
@@ -318,6 +339,66 @@ describe('budget store auth flow', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/recurring-expenses/')
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  })
+
+  it('updates recurring expenses with only name and merchant', async () => {
+    const payload = { name: 'Internet casa', merchant: 'Telmex Hogar' }
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    mockFetchAllResponses()
+
+    const store = useBudgetStore()
+
+    await store.updateRecurring(9, payload)
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/recurring-expenses/9/')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  })
+
+  it('deletes recurring expenses and refreshes the dashboard state', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    mockFetchAllResponses()
+
+    const store = useBudgetStore()
+
+    await store.deleteRecurring(9)
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/recurring-expenses/9/')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'DELETE' })
+    expect(fetchMock.mock.calls.map((call) => call[0])).toContain('/api/recurring-expenses/')
+    expect(fetchMock.mock.calls.map((call) => call[0])).toContain('/api/installment-plans/')
+  })
+
+  it('deletes installment plans and refreshes the projection state', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    mockFetchAllResponses()
+
+    const store = useBudgetStore()
+
+    await store.deleteInstallment(12)
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/installment-plans/12/')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'DELETE' })
+    expect(fetchMock.mock.calls.map((call) => call[0])).toContain('/api/recurring-expenses/')
+    expect(fetchMock.mock.calls.map((call) => call[0])).toContain('/api/installment-plans/')
+  })
+
+  it('updates installment plans with only name and merchant', async () => {
+    const payload = { name: 'Laptop trabajo', merchant: 'Liverpool Online' }
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    mockFetchAllResponses()
+
+    const store = useBudgetStore()
+
+    await store.updateInstallment(12, payload)
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/installment-plans/12/')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'PATCH',
       body: JSON.stringify(payload),
     })
   })

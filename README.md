@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Logos/blanco.svg" alt="Burn Rate" width="220" />
+  <img src="Logos/applogo.svg" alt="Burn Rate" width="220" />
 </p>
 
 # Burn Rate
@@ -87,12 +87,12 @@ La base de datos no publica puertos al host por defecto. Solo se expone la aplic
 
 Si vas a instalar desde Docker Hub sin clonar este repositorio, crea un archivo `docker-compose.yml` con este template:
 
-La imagen `loomitz/burnrate:v0.1.5` está publicada para `linux/amd64` y `linux/arm64`.
+La imagen `loomitz/burnrate:v0.1.6` está publicada para `linux/amd64` y `linux/arm64`.
 
 ```yaml
 services:
   app:
-    image: loomitz/burnrate:v0.1.5
+    image: loomitz/burnrate:v0.1.6
     environment:
       DB_NAME: ${DB_NAME:-burn_rate}
       DB_USER: ${DB_USER:-burn_rate}
@@ -209,7 +209,7 @@ Si estas variables no están completas, el flujo sigue funcionando y muestra el 
 
 | Variable | Uso |
 | --- | --- |
-| `BURN_RATE_IMAGE` | Imagen usada por el `docker-compose.yml` del repo. Por defecto `loomitz/burnrate:v0.1.5`. |
+| `BURN_RATE_IMAGE` | Imagen usada por el `docker-compose.yml` del repo. Por defecto `loomitz/burnrate:v0.1.6`. |
 | `APP_BIND` | Interfaz del host donde Docker publica la app. Por defecto `127.0.0.1`. |
 | `APP_PORT` | Puerto del host para acceder a Burn Rate. Por defecto `8000`. |
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Credenciales de PostgreSQL. |

@@ -609,8 +609,28 @@ export const useBudgetStore = defineStore('budget', () => {
     await fetchAll()
   }
 
+  async function updateRecurring(id: RecurringExpense['id'], payload: Pick<RecurringExpense, 'name' | 'merchant'>) {
+    await apiRequest(`/api/recurring-expenses/${id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
+    await fetchAll()
+  }
+
+  async function deleteRecurring(id: RecurringExpense['id']) {
+    await apiRequest(`/api/recurring-expenses/${id}/`, { method: 'DELETE' })
+    await fetchAll()
+  }
+
   async function createInstallment(payload: Partial<InstallmentPlan>) {
     await apiRequest('/api/installment-plans/', { method: 'POST', body: JSON.stringify(payload) })
+    await fetchAll()
+  }
+
+  async function updateInstallment(id: InstallmentPlan['id'], payload: Pick<InstallmentPlan, 'name' | 'merchant'>) {
+    await apiRequest(`/api/installment-plans/${id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
+    await fetchAll()
+  }
+
+  async function deleteInstallment(id: InstallmentPlan['id']) {
+    await apiRequest(`/api/installment-plans/${id}/`, { method: 'DELETE' })
     await fetchAll()
   }
 
@@ -726,7 +746,11 @@ export const useBudgetStore = defineStore('budget', () => {
     updateAccount,
     createTransaction,
     createRecurring,
+    updateRecurring,
+    deleteRecurring,
     createInstallment,
+    updateInstallment,
+    deleteInstallment,
     confirmCharge,
     dismissCharge,
     fetchInvitations,

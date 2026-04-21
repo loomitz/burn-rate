@@ -1722,6 +1722,12 @@ p {
 
 .expected-row {
   grid-template-columns: minmax(0, 1fr) auto auto auto;
+  padding-right: calc(var(--space-sm) + 44px);
+}
+
+.expected-row,
+.installment-row {
+  position: relative;
 }
 
 .feed-row div,
@@ -1870,13 +1876,95 @@ p {
   background: color-mix(in srgb, var(--commitments-accent) 5%, transparent);
 }
 
+.danger-action {
+  min-height: 34px;
+  padding: 0 12px;
+  color: #9a2f1e;
+  border: 1px solid color-mix(in srgb, #9a2f1e 36%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, #9a2f1e 8%, var(--surface));
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.danger-action:hover:not(:disabled) {
+  color: #7c2418;
+  border-color: color-mix(in srgb, #9a2f1e 62%, var(--line));
+  background: color-mix(in srgb, #9a2f1e 13%, var(--surface));
+}
+
+.compact-icon-action {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  color: var(--commitments-accent);
+  background: var(--commitments-soft);
+  box-shadow: none;
+}
+
+.commitment-edit-panel {
+  grid-column: 1 / -1;
+  padding-top: var(--space-xs);
+  border-top: 1px solid color-mix(in srgb, var(--commitments-accent) 14%, var(--line));
+}
+
+.commitment-readonly {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.commitment-edit-actions,
+.inline-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+.commitment-danger-zone {
+  display: grid;
+  gap: var(--space-xs);
+  padding-top: var(--space-xs);
+}
+
+.inline-confirm {
+  padding: var(--space-xs);
+  border: 1px solid color-mix(in srgb, #9a2f1e 22%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, #9a2f1e 5%, var(--surface));
+}
+
+.inline-confirm span {
+  color: #9a2f1e;
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .installment-row {
   display: grid;
   gap: var(--space-sm);
   padding: var(--space-md);
 }
 
-.installment-main,
+.installment-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding-right: 44px;
+}
+
 .progress-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -3092,11 +3180,10 @@ input[type='color'] {
     grid-template-columns: 1fr auto;
   }
 
-  .expected-row button {
+  .expected-row button:not(.compact-icon-action) {
     min-height: 36px;
   }
 
-  .installment-main,
   .progress-row {
     grid-template-columns: 1fr;
   }

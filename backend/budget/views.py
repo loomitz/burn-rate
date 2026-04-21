@@ -64,6 +64,27 @@ class IsStaffUser(BasePermission):
         return bool(request.user and request.user.is_staff)
 
 
+class StaffDestroyMixin:
+    def destroy(self, request, *args, **kwargs):
+        if not (request.user and (request.user.is_staff or request.user.is_superuser)):
+            return Response({"detail": "Solo un administrador puede eliminar este registro."}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
+
+
+class CommitmentEditableFieldsMixin:
+    editable_fields = {"name", "merchant"}
+
+    def update(self, request, *args, **kwargs):
+        blocked_fields = sorted(set(request.data.keys()) - self.editable_fields)
+        if blocked_fields:
+            return Response(
+                {"detail": "Solo se puede editar nombre y comercio.", "fields": blocked_fields},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        kwargs["partial"] = True
+        return super().update(request, *args, **kwargs)
+
+
 def bootstrap_needs_claim() -> bool:
     return not User.objects.exists()
 
@@ -316,14 +337,28 @@ class TransactionViewSet(viewsets.ModelViewSet):
         return queryset
 
 
-class RecurringExpenseViewSet(viewsets.ModelViewSet):
+class RecurringExpenseViewSet(StaffDestroyMixin, CommitmentEditableFieldsMixin, viewsets.ModelViewSet):
     queryset = RecurringExpense.objects.select_related("category", "category__member", "account").all()
     serializer_class = RecurringExpenseSerializer
 
+    def perform_destroy(self, instance):
+        ExpectedChargeDismissal.objects.filter(
+            source_type=ExpectedChargeDismissal.SourceType.RECURRING,
+            source_id=instance.id,
+        ).delete()
+        instance.delete()
 
-class InstallmentPlanViewSet(viewsets.ModelViewSet):
+
+class InstallmentPlanViewSet(StaffDestroyMixin, CommitmentEditableFieldsMixin, viewsets.ModelViewSet):
     queryset = InstallmentPlan.objects.select_related("category", "category__member", "account").all()
     serializer_class = InstallmentPlanSerializer
+
+    def perform_destroy(self, instance):
+        ExpectedChargeDismissal.objects.filter(
+            source_type=ExpectedChargeDismissal.SourceType.INSTALLMENT,
+            source_id=instance.id,
+        ).delete()
+        instance.delete()
 
 
 class BudgetSummaryView(APIView):

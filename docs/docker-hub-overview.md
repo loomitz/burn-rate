@@ -7,7 +7,7 @@ Está pensada para instalarse detrás de una VPN, red privada o reverse proxy co
 ## Imagen
 
 ```bash
-docker pull loomitz/burnrate:v0.1.5
+docker pull loomitz/burnrate:v0.1.6
 ```
 
 También está disponible:
@@ -44,7 +44,7 @@ Crea un archivo `docker-compose.yml`:
 ```yaml
 services:
   app:
-    image: loomitz/burnrate:v0.1.5
+    image: loomitz/burnrate:v0.1.6
     environment:
       DB_NAME: ${DB_NAME:-burn_rate}
       DB_USER: ${DB_USER:-burn_rate}
@@ -219,7 +219,7 @@ DJANGO_CSRF_COOKIE_SECURE=true
 DJANGO_TRUST_X_FORWARDED_PROTO=true
 ```
 
-La imagen `v0.1.5` fue revisada con Docker Scout y publicada con 0 vulnerabilidades detectadas en `linux/amd64` y `linux/arm64` al momento de la publicación.
+La imagen `v0.1.6` fue revisada con Docker Scout y publicada con 0 vulnerabilidades detectadas en `linux/amd64` y `linux/arm64` al momento de la publicación.
 
 ## Código fuente
 
@@ -231,7 +231,8 @@ https://github.com/loomitz/burn-rate
 
 ## Tags
 
-- `v0.1.5`: versión actual con MSI iniciadas, comercios compartidos en compromisos y soporte multi-arquitectura.
+- `v0.1.6`: edición segura de compromisos, eliminación solo para admins, logo de documentación actualizado y soporte multi-arquitectura.
+- `v0.1.5`: MSI iniciadas, comercios compartidos en compromisos y soporte multi-arquitectura.
 - `v0.1.4`: invitaciones simplificadas, edición de categorías, edición de cuentas/personas y soporte multi-arquitectura.
 - `v0.1.3`: invitaciones simplificadas, edición de categorías y soporte multi-arquitectura.
 - `latest`: apunta a la versión estable más reciente.

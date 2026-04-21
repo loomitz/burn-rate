@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { Laptop, Moon, Search, Sun, X } from '@lucide/vue'
+import { Laptop, Moon, Pencil, Search, Sun, X } from '@lucide/vue'
 import {
   useBudgetStore,
   type Account,
@@ -31,6 +31,7 @@ const {
   merchantConcepts,
   transactions,
   recurringExpenses,
+  installmentPlans,
   expectedCharges,
   installmentProjection,
   summary,
@@ -45,6 +46,7 @@ type View = 'budget' | 'expenses' | 'commitments' | 'settings'
 type ExpensesTab = 'capture' | 'feed'
 type CommitmentTab = 'subscriptions' | 'msi'
 type CommitmentKind = 'subscription' | 'msi'
+type CommitmentEditKind = 'recurring' | 'installment'
 type SettingsPanel = 'accounts' | 'people' | 'categories' | 'invitations'
 type NoticeType = 'success' | 'error' | 'info'
 type MerchantSuggestionTarget = 'expense' | 'recurring' | 'installment'
@@ -83,6 +85,8 @@ const createdInvitationLink = ref('')
 const editingAccountId = ref<number | null>(null)
 const editingMemberId = ref<number | null>(null)
 const editingCategoryId = ref<number | null>(null)
+const editingCommitment = ref<{ type: CommitmentEditKind; id: number } | null>(null)
+const deleteConfirmCommitment = ref<{ type: CommitmentEditKind; id: number } | null>(null)
 const claimForm = reactive({ full_name: '', display_name: '', email: '', password: '', confirmPassword: '' })
 const loginForm = reactive({ email: '', password: '' })
 const acceptInviteForm = reactive({ full_name: '', display_name: '', password: '', confirmPassword: '' })
@@ -135,6 +139,10 @@ const installmentForm = reactive({
   start_date: selectedDate.value,
   end_date: selectedDate.value,
   first_payment_number: '1',
+})
+const commitmentEditForm = reactive({
+  name: '',
+  merchant: '',
 })
 const settingsForm = reactive({ cutoff_day: 20 })
 const notice = reactive<{ type: NoticeType; message: string }>({ type: 'info', message: '' })
@@ -312,10 +320,18 @@ const recurringExpectedCharges = computed(() =>
 const recurringExpectedTotal = computed(() =>
   recurringExpectedCharges.value.reduce((total, charge) => total + charge.amount_cents, 0),
 )
+const activeRecurringExpenses = computed(() => recurringExpenses.value.filter((expense) => expense.is_active))
+const recurringCommitmentRows = computed(() =>
+  activeRecurringExpenses.value.map((expense) => ({
+    expense,
+    charge: recurringExpectedCharges.value.find((charge) => charge.source_id === expense.id),
+  })),
+)
 const projectedInstallmentPeriods = computed(() => installmentProjection.value?.periods ?? [])
 const projectedInstallmentPlans = computed(() =>
   (installmentProjection.value?.plans ?? []).filter((plan) => plan.projected_total_cents || plan.current_amount_cents),
 )
+const installmentPlanLookup = computed(() => new Map(installmentPlans.value.map((plan) => [plan.id, plan])))
 const currentInstallmentTotal = computed(() => installmentProjection.value?.current_total_cents ?? 0)
 const registeredInstallmentTotal = computed(() =>
   projectedInstallmentPlans.value.reduce((total, plan) => total + plan.total_amount_cents, 0),
@@ -1139,6 +1155,100 @@ async function submitInstallment() {
     installmentForm.first_payment_number = '1'
     showCommitmentForm.value = false
     commitmentTab.value = 'msi'
+  })
+}
+
+function isEditingCommitment(type: CommitmentEditKind, id: number) {
+  return editingCommitment.value?.type === type && editingCommitment.value.id === id
+}
+
+function isConfirmingCommitmentDelete(type: CommitmentEditKind, id: number) {
+  return deleteConfirmCommitment.value?.type === type && deleteConfirmCommitment.value.id === id
+}
+
+function openCommitmentEdit(type: CommitmentEditKind, item: { id: number; name: string; merchant: string }) {
+  editingCommitment.value = { type, id: item.id }
+  deleteConfirmCommitment.value = null
+  commitmentEditForm.name = item.name
+  commitmentEditForm.merchant = item.merchant
+}
+
+function closeCommitmentEdit() {
+  editingCommitment.value = null
+  deleteConfirmCommitment.value = null
+  commitmentEditForm.name = ''
+  commitmentEditForm.merchant = ''
+}
+
+function startCommitmentDelete(type: CommitmentEditKind, id: number) {
+  if (!canManageSettings.value) {
+    showNotice('Solo un administrador puede eliminar compromisos.', 'error')
+    return
+  }
+  deleteConfirmCommitment.value = { type, id }
+}
+
+function cancelCommitmentDelete() {
+  deleteConfirmCommitment.value = null
+}
+
+function installmentPlanDetail(id: number) {
+  return installmentPlanLookup.value.get(id)
+}
+
+async function saveRecurringExpenseEdit(expense: { id: number }) {
+  const name = normalizeText(commitmentEditForm.name)
+  const merchant = normalizeText(commitmentEditForm.merchant)
+  if (!name) {
+    showNotice('Escribe un nombre para el cargo mensual.', 'error')
+    return
+  }
+  if (!merchant) {
+    showNotice('Escribe el comercio del cargo mensual.', 'error')
+    return
+  }
+  await runAction(`edit-recurring-${expense.id}`, 'Cargo mensual actualizado.', async () => {
+    await store.updateRecurring(expense.id, { name, merchant })
+    closeCommitmentEdit()
+  })
+}
+
+async function saveInstallmentPlanEdit(plan: { id: number }) {
+  const name = normalizeText(commitmentEditForm.name)
+  const merchant = normalizeText(commitmentEditForm.merchant)
+  if (!name) {
+    showNotice('Escribe un nombre para la compra a meses.', 'error')
+    return
+  }
+  if (!merchant) {
+    showNotice('Escribe el comercio de la compra a meses.', 'error')
+    return
+  }
+  await runAction(`edit-installment-${plan.id}`, 'Compra a meses actualizada.', async () => {
+    await store.updateInstallment(plan.id, { name, merchant })
+    closeCommitmentEdit()
+  })
+}
+
+async function deleteRecurringExpense(expense: { id: number }) {
+  if (!canManageSettings.value) {
+    showNotice('Solo un administrador puede eliminar compromisos.', 'error')
+    return
+  }
+  await runAction(`delete-recurring-${expense.id}`, 'Cargo mensual eliminado.', async () => {
+    await store.deleteRecurring(expense.id)
+    closeCommitmentEdit()
+  })
+}
+
+async function deleteInstallmentPlan(plan: { id: number }) {
+  if (!canManageSettings.value) {
+    showNotice('Solo un administrador puede eliminar compromisos.', 'error')
+    return
+  }
+  await runAction(`delete-installment-${plan.id}`, 'Compra a meses eliminada.', async () => {
+    await store.deleteInstallment(plan.id)
+    closeCommitmentEdit()
   })
 }
 
@@ -2067,7 +2177,7 @@ function categoryIconComponent(icon?: string | null) {
             <h1>Cargos del mes</h1>
             <small class="commitment-inline-summary">
               <b>{{ money(currentCommitmentTotal, settings.currency) }}</b>
-              <em>{{ recurringExpectedCharges.length }} mensuales · {{ projectedInstallmentPlans.length }} a meses</em>
+              <em>{{ activeRecurringExpenses.length }} mensuales · {{ projectedInstallmentPlans.length }} a meses</em>
             </small>
           </div>
           <button class="month-chip" type="button" @click="openCommitmentForm('subscription')">Agregar</button>
@@ -2082,19 +2192,94 @@ function categoryIconComponent(icon?: string | null) {
           <div class="section-title-row">
             <h2>Cargos mensuales</h2>
           </div>
-          <article v-for="charge in recurringExpectedCharges" :key="charge.key" class="expected-row">
+          <article
+            v-for="row in recurringCommitmentRows"
+            :key="row.expense.id"
+            class="expected-row"
+            :class="{ editing: isEditingCommitment('recurring', row.expense.id) }"
+          >
             <div>
-              <b>{{ charge.name }}</b>
+              <b>{{ row.expense.name }}</b>
               <span>
-                {{ charge.merchant }} · {{ charge.category.name }}
-                <template v-if="charge.member"> · {{ charge.member.name }}</template>
+                {{ row.expense.merchant }} · {{ row.expense.category_name }}
+                <template v-if="row.expense.member_name"> · {{ row.expense.member_name }}</template>
               </span>
+              <small v-if="!row.charge">Sin cargo pendiente en este periodo</small>
             </div>
-            <strong>{{ money(charge.amount_cents, settings.currency) }}</strong>
-            <button class="primary purple-primary" type="button" :disabled="actionBusy === `charge-${charge.key}`" @click="confirmCharge(charge)">Pagado</button>
-            <button class="secondary" type="button" :disabled="actionBusy === `dismiss-${charge.key}`" @click="dismissCharge(charge)">Omitir</button>
+            <strong>{{ money(row.expense.amount_cents, settings.currency) }}</strong>
+            <template v-if="!isEditingCommitment('recurring', row.expense.id)">
+              <button
+                v-if="row.charge"
+                class="primary purple-primary"
+                type="button"
+                :disabled="actionBusy === `charge-${row.charge.key}`"
+                @click="confirmCharge(row.charge)"
+              >
+                Pagado
+              </button>
+              <button
+                v-if="row.charge"
+                class="secondary"
+                type="button"
+                :disabled="actionBusy === `dismiss-${row.charge.key}`"
+                @click="dismissCharge(row.charge)"
+              >
+                Omitir
+              </button>
+            </template>
+            <button
+              class="square-action compact-icon-action"
+              type="button"
+              :aria-label="`Editar ${row.expense.name}`"
+              :title="`Editar ${row.expense.name}`"
+              @click="openCommitmentEdit('recurring', row.expense)"
+            >
+              <Pencil :size="16" :stroke-width="2.4" />
+            </button>
+            <form
+              v-if="isEditingCommitment('recurring', row.expense.id)"
+              class="commitment-edit-panel form-stack"
+              @submit.prevent="saveRecurringExpenseEdit(row.expense)"
+            >
+              <div class="field-row">
+                <label>Nombre<input v-model="commitmentEditForm.name" required /></label>
+                <label>Comercio<input v-model="commitmentEditForm.merchant" required /></label>
+              </div>
+              <div class="commitment-readonly">
+                <span>Monto {{ money(row.expense.amount_cents, settings.currency) }}</span>
+                <span>Inicio {{ row.expense.start_date }}</span>
+              </div>
+              <div class="commitment-edit-actions">
+                <button class="primary purple-primary" type="submit" :disabled="actionBusy === `edit-recurring-${row.expense.id}`">
+                  {{ actionBusy === `edit-recurring-${row.expense.id}` ? 'Guardando...' : 'Guardar' }}
+                </button>
+                <button class="secondary" type="button" @click="closeCommitmentEdit">Cancelar</button>
+              </div>
+              <div v-if="canManageSettings" class="commitment-danger-zone">
+                <button
+                  v-if="!isConfirmingCommitmentDelete('recurring', row.expense.id)"
+                  class="danger-action"
+                  type="button"
+                  @click="startCommitmentDelete('recurring', row.expense.id)"
+                >
+                  Eliminar cargo mensual
+                </button>
+                <div v-else class="inline-confirm">
+                  <span>Confirmar eliminación definitiva</span>
+                  <button
+                    class="danger-action"
+                    type="button"
+                    :disabled="actionBusy === `delete-recurring-${row.expense.id}`"
+                    @click="deleteRecurringExpense(row.expense)"
+                  >
+                    {{ actionBusy === `delete-recurring-${row.expense.id}` ? 'Eliminando...' : 'Sí, eliminar' }}
+                  </button>
+                  <button class="secondary" type="button" @click="cancelCommitmentDelete">Cancelar</button>
+                </div>
+              </div>
+            </form>
           </article>
-          <p v-if="!recurringExpectedCharges.length" class="empty-line">Sin pendientes. Liquidado u omitido todo.</p>
+          <p v-if="!recurringCommitmentRows.length" class="empty-line">No hay cargos mensuales activos.</p>
         </section>
 
         <section v-else class="commitment-section">
@@ -2102,7 +2287,12 @@ function categoryIconComponent(icon?: string | null) {
             <h2>Compras a meses</h2>
             <span>{{ money(currentInstallmentTotal, settings.currency) }}</span>
           </div>
-          <article v-for="plan in projectedInstallmentPlans" :key="plan.id" class="installment-row">
+          <article
+            v-for="plan in projectedInstallmentPlans"
+            :key="plan.id"
+            class="installment-row"
+            :class="{ editing: isEditingCommitment('installment', plan.id) }"
+          >
             <div class="installment-main">
               <div>
                 <b>{{ plan.name }}</b>
@@ -2112,7 +2302,58 @@ function categoryIconComponent(icon?: string | null) {
                 </span>
               </div>
               <strong>{{ money(plan.current_amount_cents ?? 0, settings.currency) }}</strong>
+              <button
+                class="square-action compact-icon-action"
+                type="button"
+                :aria-label="`Editar ${plan.name}`"
+                :title="`Editar ${plan.name}`"
+                @click="openCommitmentEdit('installment', plan)"
+              >
+                <Pencil :size="16" :stroke-width="2.4" />
+              </button>
             </div>
+            <form
+              v-if="isEditingCommitment('installment', plan.id)"
+              class="commitment-edit-panel form-stack"
+              @submit.prevent="saveInstallmentPlanEdit(plan)"
+            >
+              <div class="field-row">
+                <label>Nombre<input v-model="commitmentEditForm.name" required /></label>
+                <label>Comercio<input v-model="commitmentEditForm.merchant" required /></label>
+              </div>
+              <div class="commitment-readonly">
+                <span>Total {{ money(plan.total_amount_cents, settings.currency) }}</span>
+                <span>Inicio {{ installmentPlanDetail(plan.id)?.start_date ?? 'No disponible' }}</span>
+              </div>
+              <div class="commitment-edit-actions">
+                <button class="primary purple-primary" type="submit" :disabled="actionBusy === `edit-installment-${plan.id}`">
+                  {{ actionBusy === `edit-installment-${plan.id}` ? 'Guardando...' : 'Guardar' }}
+                </button>
+                <button class="secondary" type="button" @click="closeCommitmentEdit">Cancelar</button>
+              </div>
+              <div v-if="canManageSettings" class="commitment-danger-zone">
+                <button
+                  v-if="!isConfirmingCommitmentDelete('installment', plan.id)"
+                  class="danger-action"
+                  type="button"
+                  @click="startCommitmentDelete('installment', plan.id)"
+                >
+                  Eliminar compra a meses
+                </button>
+                <div v-else class="inline-confirm">
+                  <span>Confirmar eliminación definitiva</span>
+                  <button
+                    class="danger-action"
+                    type="button"
+                    :disabled="actionBusy === `delete-installment-${plan.id}`"
+                    @click="deleteInstallmentPlan(plan)"
+                  >
+                    {{ actionBusy === `delete-installment-${plan.id}` ? 'Eliminando...' : 'Sí, eliminar' }}
+                  </button>
+                  <button class="secondary" type="button" @click="cancelCommitmentDelete">Cancelar</button>
+                </div>
+              </div>
+            </form>
             <div class="progress-row">
               <div class="progress-track" :aria-label="`Avance ${installmentProgressPercent(plan)}%`">
                 <i :style="{ width: `${installmentProgressPercent(plan)}%` }"></i>
