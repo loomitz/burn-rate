@@ -9,7 +9,9 @@ import {
   type BudgetCategorySummary,
   type ExpectedCharge,
   type HouseholdMember,
+  type InstallmentProjectionPlan,
   type Invitation,
+  type RecurringExpense,
   type Scope,
 } from './stores/budget'
 import { apiErrorMessage, centsFromInput, money } from './stores/api'
@@ -332,6 +334,7 @@ const activeRecurringExpenses = computed(() => recurringExpenses.value.filter((e
 const activeRecurringTotal = computed(() =>
   activeRecurringExpenses.value.reduce((total, expense) => total + expense.amount_cents, 0),
 )
+const categoryLookup = computed(() => new Map(categories.value.map((category) => [category.id, category])))
 const recurringCommitmentRows = computed(() =>
   activeRecurringExpenses.value.map((expense) => ({
     expense,
@@ -1550,6 +1553,24 @@ function projectionSettledLabel(period: { plans: Array<{ name: string; remaining
   return `Liquida ${names}${extra}`
 }
 
+function categoryStyle(color?: string | null) {
+  return color ? ({ '--category-color': color } as Record<string, string>) : undefined
+}
+
+function recurringCommitmentCategory(row: { expense: RecurringExpense; charge?: ExpectedCharge }) {
+  return row.charge?.category ?? categoryLookup.value.get(row.expense.category) ?? null
+}
+
+function recurringCommitmentCategoryLabel(row: { expense: RecurringExpense; charge?: ExpectedCharge }) {
+  if (row.expense.member_name) return `${row.expense.category_name} · ${row.expense.member_name}`
+  return row.expense.category_name
+}
+
+function installmentCommitmentCategoryLabel(plan: InstallmentProjectionPlan) {
+  if (plan.member) return `${plan.category.name} · ${plan.member.name}`
+  return plan.category.name
+}
+
 function categoryIconComponent(icon?: string | null) {
   return getCategoryIcon(icon).component
 }
@@ -2421,12 +2442,19 @@ function categoryIconComponent(icon?: string | null) {
             :key="row.expense.id"
             class="expected-row"
             :class="{ editing: isEditingCommitment('recurring', row.expense.id) }"
+            :style="categoryStyle(recurringCommitmentCategory(row)?.color)"
           >
             <div>
               <b>{{ row.expense.name }}</b>
-              <span>
-                {{ row.expense.merchant }} · {{ row.expense.category_name }}
-                <template v-if="row.expense.member_name"> · {{ row.expense.member_name }}</template>
+              <span>{{ row.expense.merchant }}</span>
+              <span class="commitment-category-pill">
+                <span class="category-icon" :style="categoryStyle(recurringCommitmentCategory(row)?.color)">
+                  <component :is="categoryIconComponent(recurringCommitmentCategory(row)?.icon)" aria-hidden="true" />
+                </span>
+                <span class="category-pill-copy">
+                  <em>Categoría</em>
+                  <b>{{ recurringCommitmentCategoryLabel(row) }}</b>
+                </span>
               </span>
               <small v-if="!row.charge">Sin cargo pendiente en este periodo</small>
             </div>
@@ -2516,13 +2544,20 @@ function categoryIconComponent(icon?: string | null) {
             :key="plan.id"
             class="installment-row"
             :class="{ editing: isEditingCommitment('installment', plan.id) }"
+            :style="categoryStyle(plan.category.color)"
           >
             <div class="installment-main">
               <div>
                 <b>{{ plan.name }}</b>
-                <span>
-                  {{ plan.merchant }} · {{ plan.category.name }}
-                  <template v-if="plan.member"> · {{ plan.member.name }}</template>
+                <span>{{ plan.merchant }}</span>
+                <span class="commitment-category-pill">
+                  <span class="category-icon" :style="categoryStyle(plan.category.color)">
+                    <component :is="categoryIconComponent(plan.category.icon)" aria-hidden="true" />
+                  </span>
+                  <span class="category-pill-copy">
+                    <em>Categoría</em>
+                    <b>{{ installmentCommitmentCategoryLabel(plan) }}</b>
+                  </span>
                 </span>
               </div>
               <strong>{{ money(plan.current_amount_cents ?? 0, settings.currency) }}</strong>

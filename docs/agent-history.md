@@ -1,5 +1,19 @@
 # Agent History
 
+## 2026-04-21 - Compromisos con categoría visual v0.1.11
+
+Objetivo: publicar los últimos ajustes visuales de compromisos con una nueva imagen versionada.
+
+Archivos tocados:
+
+- Actualizado `frontend/src/App.vue` para mostrar color e icono de categoría en compromisos recurrentes y compras a meses, incluyendo la persona asociada cuando existe.
+- Actualizado `frontend/src/style.css` para teñir filas, botones, barras y pills de categoría con el color real de cada categoría.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.11`.
+
+Verificaciones:
+
+- `pnpm --dir frontend build` pasó.
+
 ## 2026-04-21 - Ajustes UI de plan y cargos v0.1.10
 
 Objetivo: cerrar comentarios visuales del flujo móvil de Plan y Cargos, y publicar una nueva imagen versionada.

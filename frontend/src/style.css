@@ -1776,6 +1776,20 @@ p {
 .expected-row,
 .installment-row {
   position: relative;
+  border-color: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 30%, var(--line));
+  background: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 5%, var(--surface));
+}
+
+.expected-row::before,
+.installment-row::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 5px;
+  border-radius: 0 999px 999px 0;
+  background: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 84%, var(--ink));
 }
 
 .feed-row div,
@@ -1904,7 +1918,7 @@ p {
 .view-commitments .expected-row strong,
 .view-commitments .installment-row strong,
 .view-commitments .commitment-section .section-title-row > span {
-  color: var(--commitments-accent);
+  color: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 84%, var(--ink));
 }
 
 .view-commitments .expected-row .primary,
@@ -1913,15 +1927,15 @@ p {
 }
 
 .view-commitments .expected-row .primary {
-  color: var(--commitments-accent);
-  border-color: color-mix(in srgb, var(--commitments-accent) 58%, var(--line));
-  background: color-mix(in srgb, var(--commitments-accent) 14%, transparent);
+  color: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 84%, var(--ink));
+  border-color: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 58%, var(--line));
+  background: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 14%, transparent);
 }
 
 .view-commitments .expected-row .secondary {
   color: var(--ink);
-  border-color: color-mix(in srgb, var(--commitments-accent) 24%, var(--line));
-  background: color-mix(in srgb, var(--commitments-accent) 5%, transparent);
+  border-color: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 24%, var(--line));
+  background: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 5%, transparent);
 }
 
 .danger-action {
@@ -2029,6 +2043,59 @@ p {
   font-weight: 900;
 }
 
+.view-commitments .expected-row .compact-icon-action,
+.view-commitments .installment-row .compact-icon-action {
+  color: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 82%, var(--ink));
+  border-color: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 24%, var(--line));
+  background: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 10%, var(--surface));
+}
+
+.commitment-category-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 3px;
+  border: 1px solid color-mix(in srgb, var(--category-color, var(--commitments-accent)) 24%, var(--line));
+  border-radius: var(--radius-control);
+  padding: 5px 8px 5px 6px;
+  background: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 9%, var(--surface));
+}
+
+.commitment-category-pill .category-icon {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  color: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 82%, var(--ink));
+  background: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 14%, var(--surface));
+}
+
+.category-pill-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  line-height: 1.05;
+}
+
+.commitment-category-pill em {
+  color: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 72%, var(--muted));
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.commitment-category-pill b {
+  max-width: 100%;
+  color: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 72%, var(--ink));
+  font-size: 11px;
+  line-height: 1.1;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .installment-row {
   display: grid;
   gap: var(--space-sm);
@@ -2071,7 +2138,7 @@ p {
 }
 
 .view-commitments .progress-track i {
-  background: var(--commitments-accent);
+  background: color-mix(in srgb, var(--category-color, var(--commitments-accent)) 88%, var(--ink));
 }
 
 .projection-card {
