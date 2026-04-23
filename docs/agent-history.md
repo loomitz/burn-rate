@@ -1,5 +1,22 @@
 # Agent History
 
+## 2026-04-23 - Rediseño tipográfico mobile-first v0.1.12
+
+Objetivo: publicar el rediseño general de interfaz con nueva tipografía sans priorizando legibilidad en móvil.
+
+Archivos tocados:
+
+- Actualizado `frontend/src/style.css` para aplicar la nueva jerarquía tipográfica con `Google Sans Text` en UI y `Google Sans` en encabezados, además de ajustar espaciado, safe areas y densidad mobile-first.
+- Actualizado `frontend/index.html` para usar `viewport-fit=cover`.
+- Agregados `frontend/src/assets/fonts/GoogleSans*.woff2` y `frontend/src/assets/fonts/GoogleSansText*.woff2` como fuentes locales para no depender del CDN en runtime.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.12`.
+
+Verificaciones:
+
+- `pnpm --dir frontend build` pasó.
+- `pnpm --dir frontend test` pasó.
+- `scripts/dev-services.sh restart` levantó frontend y backend; `http://localhost:5173` respondió `200` y `http://localhost:8001/healthz/` respondió `{"status": "ok"}`.
+
 ## 2026-04-21 - Compromisos con categoría visual v0.1.11
 
 Objetivo: publicar los últimos ajustes visuales de compromisos con una nueva imagen versionada.
