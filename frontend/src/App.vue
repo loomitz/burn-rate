@@ -68,7 +68,7 @@ const settingsPanel = ref<SettingsPanel>('accounts')
 const theme = ref<ThemePreference>(storedThemePreference())
 const systemTheme = ref<ResolvedTheme>(preferredSystemTheme())
 const showCommitmentForm = ref(false)
-const showPlanSummary = ref(false)
+const cycleMenuOpen = ref(false)
 const iconGalleryOpen = ref(false)
 const iconGalleryDialog = ref<HTMLElement | null>(null)
 const iconGalleryOpener = ref<HTMLElement | null>(null)
@@ -90,6 +90,9 @@ const createdInvitationLink = ref('')
 const editingAccountId = ref<number | null>(null)
 const editingMemberId = ref<number | null>(null)
 const editingCategoryId = ref<number | null>(null)
+const accountFormOpen = ref(false)
+const memberFormOpen = ref(false)
+const categoryFormOpen = ref(false)
 const editingCommitment = ref<{ type: CommitmentEditKind; id: number } | null>(null)
 const deleteConfirmCommitment = ref<{ type: CommitmentEditKind; id: number } | null>(null)
 const claimForm = reactive({ full_name: '', display_name: '', email: '', password: '', confirmPassword: '' })
@@ -165,9 +168,9 @@ let copiedInvitationTimer: ReturnType<typeof window.setTimeout> | undefined
 let systemThemeMediaQuery: MediaQueryList | undefined
 
 const navItems = [
-  { id: 'budget', label: 'Plan', icon: 'M4 5h16M4 12h16M4 19h10' },
-  { id: 'expenses', label: 'Gastos', icon: 'M7 4h10v16H7zM9 8h6M9 12h6M9 16h4' },
-  { id: 'commitments', label: 'Cargos', icon: 'M7 4h10v16H7zM9 8h6M9 12h6M9 16h6' },
+  { id: 'budget', label: 'Presupuesto', icon: 'M3.5 11.5 12 4l8.5 7.5M5.5 10.5V20h13v-9.5M9 20v-6h6v6M9.2 12.2l1.7 1.7 3.7-3.9' },
+  { id: 'expenses', label: 'Gastos', icon: 'M4 7h16v10H4zM7 10h5M7 14h3M15 14a2 2 0 100-4 2 2 0 000 4z' },
+  { id: 'commitments', label: 'Pagos', icon: 'M4 7a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2zM4 9h16M7 15h4M15 15h2' },
   { id: 'settings', label: 'Ajustes', icon: 'M12 15a3 3 0 100-6 3 3 0 000 6ZM19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 008.92 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.24.54.78.9 1.37 1H21a2 2 0 110 4h-.23a1.65 1.65 0 00-1.37 1Z' },
 ] as const
 
@@ -179,9 +182,9 @@ const setupPanelItems = [
 ] as const
 
 const themeOptions = [
-  { id: 'auto', label: 'Auto', icon: Laptop },
-  { id: 'light', label: 'Light', icon: Sun },
-  { id: 'dark', label: 'Dark', icon: Moon },
+  { id: 'auto', label: 'Sistema', icon: Laptop },
+  { id: 'light', label: 'Claro', icon: Sun },
+  { id: 'dark', label: 'Oscuro', icon: Moon },
 ] as const
 
 const categoryColors = [
@@ -220,8 +223,8 @@ const themeLogo = computed(() => (isDarkTheme.value ? burnRateLogoDark : burnRat
 const themeCycleIcon = computed(() => themeOptions.find((option) => option.id === theme.value)?.icon ?? Laptop)
 const themeCycleLabel = computed(() => `Tema: ${themeStatusLabel.value}`)
 const themeStatusLabel = computed(() => {
-  if (theme.value === 'auto') return `Auto / ${activeTheme.value === 'dark' ? 'Dark' : 'Light'}`
-  return theme.value === 'dark' ? 'Dark' : 'Light'
+  if (theme.value === 'auto') return `Sistema / ${activeTheme.value === 'dark' ? 'oscuro' : 'claro'}`
+  return theme.value === 'dark' ? 'Oscuro' : 'Claro'
 })
 const databaseConfiguredLabel = computed(() => {
   const configured = onboardingStatus.value?.database.configured
@@ -282,28 +285,33 @@ const budgetCycleOptions = computed<BudgetCycleOption[]>(() => {
     }
   })
 })
+const activeBudgetCycleOption = computed(() =>
+  budgetCycleOptions.value.find((cycle) => cycle.value === activeBudgetPeriod.value.start) ??
+  budgetCycleOptions.value[budgetCycleOptions.value.length - 1],
+)
+const budgetCycleMenuOptions = computed(() => [...budgetCycleOptions.value].reverse())
 const periodRange = computed(() => `${activeBudgetPeriod.value.start} / ${activeBudgetPeriod.value.end}`)
 const activePeriodLabel = computed(() => formatPeriodLabel(activeBudgetPeriod.value.start, activeBudgetPeriod.value.end))
 const canShiftToPreviousCycle = computed(() => activeBudgetPeriod.value.start > (budgetCycleOptions.value[0]?.start ?? activeBudgetPeriod.value.start))
 const canShiftToNextCycle = computed(() => activeBudgetPeriod.value.start < currentBudgetPeriod.value.start)
 const overspent = computed(() => summary.value?.categories.filter((category) => category.is_overspent) ?? [])
 const planSummaryCopy = computed(() => {
-  if (!summary.value) return 'Carga tu plan para ver cómo va la casa.'
+  if (!summary.value) return 'Carga tu presupuesto para ver cómo va la casa.'
   const available = summary.value.totals.available_cents
   if (available < 0) {
-    return 'La casa ya rebasó el plan de este periodo. Conviene revisar las categorías en rojo antes del siguiente gasto.'
+    return 'La casa ya rebasó el presupuesto de este periodo. Conviene revisar las categorías en rojo antes del siguiente gasto.'
   }
   if (overspent.value.length) {
     return 'Todavía hay margen, pero una categoría necesita atención antes de seguir gastando.'
   }
-  return 'La casa va dentro del plan. Registra los gastos cuando pasen para mantener este número confiable.'
+  return 'La casa va dentro del presupuesto. Registra los gastos cuando pasen para mantener este número confiable.'
 })
 const planAttentionItems = computed(() => {
   const items = overspent.value.slice(0, 2).map((category) => ({
     key: `overspent-${category.category_id}`,
     tone: 'danger',
     title: category.category_name,
-    body: `Va ${money(Math.abs(category.available_cents), settings.value.currency)} arriba del plan.`,
+      body: `Va ${money(Math.abs(category.available_cents), settings.value.currency)} arriba del presupuesto.`,
   }))
   const upcomingCharges = expectedCharges.value
     .filter((charge) => charge.source_type === 'recurring')
@@ -736,7 +744,7 @@ async function runAction(key: string, successMessage: string, action: () => Prom
     await action()
     showNotice(successMessage)
   } catch (err) {
-    showNotice(apiErrorMessage(err, 'No pudimos guardar el cambio. Revisa los datos e intenta de nuevo.'), 'error')
+    showNotice(apiErrorMessage(err, 'No pudimos guardar. Revisa los datos e intenta de nuevo.'), 'error')
   } finally {
     actionBusy.value = ''
   }
@@ -752,12 +760,24 @@ async function submitClaim() {
   const displayName = normalizeText(claimForm.display_name)
   const email = normalizeText(claimForm.email)
   const password = normalizeText(claimForm.password)
-  if (!fullName || !displayName || !email || !password) {
-    showNotice('Completa nombre, nombre visible, email y password para reclamar la instalación.', 'error')
+  if (!fullName) {
+    showNotice('Falta nombre completo. Escríbelo para crear el primer acceso.', 'error')
+    return
+  }
+  if (!displayName) {
+    showNotice('Falta nombre visible. Escribe cómo quieres aparecer en la app.', 'error')
+    return
+  }
+  if (!email) {
+    showNotice('Falta correo. Escríbelo para crear el primer acceso.', 'error')
+    return
+  }
+  if (!password) {
+    showNotice('Falta contraseña. Escribe una para crear el primer acceso.', 'error')
     return
   }
   if (password !== claimForm.confirmPassword) {
-    showNotice('Los passwords no coinciden.', 'error')
+    showNotice('Las contraseñas no coinciden. Revisa ambos campos e intenta de nuevo.', 'error')
     return
   }
   await runAction('claim', 'Burn Rate quedó listo para tu casa.', async () => {
@@ -803,12 +823,20 @@ async function submitInvitationAccept() {
   const fullName = normalizeText(acceptInviteForm.full_name)
   const displayName = normalizeText(acceptInviteForm.display_name)
   const password = normalizeText(acceptInviteForm.password)
-  if (!fullName || !displayName || !password) {
-    showNotice('Completa tu nombre, nombre visible y un password.', 'error')
+  if (!fullName) {
+    showNotice('Falta tu nombre completo. Escríbelo para aceptar la invitación.', 'error')
+    return
+  }
+  if (!displayName) {
+    showNotice('Falta nombre visible. Escribe cómo quieres aparecer en la app.', 'error')
+    return
+  }
+  if (!password) {
+    showNotice('Falta contraseña. Escríbela para entrar a Burn Rate.', 'error')
     return
   }
   if (password !== acceptInviteForm.confirmPassword) {
-    showNotice('Los passwords no coinciden.', 'error')
+    showNotice('Las contraseñas no coinciden. Revisa ambos campos e intenta de nuevo.', 'error')
     return
   }
   await runAction('accept-invite', 'Invitación aceptada. Entraste a Burn Rate.', async () => {
@@ -838,7 +866,7 @@ async function loadInvitations() {
 async function submitInvitation() {
   const email = normalizeText(invitationForm.email)
   if (!email) {
-    showNotice('Escribe el email para la invitación.', 'error')
+    showNotice('Falta correo. Escríbelo para crear la invitación.', 'error')
     return
   }
   await runAction('invitation', 'Invitación lista.', async () => {
@@ -900,18 +928,22 @@ async function submitExpense() {
   const merchant = normalizeText(expenseForm.merchant)
   const amountCents = centsFromInput(expenseForm.amount)
   if (!merchant) {
-    showNotice('Escribe un comercio o concepto.', 'error')
+    showNotice('Falta comercio o concepto. Escríbelo antes de guardar el gasto.', 'error')
     return
   }
   if (amountCents <= 0) {
-    showNotice('Escribe un monto mayor a cero.', 'error')
+    showNotice('Falta monto válido. Escribe una cantidad mayor a cero.', 'error')
     return
   }
-  if (!expenseForm.category || !expenseForm.account) {
-    showNotice('Elige una categoría y una cuenta antes de guardar.', 'error')
+  if (!expenseForm.category) {
+    showNotice('Falta categoría. Elige una para guardar el gasto.', 'error')
     return
   }
-  await runAction('expense', 'Gasto guardado. El plan ya está actualizado.', async () => {
+  if (!expenseForm.account) {
+    showNotice('Falta cuenta. Elige desde dónde se pagó.', 'error')
+    return
+  }
+  await runAction('expense', 'Gasto guardado. El presupuesto ya está actualizado.', async () => {
     await store.createTransaction({
       transaction_type: 'expense',
       merchant,
@@ -932,7 +964,7 @@ async function submitExpense() {
 async function submitAccount() {
   const name = normalizeText(accountForm.name)
   if (!name) {
-    showNotice('Escribe un nombre para la cuenta.', 'error')
+    showNotice('Falta nombre de cuenta. Escríbelo para guardar.', 'error')
     return
   }
   await runAction('account', editingAccountId.value ? 'Cuenta actualizada.' : 'Cuenta guardada para la casa.', async () => {
@@ -953,6 +985,7 @@ async function submitAccount() {
 }
 
 function editAccount(account: Account) {
+  accountFormOpen.value = true
   editingAccountId.value = account.id
   accountForm.name = account.name
   accountForm.account_type = account.account_type
@@ -962,12 +995,18 @@ function editAccount(account: Account) {
 }
 
 function resetAccountForm() {
+  accountFormOpen.value = false
   editingAccountId.value = null
   accountForm.name = ''
   accountForm.account_type = 'cash'
   accountForm.initial_balance = ''
   accountForm.color = '#7c6250'
   accountForm.is_active = true
+}
+
+function startAccountForm() {
+  resetAccountForm()
+  accountFormOpen.value = true
 }
 
 function accountTypeLabel(accountType: string) {
@@ -1002,16 +1041,16 @@ async function submitMember() {
   const email = normalizeText(memberForm.email)
   const password = normalizeText(memberForm.password)
   if (!name) {
-    showNotice('Escribe el nombre de la persona.', 'error')
+    showNotice('Falta nombre de la persona. Escríbelo para guardar.', 'error')
     return
   }
   if (memberForm.is_admin) memberForm.has_access = true
   if (memberForm.has_access && !username) {
-    showNotice('Hace falta usuario para dar acceso.', 'error')
+    showNotice('Falta usuario. Escríbelo para dar acceso a la app.', 'error')
     return
   }
   if (!editingMemberId.value && memberForm.has_access && !password) {
-    showNotice('Hace falta clave temporal para dar acceso.', 'error')
+    showNotice('Falta clave temporal. Escríbela para dar acceso por primera vez.', 'error')
     return
   }
   await runAction('member', editingMemberId.value ? 'Persona actualizada.' : 'Persona guardada.', async () => {
@@ -1035,6 +1074,7 @@ async function submitMember() {
 }
 
 function editMember(member: HouseholdMember) {
+  memberFormOpen.value = true
   editingMemberId.value = member.id
   memberForm.name = member.name
   memberForm.color = member.color
@@ -1046,6 +1086,7 @@ function editMember(member: HouseholdMember) {
 }
 
 function resetMemberForm() {
+  memberFormOpen.value = false
   editingMemberId.value = null
   memberForm.name = ''
   memberForm.color = '#b35320'
@@ -1054,6 +1095,11 @@ function resetMemberForm() {
   memberForm.email = ''
   memberForm.password = ''
   memberForm.is_admin = false
+}
+
+function startMemberForm() {
+  resetMemberForm()
+  memberFormOpen.value = true
 }
 
 function usernameSuggestionFromName(name: string) {
@@ -1071,26 +1117,26 @@ async function submitCategory() {
   const monthlyBudgetCents = centsFromInput(categoryForm.monthly_budget)
   const carryoverInitialBalanceCents = centsFromInput(categoryForm.carryover_initial_balance || '0')
   if (!name) {
-    showNotice('Escribe un nombre para la categoría.', 'error')
+    showNotice('Falta nombre de categoría. Escríbelo para guardar.', 'error')
     return
   }
   if (categoryForm.scope === 'personal' && !memberId) {
-    showNotice('Elige una persona para esta categoría personal.', 'error')
+    showNotice('Falta persona. Elige a quién pertenece esta categoría.', 'error')
     return
   }
   if (monthlyBudgetCents <= 0) {
-    showNotice('Escribe un presupuesto mensual mayor a cero.', 'error')
+    showNotice('Falta presupuesto mensual válido. Escribe una cantidad mayor a cero.', 'error')
     return
   }
   if (!editingCategoryId.value && categoryForm.budget_behavior === 'carryover' && !categoryForm.carryover_start_date) {
-    showNotice('Indica la fecha de inicio acumulable.', 'error')
+    showNotice('Falta fecha de inicio. Indica desde cuándo acumula saldo.', 'error')
     return
   }
   if (editingCategoryId.value && categoryBudgetChanged.value && !categoryForm.budget_effective_date) {
-    showNotice('Indica la fecha del cambio de presupuesto.', 'error')
+    showNotice('Falta fecha del cambio. Indica desde cuándo aplica el nuevo presupuesto.', 'error')
     return
   }
-  await runAction('category', editingCategoryId.value ? 'Categoría actualizada.' : 'Categoría guardada en el plan.', async () => {
+  await runAction('category', editingCategoryId.value ? 'Categoría actualizada.' : 'Categoría guardada en el presupuesto.', async () => {
     const payload: Partial<Category> = {
       name,
       scope: categoryForm.scope as 'global' | 'personal',
@@ -1119,6 +1165,7 @@ async function submitCategory() {
 }
 
 function editCategory(category: Category) {
+  categoryFormOpen.value = true
   editingCategoryId.value = category.id
   categoryForm.name = category.name
   categoryForm.scope = category.scope
@@ -1134,6 +1181,7 @@ function editCategory(category: Category) {
 }
 
 function resetCategoryForm() {
+  categoryFormOpen.value = false
   editingCategoryId.value = null
   categoryForm.name = ''
   categoryForm.scope = 'global'
@@ -1148,32 +1196,37 @@ function resetCategoryForm() {
   categoryForm.is_active = true
 }
 
+function startCategoryForm() {
+  resetCategoryForm()
+  categoryFormOpen.value = true
+}
+
 async function submitRecurring() {
   const name = normalizeText(recurringForm.name)
   const merchant = normalizeText(recurringForm.merchant)
   const amountCents = centsFromInput(recurringForm.amount)
   const chargeDay = Math.min(28, Math.max(1, Number(recurringForm.charge_day) || 1))
   if (!name) {
-    showNotice('Escribe un nombre para el cargo mensual.', 'error')
+    showNotice('Falta nombre del pago mensual. Escríbelo para guardar.', 'error')
     return
   }
   if (!merchant) {
-    showNotice('Escribe el comercio del cargo mensual.', 'error')
+    showNotice('Falta comercio del pago mensual. Escríbelo para guardar.', 'error')
     return
   }
   if (amountCents <= 0) {
-    showNotice('Escribe un monto mensual mayor a cero.', 'error')
+    showNotice('Falta monto mensual válido. Escribe una cantidad mayor a cero.', 'error')
     return
   }
   if (!recurringForm.category) {
-    showNotice('Elige la categoría del cargo mensual.', 'error')
+    showNotice('Falta categoría. Elige dónde cae este pago mensual.', 'error')
     return
   }
   if (recurringForm.end_date && recurringForm.end_date < recurringForm.start_date) {
-    showNotice('La fecha final no puede ir antes del inicio.', 'error')
+    showNotice('La fecha final queda antes del inicio. Corrige una de las dos fechas.', 'error')
     return
   }
-  await runAction('recurring', 'Cargo mensual guardado.', async () => {
+  await runAction('recurring', 'Pago mensual guardado.', async () => {
     await store.createRecurring({
       name,
       merchant,
@@ -1199,27 +1252,27 @@ async function submitInstallment() {
   const totalAmountCents = centsFromInput(installmentForm.total_amount)
   const monthsCount = Number(installmentForm.months_count)
   if (!name) {
-    showNotice('Escribe un nombre para la compra a meses.', 'error')
+    showNotice('Falta nombre de la compra a meses. Escríbelo para guardar.', 'error')
     return
   }
   if (!merchant) {
-    showNotice('Escribe el comercio de la compra a meses.', 'error')
+    showNotice('Falta comercio de la compra a meses. Escríbelo para guardar.', 'error')
     return
   }
   if (totalAmountCents <= 0) {
-    showNotice('Escribe un monto total mayor a cero.', 'error')
+    showNotice('Falta monto total válido. Escribe una cantidad mayor a cero.', 'error')
     return
   }
   if (!installmentForm.category) {
-    showNotice('Elige la categoría de la compra a meses.', 'error')
+    showNotice('Falta categoría. Elige dónde cae esta compra a meses.', 'error')
     return
   }
   if (!Number.isInteger(monthsCount) || monthsCount < 1) {
-    showNotice('Indica la cantidad de meses de la compra.', 'error')
+    showNotice('Faltan meses válidos. Indica cuántos pagos tendrá la compra.', 'error')
     return
   }
   if (!installmentCalculatedEndDate.value) {
-    showNotice('Indica una fecha válida para el primer pago.', 'error')
+    showNotice('Falta fecha válida de primer pago. Revisa la fecha antes de guardar.', 'error')
     return
   }
   await runAction('installment', 'Compra a meses guardada.', async () => {
@@ -1274,7 +1327,7 @@ function closeCommitmentEdit() {
 
 function startCommitmentDelete(type: CommitmentEditKind, id: number) {
   if (!canManageSettings.value) {
-    showNotice('Solo un administrador puede eliminar compromisos.', 'error')
+    showNotice('Solo un administrador puede eliminar pagos planeados.', 'error')
     return
   }
   deleteConfirmCommitment.value = { type, id }
@@ -1292,14 +1345,14 @@ async function saveRecurringExpenseEdit(expense: { id: number }) {
   const name = normalizeText(commitmentEditForm.name)
   const merchant = normalizeText(commitmentEditForm.merchant)
   if (!name) {
-    showNotice('Escribe un nombre para el cargo mensual.', 'error')
+    showNotice('Falta nombre del pago mensual. Escríbelo para guardar.', 'error')
     return
   }
   if (!merchant) {
-    showNotice('Escribe el comercio del cargo mensual.', 'error')
+    showNotice('Falta comercio del pago mensual. Escríbelo para guardar.', 'error')
     return
   }
-  await runAction(`edit-recurring-${expense.id}`, 'Cargo mensual actualizado.', async () => {
+  await runAction(`edit-recurring-${expense.id}`, 'Pago mensual actualizado.', async () => {
     await store.updateRecurring(expense.id, { name, merchant })
     closeCommitmentEdit()
   })
@@ -1309,15 +1362,15 @@ async function saveInstallmentPlanEdit(plan: { id: number }) {
   const name = normalizeText(commitmentEditForm.name)
   const merchant = normalizeText(commitmentEditForm.merchant)
   if (!name) {
-    showNotice('Escribe un nombre para la compra a meses.', 'error')
+    showNotice('Falta nombre de la compra a meses. Escríbelo para guardar.', 'error')
     return
   }
   if (!merchant) {
-    showNotice('Escribe el comercio de la compra a meses.', 'error')
+    showNotice('Falta comercio de la compra a meses. Escríbelo para guardar.', 'error')
     return
   }
   if (!commitmentEditForm.category) {
-    showNotice('Elige la categoría de la compra a meses.', 'error')
+    showNotice('Falta categoría. Elige dónde cae esta compra a meses.', 'error')
     return
   }
   await runAction(`edit-installment-${plan.id}`, 'Compra a meses actualizada.', async () => {
@@ -1328,10 +1381,10 @@ async function saveInstallmentPlanEdit(plan: { id: number }) {
 
 async function deleteRecurringExpense(expense: { id: number }) {
   if (!canManageSettings.value) {
-    showNotice('Solo un administrador puede eliminar compromisos.', 'error')
+    showNotice('Solo un administrador puede eliminar pagos planeados.', 'error')
     return
   }
-  await runAction(`delete-recurring-${expense.id}`, 'Cargo mensual eliminado.', async () => {
+  await runAction(`delete-recurring-${expense.id}`, 'Pago mensual eliminado.', async () => {
     await store.deleteRecurring(expense.id)
     closeCommitmentEdit()
   })
@@ -1339,7 +1392,7 @@ async function deleteRecurringExpense(expense: { id: number }) {
 
 async function deleteInstallmentPlan(plan: { id: number }) {
   if (!canManageSettings.value) {
-    showNotice('Solo un administrador puede eliminar compromisos.', 'error')
+    showNotice('Solo un administrador puede eliminar pagos planeados.', 'error')
     return
   }
   await runAction(`delete-installment-${plan.id}`, 'Compra a meses eliminada.', async () => {
@@ -1359,7 +1412,7 @@ async function saveSettings() {
 async function confirmCharge(charge: ExpectedCharge) {
   const fallback = charge.account?.id ?? activeAccounts.value[0]?.id
   if (!fallback) {
-    showNotice('No hay una cuenta activa para marcar este cargo como pagado.', 'error')
+    showNotice('Falta cuenta activa. Crea o activa una cuenta antes de marcar este pago.', 'error')
     return
   }
   await runAction(`charge-${charge.key}`, `${charge.name} marcado como pagado.`, async () => {
@@ -1376,6 +1429,7 @@ async function dismissCharge(charge: ExpectedCharge) {
 function selectView(nextView: View) {
   view.value = nextView
   selectedCategoryId.value = null
+  cycleMenuOpen.value = false
   scrollToTop()
 }
 
@@ -1393,11 +1447,21 @@ function goToExpenseCaptureForCategory(categoryId: number) {
   scrollToTop()
 }
 
-function selectBudgetCycle(event: Event) {
-  const target = event.target
-  if (target instanceof HTMLSelectElement) {
-    selectedDate.value = target.value
-  }
+function cycleRelativeLabel(cycle: BudgetCycleOption) {
+  if (cycle.offset === 0) return 'Ciclo actual'
+  return cycle.offset === -1 ? 'Ciclo anterior' : `${Math.abs(cycle.offset)} ciclos antes`
+}
+
+function selectBudgetCycle(value: string) {
+  selectedDate.value = value
+  cycleMenuOpen.value = false
+}
+
+function closeCycleMenuOnBlur(event: FocusEvent) {
+  const nextTarget = event.relatedTarget
+  const currentTarget = event.currentTarget
+  if (currentTarget instanceof HTMLElement && nextTarget instanceof Node && currentTarget.contains(nextTarget)) return
+  cycleMenuOpen.value = false
 }
 
 function shiftBudgetCycle(offset: number) {
@@ -1406,12 +1470,7 @@ function shiftBudgetCycle(offset: number) {
   const currentStart = parseIsoDate(activeBudgetPeriod.value.start)
   const nextStart = formatIsoDate(addMonths(currentStart, offset))
   selectedDate.value = nextStart > currentBudgetPeriod.value.start ? currentBudgetPeriod.value.start : nextStart
-}
-
-function syncPlanSummary(event: Event) {
-  if (event.target instanceof HTMLDetailsElement) {
-    showPlanSummary.value = event.target.open
-  }
+  cycleMenuOpen.value = false
 }
 
 function openCommitmentForm(kind: CommitmentKind) {
@@ -1537,8 +1596,8 @@ function projectionPeriodLabel(index: number) {
 }
 
 function projectionPaymentCountLabel(count: number) {
-  if (count === 1) return '1 pago MSI'
-  return `${count} pagos MSI`
+  if (count === 1) return '1 pago a meses'
+  return `${count} pagos a meses`
 }
 
 function projectionSettledPlans(period: { plans: Array<{ name: string; remaining_payments: number }> }) {
@@ -1659,16 +1718,16 @@ function categoryIconComponent(icon?: string | null) {
           <input v-model="claimForm.display_name" autocomplete="nickname" placeholder="Papá, Mamá, Casa" required />
         </label>
         <label>
-          Email
+          Correo
           <input v-model="claimForm.email" type="email" autocomplete="email" placeholder="papa@example.com" required />
         </label>
         <div class="field-row auth-password-row">
           <label>
-            Password
+            Contraseña
             <input v-model="claimForm.password" type="password" autocomplete="new-password" required />
           </label>
           <label>
-            Confirmar
+            Confirmar contraseña
             <input v-model="claimForm.confirmPassword" type="password" autocomplete="new-password" required />
           </label>
         </div>
@@ -1715,11 +1774,11 @@ function categoryIconComponent(icon?: string | null) {
         </label>
         <div class="field-row auth-password-row">
           <label>
-            Password
+            Contraseña
             <input v-model="acceptInviteForm.password" type="password" autocomplete="new-password" required />
           </label>
           <label>
-            Confirmar
+            Confirmar contraseña
             <input v-model="acceptInviteForm.confirmPassword" type="password" autocomplete="new-password" required />
           </label>
         </div>
@@ -1752,11 +1811,11 @@ function categoryIconComponent(icon?: string | null) {
       </div>
       <form class="form-stack login-form" @submit.prevent="submitLogin">
         <label>
-          Email
+          Correo
           <input v-model="loginForm.email" type="email" autocomplete="email" placeholder="papa@example.com" required />
         </label>
         <label>
-          Password
+          Contraseña
           <input v-model="loginForm.password" type="password" autocomplete="current-password" required />
         </label>
         <button class="primary expense-primary" type="submit" :disabled="actionBusy === 'login'">
@@ -1869,13 +1928,18 @@ function categoryIconComponent(icon?: string | null) {
       :inert="iconGalleryOpen || undefined"
       :aria-hidden="iconGalleryOpen ? 'true' : undefined"
     >
-      <section class="plan-top-section" aria-label="Plan de casa">
+      <section class="plan-top-section" aria-label="Presupuesto de casa">
         <header class="plan-top-header">
-          <h1>Plan de casa</h1>
+          <h1>Presupuesto de casa</h1>
           <p>{{ activePeriodLabel }}</p>
         </header>
 
-        <div class="plan-cycle-controls" aria-label="Seleccionar ciclo del plan">
+        <div
+          class="plan-cycle-controls"
+          aria-label="Seleccionar ciclo del presupuesto"
+          @focusout="closeCycleMenuOnBlur"
+          @keydown.esc="cycleMenuOpen = false"
+        >
           <button
             class="cycle-step-button"
             type="button"
@@ -1885,11 +1949,42 @@ function categoryIconComponent(icon?: string | null) {
           >
             <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" /></svg>
           </button>
-          <select aria-label="Ciclo del plan" :value="activeBudgetPeriod.start" @change="selectBudgetCycle">
-            <option v-for="cycle in budgetCycleOptions" :key="cycle.value" :value="cycle.value">
-              {{ cycle.label }}
-            </option>
-          </select>
+          <div class="cycle-picker">
+            <button
+              class="cycle-picker-trigger"
+              type="button"
+              aria-haspopup="listbox"
+              aria-controls="budget-cycle-list"
+              :aria-expanded="cycleMenuOpen"
+              @click="cycleMenuOpen = !cycleMenuOpen"
+            >
+              <span>
+                <small>{{ activeBudgetCycleOption ? cycleRelativeLabel(activeBudgetCycleOption) : 'Ciclo actual' }}</small>
+                <strong>{{ activePeriodLabel }}</strong>
+              </span>
+              <svg class="cycle-trigger-chevron" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+            <div v-if="cycleMenuOpen" id="budget-cycle-list" class="cycle-picker-menu" role="listbox" aria-label="Ciclos disponibles">
+              <button
+                v-for="cycle in budgetCycleMenuOptions"
+                :key="cycle.value"
+                class="cycle-option"
+                :class="{ active: cycle.value === activeBudgetPeriod.start }"
+                type="button"
+                role="option"
+                :aria-selected="cycle.value === activeBudgetPeriod.start"
+                @click="selectBudgetCycle(cycle.value)"
+              >
+                <span>
+                  <small>{{ cycleRelativeLabel(cycle) }}</small>
+                  <strong>{{ formatPeriodLabel(cycle.start, cycle.end) }}</strong>
+                </span>
+                <b v-if="cycle.value === activeBudgetPeriod.start">Activo</b>
+              </button>
+            </div>
+          </div>
           <button
             class="cycle-step-button"
             type="button"
@@ -1964,16 +2059,32 @@ function categoryIconComponent(icon?: string | null) {
                 <strong>{{ money(item.available_cents, settings.currency) }}</strong>
               </footer>
             </button>
-            <button
-              class="category-card-add"
-              type="button"
-              :aria-label="`Registrar gasto en ${item.category_name}`"
-              @click="goToExpenseCaptureForCategory(item.category_id)"
-            >
-              <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
-            </button>
           </article>
         </div>
+      </section>
+
+      <section v-if="summary" class="plan-overview" aria-label="Resumen de casa">
+        <div class="plan-balance">
+          <span>Presupuesto de casa</span>
+          <strong :class="{ negative: summary.totals.available_cents < 0 }">
+            {{ money(summary.totals.available_cents, settings.currency) }}
+          </strong>
+          <p>{{ planSummaryCopy }}</p>
+        </div>
+        <dl class="home-totals">
+          <div>
+            <dt>Presupuesto del periodo</dt>
+            <dd>{{ money(summary.totals.budget_cents, settings.currency) }}</dd>
+          </div>
+          <div>
+            <dt>Ya gastado</dt>
+            <dd>{{ money(summary.totals.spent_cents, settings.currency) }}</dd>
+          </div>
+          <div>
+            <dt>Por venir</dt>
+            <dd>{{ money(summary.totals.expected_cents, settings.currency) }}</dd>
+          </div>
+        </dl>
       </section>
 
       <section class="attention-panel" :class="{ calm: !planAttentionItems.length }">
@@ -1987,40 +2098,8 @@ function categoryIconComponent(icon?: string | null) {
             <span>{{ item.body }}</span>
           </article>
         </div>
-        <p v-else>No hay categorías rebasadas ni cargos urgentes en este ciclo.</p>
+        <p v-else>No hay categorías rebasadas ni pagos urgentes en este ciclo.</p>
       </section>
-
-      <details v-if="summary" class="plan-summary-disclosure" :open="showPlanSummary" @toggle="syncPlanSummary">
-        <summary>
-          <span>{{ showPlanSummary ? 'Ocultar resumen' : 'Mostrar resumen' }}</span>
-          <strong :class="{ negative: summary.totals.available_cents < 0 }">
-            {{ money(summary.totals.available_cents, settings.currency) }}
-          </strong>
-        </summary>
-        <section class="plan-overview">
-          <div class="plan-balance">
-            <span>Presupuesto de casa</span>
-            <strong :class="{ negative: summary.totals.available_cents < 0 }">
-              {{ money(summary.totals.available_cents, settings.currency) }}
-            </strong>
-            <p>{{ planSummaryCopy }}</p>
-          </div>
-          <dl class="home-totals">
-            <div>
-              <dt>Plan del periodo</dt>
-              <dd>{{ money(summary.totals.budget_cents, settings.currency) }}</dd>
-            </div>
-            <div>
-              <dt>Ya gastado</dt>
-              <dd>{{ money(summary.totals.spent_cents, settings.currency) }}</dd>
-            </div>
-            <div>
-              <dt>Por venir</dt>
-              <dd>{{ money(summary.totals.expected_cents, settings.currency) }}</dd>
-            </div>
-          </dl>
-        </section>
-      </details>
     </section>
 
     <section
@@ -2140,7 +2219,7 @@ function categoryIconComponent(icon?: string | null) {
             </div>
             <label>Monto<input v-model="expenseForm.amount" inputmode="decimal" placeholder="$ 850.00" required /></label>
           </div>
-          <div class="field-row">
+          <div class="field-row expense-meta-row">
             <label>Fecha<input v-model="expenseForm.date" type="date" required /></label>
             <label>Nota opcional<textarea v-model="expenseForm.note" rows="2" placeholder="Ticket pendiente, gasto familiar"></textarea></label>
           </div>
@@ -2183,13 +2262,13 @@ function categoryIconComponent(icon?: string | null) {
             <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" /></svg>
           </button>
           <div>
-            <span>Compromisos</span>
-          <h1>Nuevo cargo planeado</h1>
+            <span>Pagos</span>
+          <h1>Nuevo pago planeado</h1>
           </div>
         </header>
 
         <div class="segmented purple">
-          <button :class="{ active: commitmentKind === 'subscription' }" type="button" @click="commitmentKind = 'subscription'">Cargo mensual</button>
+          <button :class="{ active: commitmentKind === 'subscription' }" type="button" @click="commitmentKind = 'subscription'">Pago mensual</button>
           <button :class="{ active: commitmentKind === 'msi' }" type="button" @click="commitmentKind = 'msi'">Compra a meses</button>
         </div>
 
@@ -2263,10 +2342,10 @@ function categoryIconComponent(icon?: string | null) {
 
           <section v-if="commitmentKind === 'subscription'" class="purple-panel commitment-entry-panel">
             <div class="section-title-row">
-              <h2>Cargo mensual</h2>
+              <h2>Pago mensual</h2>
               <span>Indefinida</span>
             </div>
-            <p>Solo indica el día de pago. El cargo se repite cada mes hasta que lo omitas o lo desactives.</p>
+            <p>Solo indica el día de pago. Se repite cada mes hasta que lo omitas o lo desactives.</p>
             <div class="field-row commitment-input-row">
               <label>Nombre<input v-model="recurringForm.name" required /></label>
               <div class="form-field merchant-field">
@@ -2313,7 +2392,7 @@ function categoryIconComponent(icon?: string | null) {
             </div>
             <div class="preview-box">
               <b>Cómo se verá</b>
-              <span>Primer cargo {{ recurringForm.start_date }}</span>
+              <span>Primer pago {{ recurringForm.start_date }}</span>
               <span>Duración indefinida</span>
             </div>
           </section>
@@ -2323,7 +2402,7 @@ function categoryIconComponent(icon?: string | null) {
               <h2>Compra a meses</h2>
               <span>Plazo definido</span>
             </div>
-            <p>Indica la fecha del primer pago y cuántos meses dura la compra. Burn Rate calcula el último cargo.</p>
+            <p>Indica la fecha del primer pago y cuántos meses dura la compra. Burn Rate calcula el último pago.</p>
             <div class="field-row commitment-input-row">
               <label>Nombre<input v-model="installmentForm.name" required /></label>
               <div class="form-field merchant-field">
@@ -2377,8 +2456,8 @@ function categoryIconComponent(icon?: string | null) {
             </label>
             <div class="preview-box">
               <b>Cómo se verá</b>
-              <span>Primer cargo {{ installmentForm.start_date }}</span>
-              <span>Último cargo {{ installmentCalculatedEndDate || 'por calcular' }}</span>
+              <span>Primer pago {{ installmentForm.start_date }}</span>
+              <span>Último pago {{ installmentCalculatedEndDate || 'por calcular' }}</span>
               <span>{{ installmentForm.months_count || 0 }} mensualidades</span>
               <span v-if="installmentForm.round_up_monthly_payment">Pago requerido redondeado al siguiente peso</span>
             </div>
@@ -2395,7 +2474,7 @@ function categoryIconComponent(icon?: string | null) {
                 actionBusy === (commitmentKind === 'subscription' ? 'recurring' : 'installment')
                   ? 'Guardando...'
                   : commitmentKind === 'subscription'
-                    ? 'Guardar cargo'
+                    ? 'Guardar pago'
                     : 'Guardar compra'
               }}
             </button>
@@ -2407,7 +2486,7 @@ function categoryIconComponent(icon?: string | null) {
         <header class="mobile-header commitments-header">
           <div>
             <span>Burn Rate</span>
-            <h1>Cargos del mes</h1>
+            <h1>Pagos del mes</h1>
             <small class="commitment-inline-summary">
               <b>{{ money(currentCommitmentTotal, settings.currency) }}</b>
               <em>{{ activeRecurringExpenses.length }} mensuales · {{ projectedInstallmentPlans.length }} a meses</em>
@@ -2422,7 +2501,7 @@ function categoryIconComponent(icon?: string | null) {
             <small>{{ activeRecurringExpenses.length }} mensuales registrados</small>
           </article>
           <article class="commitment-total-card">
-            <span>MSI del periodo</span>
+            <span>A meses este periodo</span>
             <strong>{{ money(currentInstallmentTotal, settings.currency) }}</strong>
             <small>{{ projectedInstallmentPlans.length }} compras a meses activas</small>
           </article>
@@ -2435,7 +2514,10 @@ function categoryIconComponent(icon?: string | null) {
 
         <section v-if="commitmentTab === 'subscriptions'" class="commitment-section">
           <div class="section-title-row">
-            <h2>Cargos mensuales</h2>
+            <h2>Pagos mensuales</h2>
+            <button class="secondary purple-secondary section-title-action" type="button" @click="openCommitmentForm('subscription')">
+              Nuevo pago mensual
+            </button>
           </div>
           <article
             v-for="row in recurringCommitmentRows"
@@ -2456,7 +2538,7 @@ function categoryIconComponent(icon?: string | null) {
                   <b>{{ recurringCommitmentCategoryLabel(row) }}</b>
                 </span>
               </span>
-              <small v-if="!row.charge">Sin cargo pendiente en este periodo</small>
+              <small v-if="!row.charge">Sin pago pendiente en este periodo</small>
             </div>
             <strong>{{ money(row.expense.amount_cents, settings.currency) }}</strong>
             <template v-if="!isEditingCommitment('recurring', row.expense.id)">
@@ -2514,7 +2596,7 @@ function categoryIconComponent(icon?: string | null) {
                   type="button"
                   @click="startCommitmentDelete('recurring', row.expense.id)"
                 >
-                  Eliminar cargo mensual
+                  Eliminar pago mensual
                 </button>
                 <div v-else class="inline-confirm">
                   <span>Confirmar eliminación definitiva</span>
@@ -2531,7 +2613,7 @@ function categoryIconComponent(icon?: string | null) {
               </div>
             </form>
           </article>
-          <p v-if="!recurringCommitmentRows.length" class="empty-line">No hay cargos mensuales activos.</p>
+          <p v-if="!recurringCommitmentRows.length" class="empty-line">No hay pagos mensuales activos.</p>
         </section>
 
         <section v-else class="commitment-section">
@@ -2641,7 +2723,7 @@ function categoryIconComponent(icon?: string | null) {
           <div class="projection-header">
             <div>
               <h2>Pagos a meses registrados</h2>
-              <span>Total de compras MSI activas en esta proyección</span>
+              <span>Total de compras a meses activas en esta proyección</span>
             </div>
             <strong>{{ money(registeredInstallmentTotal, settings.currency) }}</strong>
           </div>
@@ -2659,7 +2741,7 @@ function categoryIconComponent(icon?: string | null) {
                 <i :style="{ width: projectionBarWidth(period.total_cents) }"></i>
               </div>
               <div class="projection-period-meta">
-                <span>{{ period.plans.length ? projectionPaymentCountLabel(period.plans.length) : 'Sin pagos MSI' }}</span>
+                <span>{{ period.plans.length ? projectionPaymentCountLabel(period.plans.length) : 'Sin pagos a meses' }}</span>
                 <b v-if="projectionSettledPlans(period).length">{{ projectionSettledLabel(period) }}</b>
               </div>
             </article>
@@ -2685,7 +2767,7 @@ function categoryIconComponent(icon?: string | null) {
         <form class="setup-intro form-stack" @submit.prevent="saveSettings">
           <div>
             <h2>Primero lo esencial</h2>
-            <p>Configura solo lo que necesitas para que el plan familiar calcule bien.</p>
+            <p>Configura solo lo que necesitas para que el presupuesto familiar calcule bien.</p>
           </div>
           <div class="cutoff-row">
             <label>Día de corte<input v-model.number="settingsForm.cutoff_day" type="number" min="1" max="28" /></label>
@@ -2713,49 +2795,10 @@ function categoryIconComponent(icon?: string | null) {
             <div class="section-title-row">
               <div>
                 <h2>Cuentas de pago</h2>
-                <p>Crea o ajusta las cuentas que usas para pagar gastos de la casa.</p>
+                <p>Administra desde dónde se pagan los gastos de la casa.</p>
               </div>
               <span>Saldo: {{ money(totalAccountBalance, settings.currency) }}</span>
             </div>
-            <form class="form-stack account-edit-form" @submit.prevent="submitAccount">
-              <div class="section-title-row compact-title-row">
-                <h3>{{ accountFormTitle }}</h3>
-                <button v-if="editingAccountId" class="secondary" type="button" @click="resetAccountForm">Cancelar</button>
-              </div>
-              <label>Nombre<input v-model="accountForm.name" placeholder="Cartera casa" required /></label>
-              <div class="segmented account-type-tabs">
-                <button type="button" :class="{ active: accountForm.account_type === 'cash' }" @click="accountForm.account_type = 'cash'">Efectivo</button>
-                <button type="button" :class="{ active: accountForm.account_type === 'bank' }" @click="accountForm.account_type = 'bank'">Banco</button>
-                <button type="button" :class="{ active: accountForm.account_type === 'debit_card' }" @click="accountForm.account_type = 'debit_card'">Tarjeta débito</button>
-                <button type="button" :class="{ active: accountForm.account_type === 'credit_card' }" @click="accountForm.account_type = 'credit_card'">Tarjeta crédito</button>
-              </div>
-              <label v-if="accountForm.account_type === 'cash'">
-                Saldo inicial visible para efectivo
-                <input v-model="accountForm.initial_balance" inputmode="decimal" placeholder="$ 2,000.00" />
-              </label>
-              <div class="field-group">
-                <span>Color</span>
-                <div class="color-picker-row" role="group" aria-label="Color de cuenta">
-                  <button
-                    v-for="color in accountColors"
-                    :key="color"
-                    type="button"
-                    :aria-label="color"
-                    :class="{ active: accountForm.color === color }"
-                    :style="{ background: color }"
-                    @click="accountForm.color = color"
-                  ></button>
-                  <input v-model="accountForm.color" type="color" aria-label="Color personalizado" />
-                </div>
-              </div>
-              <label class="check-row">
-                <input v-model="accountForm.is_active" type="checkbox" />
-                Activa: aparece como medio de pago
-              </label>
-              <button class="primary account-primary" type="submit" :disabled="actionBusy === 'account'">
-                {{ accountSubmitLabel }}
-              </button>
-            </form>
             <div class="account-list">
               <article v-for="account in accounts" :key="account.id" class="account-row" :class="{ muted: !account.is_active }">
                 <span :style="{ background: account.color }"></span>
@@ -2768,11 +2811,63 @@ function categoryIconComponent(icon?: string | null) {
               </article>
               <p v-if="!accounts.length" class="empty-line">Sin cuentas creadas.</p>
             </div>
+            <button v-if="!accountFormOpen" class="primary account-primary setup-add-button" type="button" @click="startAccountForm">
+              Nueva cuenta
+            </button>
+            <form v-if="accountFormOpen" class="form-stack account-edit-form inline-edit-form" @submit.prevent="submitAccount">
+              <div class="section-title-row compact-title-row">
+                <h3>{{ accountFormTitle }}</h3>
+                <button class="secondary" type="button" @click="resetAccountForm">Cerrar</button>
+              </div>
+              <label>Nombre<input v-model="accountForm.name" placeholder="Cartera casa" required /></label>
+              <div class="segmented account-type-tabs">
+                <button type="button" :class="{ active: accountForm.account_type === 'cash' }" @click="accountForm.account_type = 'cash'">Efectivo</button>
+                <button type="button" :class="{ active: accountForm.account_type === 'bank' }" @click="accountForm.account_type = 'bank'">Banco</button>
+                <button type="button" :class="{ active: accountForm.account_type === 'debit_card' }" @click="accountForm.account_type = 'debit_card'">Tarjeta débito</button>
+                <button type="button" :class="{ active: accountForm.account_type === 'credit_card' }" @click="accountForm.account_type = 'credit_card'">Tarjeta crédito</button>
+              </div>
+              <label v-if="accountForm.account_type === 'cash'">
+                Saldo inicial visible para efectivo
+                <input v-model="accountForm.initial_balance" inputmode="decimal" placeholder="$ 2,000.00" />
+              </label>
+              <details class="advanced-disclosure">
+                <summary>Color y estado</summary>
+                <div class="advanced-body">
+                  <div class="field-group">
+                    <span>Color</span>
+                    <div class="color-picker-row" role="group" aria-label="Color de cuenta">
+                      <button
+                        v-for="color in accountColors"
+                        :key="color"
+                        type="button"
+                        :aria-label="color"
+                        :class="{ active: accountForm.color === color }"
+                        :style="{ background: color }"
+                        @click="accountForm.color = color"
+                      ></button>
+                      <input v-model="accountForm.color" type="color" aria-label="Color personalizado" />
+                    </div>
+                  </div>
+                  <label class="check-row">
+                    <input v-model="accountForm.is_active" type="checkbox" />
+                    Activa: aparece como medio de pago
+                  </label>
+                </div>
+              </details>
+              <button class="primary account-primary" type="submit" :disabled="actionBusy === 'account'">
+                {{ accountSubmitLabel }}
+              </button>
+            </form>
           </section>
 
-          <form v-if="settingsPanel === 'people'" class="panel form-stack compact-panel people-panel" @submit.prevent="submitMember">
-            <h2>Personas de casa</h2>
-            <p>Usa personas para separar gastos personales dentro del mismo plan familiar.</p>
+          <section v-if="settingsPanel === 'people'" class="panel form-stack compact-panel people-panel">
+            <div class="section-title-row">
+              <div>
+                <h2>Personas de casa</h2>
+                <p>Separa gastos personales dentro del mismo presupuesto familiar.</p>
+              </div>
+              <span>{{ members.length }} totales</span>
+            </div>
             <div class="people-pills">
               <button
                 v-for="member in members"
@@ -2787,52 +2882,90 @@ function categoryIconComponent(icon?: string | null) {
                 <small>{{ member.access_enabled ? (member.user_is_admin ? 'admin' : 'usuario') : 'sin login' }}</small>
               </button>
             </div>
-            <div class="section-title-row compact-title-row">
-              <h3>{{ memberFormTitle }}</h3>
-              <button v-if="editingMemberId" class="secondary" type="button" @click="resetMemberForm">Cancelar</button>
-            </div>
-            <label>Nombre de la persona<input v-model="memberForm.name" required /></label>
-            <label class="switch-row">
-              <input :checked="memberForm.has_access" type="checkbox" role="switch" @change="setMemberAccessFromEvent" />
-              <span class="switch-track" aria-hidden="true"></span>
-              <span>
-                <b>Acceso a la app</b>
-                <small>Puede iniciar sesión con usuario y clave</small>
-              </span>
-            </label>
-            <label class="switch-row">
-              <input :checked="memberForm.is_admin" type="checkbox" role="switch" @change="setMemberAdminFromEvent" />
-              <span class="switch-track" aria-hidden="true"></span>
-              <span>
-                <b>Admin</b>
-                <small>También activa el acceso a la app</small>
-              </span>
-            </label>
-            <template v-if="memberForm.has_access">
-              <div class="field-row">
-                <label>Usuario<input v-model="memberForm.username" autocomplete="username" required /></label>
-                <label>Email<input v-model="memberForm.email" type="email" autocomplete="email" /></label>
-              </div>
-              <label>Clave temporal<input v-model="memberForm.password" type="password" autocomplete="new-password" :required="!editingMemberId" /></label>
-            </template>
-            <label>Color<input v-model="memberForm.color" type="color" /></label>
-            <button class="primary blue-primary" type="submit" :disabled="actionBusy === 'member'">
-              {{ memberSubmitLabel }}
+            <p v-if="!members.length" class="empty-line">Sin personas creadas.</p>
+            <button v-if="!memberFormOpen" class="primary blue-primary setup-add-button" type="button" @click="startMemberForm">
+              Nueva persona
             </button>
-          </form>
+            <form v-if="memberFormOpen" class="form-stack inline-edit-form" @submit.prevent="submitMember">
+              <div class="section-title-row compact-title-row">
+                <h3>{{ memberFormTitle }}</h3>
+                <button class="secondary" type="button" @click="resetMemberForm">Cerrar</button>
+              </div>
+              <label>Nombre de la persona<input v-model="memberForm.name" required /></label>
+              <details class="advanced-disclosure">
+                <summary>Acceso, permisos y color</summary>
+                <div class="advanced-body">
+                  <label class="switch-row">
+                    <input :checked="memberForm.has_access" type="checkbox" role="switch" @change="setMemberAccessFromEvent" />
+                    <span class="switch-track" aria-hidden="true"></span>
+                    <span>
+                      <b>Acceso a la app</b>
+                      <small>Puede iniciar sesión con usuario y clave</small>
+                    </span>
+                  </label>
+                  <label class="switch-row">
+                    <input :checked="memberForm.is_admin" type="checkbox" role="switch" @change="setMemberAdminFromEvent" />
+                    <span class="switch-track" aria-hidden="true"></span>
+                    <span>
+                      <b>Admin</b>
+                      <small>También activa el acceso a la app</small>
+                    </span>
+                  </label>
+                  <template v-if="memberForm.has_access">
+                    <div class="field-row">
+                      <label>Usuario<input v-model="memberForm.username" autocomplete="username" required /></label>
+                      <label>Correo<input v-model="memberForm.email" type="email" autocomplete="email" /></label>
+                    </div>
+                    <label>Clave temporal<input v-model="memberForm.password" type="password" autocomplete="new-password" :required="!editingMemberId" /></label>
+                  </template>
+                  <label>Color<input v-model="memberForm.color" type="color" /></label>
+                </div>
+              </details>
+              <button class="primary blue-primary" type="submit" :disabled="actionBusy === 'member'">
+                {{ memberSubmitLabel }}
+              </button>
+            </form>
+          </section>
 
           <section v-if="settingsPanel === 'categories'" class="panel form-stack compact-panel categories-panel">
             <div class="section-title-row">
               <div>
-                <h2>Categorías del plan</h2>
-                <p>Crea o ajusta categorías, presupuesto mensual, icono, color y estado.</p>
+                <h2>Categorías del presupuesto</h2>
+                <p>Revisa presupuestos y ajusta solo lo que cambió.</p>
               </div>
               <span>{{ categories.length }} totales</span>
             </div>
-            <form class="form-stack category-edit-form" @submit.prevent="submitCategory">
+            <section class="category-edit-list" aria-label="Categorías existentes">
+              <article
+                v-for="category in categories"
+                :key="category.id"
+                class="category-edit-row"
+                :class="{ muted: !category.is_active }"
+                :style="{ '--category-color': category.color }"
+              >
+                <span class="category-icon" :style="{ '--category-color': category.color }">
+                  <component :is="categoryIconComponent(category.icon)" aria-hidden="true" />
+                </span>
+                <div>
+                  <b>{{ category.name }}</b>
+                  <span>
+                    {{ category.scope === 'global' ? 'Familia' : category.member_name || 'Personal' }} ·
+                    {{ money(category.monthly_budget_cents, settings.currency) }} ·
+                    {{ category.budget_behavior === 'carryover' ? 'acumulable' : 'mensual' }} ·
+                    {{ category.is_active ? 'activa' : 'inactiva' }}
+                  </span>
+                </div>
+                <button class="secondary" type="button" @click="editCategory(category)">Editar</button>
+              </article>
+              <p v-if="!categories.length" class="empty-line">Sin categorías creadas.</p>
+            </section>
+            <button v-if="!categoryFormOpen" class="primary blue-primary setup-add-button" type="button" @click="startCategoryForm">
+              Nueva categoría
+            </button>
+            <form v-if="categoryFormOpen" class="form-stack category-edit-form inline-edit-form" @submit.prevent="submitCategory">
               <div class="section-title-row compact-title-row">
                 <h3>{{ categoryFormTitle }}</h3>
-                <button v-if="editingCategoryId" class="secondary" type="button" @click="resetCategoryForm">Cancelar</button>
+                <button class="secondary" type="button" @click="resetCategoryForm">Cerrar</button>
               </div>
               <div class="segmented blue-segmented">
                 <button type="button" :class="{ active: categoryForm.scope === 'global' }" @click="categoryForm.scope = 'global'">Familia</button>
@@ -2874,77 +3007,58 @@ function categoryIconComponent(icon?: string | null) {
                 Fecha del cambio
                 <input v-model="categoryForm.budget_effective_date" type="date" required />
               </label>
-              <div class="field-group">
-                <span>Icono</span>
-                <button class="icon-select-button" type="button" :style="{ '--category-color': categoryForm.color }" @click="openIconGallery($event)">
-                  <span class="category-icon selected-icon-preview" :style="{ '--category-color': categoryForm.color }">
-                    <component :is="selectedCategoryIcon.component" aria-hidden="true" />
-                  </span>
-                  <span>
-                    <b>{{ selectedCategoryIcon.label }}</b>
-                    <small>Cambiar icono</small>
-                  </span>
-                </button>
-              </div>
-              <div class="field-group">
-                <span>Color</span>
-                <div class="color-picker-row" role="group" aria-label="Color de categoría">
-                  <button
-                    v-for="color in categoryColors"
-                    :key="color"
-                    type="button"
-                    :aria-label="color"
-                    :class="{ active: categoryForm.color === color }"
-                    :style="{ background: color }"
-                    @click="categoryForm.color = color"
-                  ></button>
-                  <input v-model="categoryForm.color" type="color" aria-label="Color personalizado" />
+              <details class="advanced-disclosure">
+                <summary>Icono, color y estado</summary>
+                <div class="advanced-body">
+                  <div class="field-group">
+                    <span>Icono</span>
+                    <button class="icon-select-button" type="button" :style="{ '--category-color': categoryForm.color }" @click="openIconGallery($event)">
+                      <span class="category-icon selected-icon-preview" :style="{ '--category-color': categoryForm.color }">
+                        <component :is="selectedCategoryIcon.component" aria-hidden="true" />
+                      </span>
+                      <span>
+                        <b>{{ selectedCategoryIcon.label }}</b>
+                        <small>Cambiar icono</small>
+                      </span>
+                    </button>
+                  </div>
+                  <div class="field-group">
+                    <span>Color</span>
+                    <div class="color-picker-row" role="group" aria-label="Color de categoría">
+                      <button
+                        v-for="color in categoryColors"
+                        :key="color"
+                        type="button"
+                        :aria-label="color"
+                        :class="{ active: categoryForm.color === color }"
+                        :style="{ background: color }"
+                        @click="categoryForm.color = color"
+                      ></button>
+                      <input v-model="categoryForm.color" type="color" aria-label="Color personalizado" />
+                    </div>
+                  </div>
+                  <label class="check-row">
+                    <input v-model="categoryForm.is_active" type="checkbox" />
+                    Activa: aparece en presupuesto y captura de gastos
+                  </label>
                 </div>
-              </div>
-              <label class="check-row">
-                <input v-model="categoryForm.is_active" type="checkbox" />
-                Activa: aparece en plan y captura de gastos
-              </label>
+              </details>
               <button class="primary blue-primary" type="submit" :disabled="actionBusy === 'category'">
                 {{ categorySubmitLabel }}
               </button>
             </form>
-            <section class="category-edit-list" aria-label="Categorías existentes">
-              <article
-                v-for="category in categories"
-                :key="category.id"
-                class="category-edit-row"
-                :class="{ muted: !category.is_active }"
-                :style="{ '--category-color': category.color }"
-              >
-                <span class="category-icon" :style="{ '--category-color': category.color }">
-                  <component :is="categoryIconComponent(category.icon)" aria-hidden="true" />
-                </span>
-                <div>
-                  <b>{{ category.name }}</b>
-	                  <span>
-	                    {{ category.scope === 'global' ? 'Familia' : category.member_name || 'Personal' }} ·
-	                    {{ money(category.monthly_budget_cents, settings.currency) }} ·
-	                    {{ category.budget_behavior === 'carryover' ? 'acumulable' : 'mensual' }} ·
-	                    {{ category.is_active ? 'activa' : 'inactiva' }}
-	                  </span>
-                </div>
-                <button class="secondary" type="button" @click="editCategory(category)">Editar</button>
-              </article>
-              <p v-if="!categories.length" class="empty-line">Sin categorías creadas.</p>
-            </section>
           </section>
 
           <form v-if="settingsPanel === 'invitations'" class="panel form-stack compact-panel invitations-panel" @submit.prevent="submitInvitation">
             <div class="section-title-row">
               <div>
                 <h2>Invitaciones</h2>
-                <p>Genera un link para que otra persona entre a Burn Rate sin compartir tu password.</p>
+                <p>Genera un link para que otra persona entre a Burn Rate sin compartir tu contraseña.</p>
               </div>
               <span>{{ invitations.length }} activas</span>
             </div>
             <label>
-              Email
+              Correo
               <input v-model="invitationForm.email" type="email" autocomplete="email" placeholder="familia@example.com" required />
             </label>
             <label class="check-row">

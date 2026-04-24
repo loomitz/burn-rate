@@ -54,17 +54,17 @@ export function apiErrorMessage(error: unknown, fallback: string) {
         }
       }
     }
-    if (error.status === 401) return 'Email o password incorrecto.'
+    if (error.status === 401) return 'Correo o contraseña incorrectos.'
     if (error.status === 403) return 'No tienes permiso para hacer ese cambio.'
     if (error.status === 404) return 'No encontramos ese dato.'
     if (error.status === 429) return 'Hay demasiados intentos. Espera un momento e intenta otra vez.'
-    return `Error ${error.status}`
+    return `No pudimos completar la solicitud (${error.status}). Intenta de nuevo.`
   }
 
   if (error instanceof Error && error.message) {
     const networkHints = ['Failed to fetch', 'NetworkError', 'Load failed']
     if (networkHints.some((hint) => error.message.includes(hint))) {
-      return 'No pudimos conectar con la casa. Revisa la red e intenta de nuevo.'
+      return 'No pudimos conectar con Burn Rate. Revisa la red e intenta de nuevo.'
     }
     return error.message
   }

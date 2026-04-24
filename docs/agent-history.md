@@ -1,5 +1,24 @@
 # Agent History
 
+## 2026-04-24 - Iteración visual y sistema de diseño v0.1.13
+
+Objetivo: publicar los últimos ajustes visuales de Burn Rate y fijar el contrato de diseño.
+
+Archivos tocados:
+
+- Actualizado `frontend/src/App.vue` para usar navegación `Presupuesto`, `Gastos`, `Pagos`, nuevos iconos de menú, selector de ciclo propio, CTA de nuevo pago mensual y formularios de ajustes menos densos.
+- Actualizado `frontend/src/style.css` para mejorar layout responsive, selector de ciclo, paneles de ajustes, campo de fecha en desktop, jerarquía visual y pulido mobile-first.
+- Agregados `PRODUCT.md`, `DESIGN.md`, `DESIGN.json` y `docs/design-iteration.md` como contexto y contrato de diseño para futuras iteraciones.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.13`.
+
+Verificaciones:
+
+- `pnpm --dir frontend build` pasó.
+- `pnpm --dir frontend test` pasó.
+- Revisión Playwright de las vistas `Presupuesto`, `Gastos`, `Pagos` y `Ajustes` en mobile y desktop.
+- `docker --context colima buildx build --builder beaglebackbone-builder --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.13 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura.
+- `docker --context colima buildx imagetools inspect` confirmó que `v0.1.13` y `latest` apuntan al digest `sha256:3d2658ad826a53fc6fce807771b4dbcd28506ff22ef7a2d8c35be608908078ec`, con manifiestos `linux/amd64` y `linux/arm64`.
+
 ## 2026-04-23 - Rediseño tipográfico mobile-first v0.1.12
 
 Objetivo: publicar el rediseño general de interfaz con nueva tipografía sans priorizando legibilidad en móvil.

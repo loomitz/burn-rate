@@ -1,0 +1,214 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-04-23T23:56:39-06:00",
+  "title": "Design System: Burn Rate",
+  "extensions": {
+    "colorMeta": {
+      "paper": {
+        "role": "neutral",
+        "displayName": "Papel base",
+        "canonical": "#f6efe4",
+        "tonalRamp": ["#261a14", "#534139", "#78665b", "#b89475", "#dccab7", "#efe2d2", "#f6efe4", "#fffaf4"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Superficie limpia",
+        "canonical": "#fffaf4",
+        "tonalRamp": ["#261a14", "#534139", "#78665b", "#dccab7", "#efe2d2", "#f7efe5", "#fcf7f0", "#fffaf4"]
+      },
+      "ember": {
+        "role": "primary",
+        "displayName": "Ember de gasto",
+        "canonical": "#cc5a2b",
+        "tonalRamp": ["#3b2118", "#7c2418", "#9d4019", "#cc5a2b", "#d7643b", "#e79b78", "#f8ebe1", "#fff1e5"]
+      },
+      "plan-accent": {
+        "role": "secondary",
+        "displayName": "Verde presupuesto",
+        "canonical": "#2f7d74",
+        "tonalRamp": ["#112622", "#205a54", "#2f7d74", "#57ccb8", "#9ae8da", "#e4f4ef", "#eef6f1", "#fcf7f0"]
+      },
+      "commitments-accent": {
+        "role": "secondary",
+        "displayName": "Morado pagos",
+        "canonical": "#7252d9",
+        "tonalRamp": ["#211a2c", "#3b2a73", "#7252d9", "#b79cff", "#d8ccff", "#eee8ff", "#f3ecfb", "#fcf7f0"]
+      },
+      "settings-accent": {
+        "role": "secondary",
+        "displayName": "Azul ajustes",
+        "canonical": "#2f65d7",
+        "tonalRamp": ["#172131", "#1f3f82", "#2f65d7", "#8eb8ff", "#c7dcff", "#eaf1ff", "#eef3fb", "#fcf7f0"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Encabezados de pantalla y saldos principales."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Títulos móviles de vistas y flujo."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Secciones, tarjetas y paneles compactos."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Texto funcional breve y mensajes."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Campos, botones, chips y estados."
+      }
+    },
+    "shadows": [
+      {
+        "name": "soft-surface",
+        "value": "0 18px 40px rgba(74, 46, 24, 0.08)",
+        "purpose": "Paneles, tarjetas de categoria, resumen de casa y sugerencias."
+      },
+      {
+        "name": "sticky-nav",
+        "value": "0 18px 42px rgba(74, 46, 24, 0.14)",
+        "purpose": "Navegacion sticky superior en movil."
+      },
+      {
+        "name": "modal-gallery",
+        "value": "0 28px 68px rgba(35, 25, 19, 0.24)",
+        "purpose": "Galeria de iconos y superficies que bloquean el flujo."
+      },
+      {
+        "name": "inset-press",
+        "value": "inset 0 -1px 0 rgba(44, 28, 20, 0.22)",
+        "purpose": "Tactilidad leve en botones primarios."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-fast",
+        "value": "150ms ease",
+        "purpose": "Transiciones de transform, color, borde, sombra, opacidad y filtro."
+      },
+      {
+        "name": "switch-fast",
+        "value": "160ms ease",
+        "purpose": "Movimiento de switch y cambios de track."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "mobile-tight",
+        "value": "560px"
+      },
+      {
+        "name": "content",
+        "value": "760px"
+      },
+      {
+        "name": "settings-content",
+        "value": "980px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Accion principal con acento de tarea y tactilidad suave.",
+      "html": "<button class=\"ds-btn-primary\">Guardar gasto</button>",
+      "css": ".ds-btn-primary { min-height: 48px; border: 1px solid transparent; border-radius: 18px; padding: 12px 16px; background: #cc5a2b; color: #fffaf4; font-family: 'Google Sans Text', Arial, sans-serif; font-size: 0.9375rem; font-weight: 800; box-shadow: inset 0 -1px 0 rgba(44, 28, 20, 0.22); transition: transform 150ms ease, background-color 150ms ease, box-shadow 150ms ease; } .ds-btn-primary:hover { transform: translateY(-1px); box-shadow: 0 1px 0 rgba(33, 26, 22, 0.08), inset 0 -1px 0 rgba(44, 28, 20, 0.22); } .ds-btn-primary:focus-visible { outline: 3px solid #a7481d; outline-offset: 3px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Accion secundaria con borde tibio y fondo crema.",
+      "html": "<button class=\"ds-btn-secondary\">Cancelar</button>",
+      "css": ".ds-btn-secondary { min-height: 48px; border: 1px solid #dccab7; border-radius: 18px; padding: 12px 16px; background: #f8e7d3; color: #261a14; font-family: 'Google Sans Text', Arial, sans-serif; font-size: 0.9375rem; font-weight: 800; transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease; } .ds-btn-secondary:hover { transform: translateY(-1px); box-shadow: 0 1px 0 rgba(33, 26, 22, 0.08); } .ds-btn-secondary:focus-visible { outline: 3px solid #a7481d; outline-offset: 3px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Campo tactil para correo, contrasena, monto y fechas.",
+      "html": "<label class=\"ds-field\"><span>Correo</span><input placeholder=\"papa@example.com\" /></label>",
+      "css": ".ds-field { display: grid; gap: 6px; color: #534139; font-family: 'Google Sans Text', Arial, sans-serif; font-size: 0.875rem; font-weight: 700; } .ds-field input { min-height: 48px; border: 1px solid #dccab7; border-radius: 14px; background: #fcf7f0; color: #261a14; padding: 12px 14px; font: inherit; } .ds-field input:focus { border-color: #cc5a2b; outline: 0; box-shadow: 0 0 0 3px rgba(204, 90, 43, 0.16); }"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Superficie de trabajo con papel limpio, borde tibio y sombra ambiental.",
+      "html": "<section class=\"ds-panel\"><h3>Presupuesto de casa</h3><p>Disponible este periodo</p><strong>$12,450.00</strong></section>",
+      "css": ".ds-panel { display: grid; gap: 8px; border: 1px solid #dccab7; border-radius: 18px; padding: 16px; background: #fffaf4; color: #261a14; box-shadow: 0 18px 40px rgba(74, 46, 24, 0.08); font-family: 'Google Sans Text', Arial, sans-serif; } .ds-panel h3 { margin: 0; font-family: 'Google Sans', Arial, sans-serif; font-size: 1.25rem; font-weight: 800; } .ds-panel p { margin: 0; color: #78665b; font-size: 0.875rem; font-weight: 700; } .ds-panel strong { font-size: 2rem; font-weight: 800; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "chip",
+      "refersTo": "bottom-nav-active",
+      "description": "Cambio de modo compacto para registros, movimientos, mensuales y compras a meses.",
+      "html": "<div class=\"ds-segmented\"><button class=\"active\">Pago mensual</button><button>Compra a meses</button></div>",
+      "css": ".ds-segmented { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; min-height: 52px; border: 1px solid #dccab7; border-radius: 18px; padding: 6px; background: #efe2d2; } .ds-segmented button { min-height: 48px; border: 0; border-radius: 14px; background: transparent; color: #78665b; font-family: 'Google Sans Text', Arial, sans-serif; font-size: 0.875rem; font-weight: 700; } .ds-segmented button.active { background: #fffaf4; color: #2f7d74; box-shadow: 0 1px 2px rgba(44, 28, 20, 0.06); } .ds-segmented button:focus-visible { outline: 3px solid #a7481d; outline-offset: 2px; }"
+    },
+    {
+      "name": "Bottom Navigation",
+      "kind": "nav",
+      "refersTo": "bottom-nav-active",
+      "description": "Navegacion sticky con acentos por vista.",
+      "html": "<nav class=\"ds-bottom-nav\"><button class=\"active\">Presupuesto</button><button>Gastos</button><button>Pagos</button><button>Ajustes</button></nav>",
+      "css": ".ds-bottom-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; width: min(100%, 420px); padding: 8px; border: 1px solid rgba(161, 130, 104, 0.2); border-radius: 18px; background: rgba(255, 251, 246, 0.92); box-shadow: 0 18px 42px rgba(74, 46, 24, 0.14); font-family: 'Google Sans Text', Arial, sans-serif; } .ds-bottom-nav button { min-height: 58px; border: 0; border-radius: 14px; background: transparent; color: #857567; font-size: 0.75rem; font-weight: 600; } .ds-bottom-nav button.active { background: #e4f4ef; color: #2f7d74; font-weight: 800; } .ds-bottom-nav button:focus-visible { outline: 3px solid #a7481d; outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "La libreta clara de la casa",
+    "overview": "Burn Rate debe sentirse como una libreta familiar bien cuidada en el telefono: calida, practica y suficientemente precisa para confiar en los numeros sin convertir la casa en un panel corporativo. El producto se usa con prisa y una sola mano, por eso la jerarquia pone primero el siguiente acto: revisar Presupuesto, capturar Gastos, confirmar Pagos o ajustar la casa. La interfaz es mobile-first, con superficies de papel tibio, tinta cafe, acentos por tarea y controles grandes.",
+    "keyCharacteristics": [
+      "Calida y domestica antes que corporativa.",
+      "Clara y guiada antes que densa.",
+      "Practica antes que decorativa.",
+      "Precisa en numeros, suave en tono.",
+      "Mobile-first con objetivos tactiles de 44 a 58px."
+    ],
+    "rules": [
+      {
+        "name": "The Task Accent Rule",
+        "body": "Cada vista tiene un acento de tarea: verde para Presupuesto, naranja para Gastos, morado para Pagos, azul para ajustes. No mezcles acentos en el mismo control salvo que el dato venga de una categoria.",
+        "section": "colors"
+      },
+      {
+        "name": "The Warm Paper Rule",
+        "body": "Los fondos principales deben quedarse en papel tibio y superficies crema. Evita blanco puro y negro puro.",
+        "section": "colors"
+      },
+      {
+        "name": "The Parent Scan Rule",
+        "body": "Lo importante debe poder entenderse en un vistazo: titulo fuerte, dato claro, una accion primaria. No escondas la decision detras de parrafos.",
+        "section": "typography"
+      },
+      {
+        "name": "The Paper Lift Rule",
+        "body": "Una sombra debe hacer que la superficie se lea cercana, no lujosa. Si la sombra parece una tarjeta SaaS flotante, bajala.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do mantener el tono visual warm, home-like, clear, practical y mobile-first.",
+      "Do usar espanol plano y vocabulario estandar: Presupuesto, Gastos, Pagos, Sistema, Claro, Oscuro, Correo, Contrasena, compras a meses.",
+      "Do poner la siguiente accion de presupuesto familiar primero: revisar saldo, registrar gasto o revisar compromisos.",
+      "Do conservar controles tactiles de al menos 44px, con botones principales de 48px.",
+      "Do usar tabular figures en saldos, importes, pagos y proyecciones.",
+      "Do revelar configuracion avanzada solo cuando la persona la pide."
+    ],
+    "donts": [
+      "Don't hacer que Burn Rate se sienta corporate, analytical, overly technical o SaaS-dashboard generic.",
+      "Don't usar blanco puro, negro puro, neon financiero ni gradientes morados dominantes.",
+      "Don't usar side-stripe borders decorativos o bordes de un solo lado mayores a 1px.",
+      "Don't usar gradient text, glassmorphism decorativo ni tarjetas identicas como solucion principal.",
+      "Don't volver a mostrar Plan, Cargos, MSI, Email, Password, Light o Dark como etiquetas visibles.",
+      "Don't anadir copy explicando la app dentro de la app cuando una etiqueta o estado corto resuelve el flujo."
+    ]
+  }
+}
