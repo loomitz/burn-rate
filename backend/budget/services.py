@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
+from django.db import transaction as db_transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
 
@@ -56,6 +57,30 @@ def day_in_period(period: BudgetPeriod, day: int) -> date:
     if candidate < period.start:
         candidate = add_months(candidate, 1)
     return candidate
+
+
+def month_start(value: date) -> date:
+    return date(value.year, value.month, 1)
+
+
+def iter_month_starts(start: date, end: date):
+    current = month_start(start)
+    final = month_start(end)
+    while current <= final:
+        yield current
+        current = add_months(current, 1)
+
+
+def charge_dates_for_recurring_expense(recurring: RecurringExpense, as_of: date, earliest: date | None = None):
+    end = min(as_of, recurring.end_date) if recurring.end_date else as_of
+    start = max(recurring.start_date, earliest) if earliest else recurring.start_date
+    if end < start:
+        return
+    for month in iter_month_starts(start, end):
+        charge_date = date(month.year, month.month, recurring.charge_day)
+        if charge_date < start or charge_date > end:
+            continue
+        yield charge_date
 
 
 def get_budget_period(value: date | None = None, cutoff_day: int | None = None) -> BudgetPeriod:
@@ -662,3 +687,41 @@ def confirm_expected_charge(source_type: str, source_id: int, charge_date: date,
         transaction.installment_plan_id = source_id
     transaction.save()
     return transaction
+
+
+def auto_post_due_recurring_charges(as_of: date | None = None, user=None) -> list[Transaction]:
+    as_of = as_of or timezone.localdate()
+    created: list[Transaction] = []
+    recurring_queryset = RecurringExpense.objects.filter(
+        auto_charge=True,
+        is_active=True,
+        account__isnull=False,
+        start_date__lte=as_of,
+    ).filter(Q(end_date__isnull=True) | Q(end_date__gte=as_of.replace(day=1)))
+
+    with db_transaction.atomic():
+        for recurring in recurring_queryset.select_related("category", "account"):
+            for charge_date in charge_dates_for_recurring_expense(recurring, as_of, earliest=month_start(as_of)):
+                period = get_budget_period(charge_date)
+                already_posted = Transaction.objects.filter(
+                    recurring_expense=recurring,
+                    transaction_type=Transaction.TransactionType.EXPENSE,
+                    date__gte=period.start,
+                    date__lte=period.end,
+                ).exists()
+                if already_posted:
+                    continue
+                item = Transaction(
+                    transaction_type=Transaction.TransactionType.EXPENSE,
+                    merchant=recurring.merchant,
+                    amount_cents=recurring.amount_cents,
+                    date=charge_date,
+                    account=recurring.account,
+                    category=recurring.category,
+                    note=f"Cargo automatico: {recurring.name}",
+                    created_by=user if getattr(user, "is_authenticated", False) else None,
+                    recurring_expense=recurring,
+                )
+                item.save()
+                created.append(item)
+    return created

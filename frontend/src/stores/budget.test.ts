@@ -41,6 +41,7 @@ describe('budget store auth flow', () => {
   })
 
   function mockFetchAllResponses() {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ created_count: 0, transactions: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ currency: 'MXN', cutoff_day: 20 }))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
@@ -195,6 +196,7 @@ describe('budget store auth flow', () => {
 
   it('updates accounts through the account endpoint', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ created_count: 0, transactions: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ currency: 'MXN', cutoff_day: 20 }))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
@@ -227,6 +229,7 @@ describe('budget store auth flow', () => {
 
   it('updates household members through the member endpoint', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ created_count: 0, transactions: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ currency: 'MXN', cutoff_day: 20 }))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
@@ -340,6 +343,7 @@ describe('budget store auth flow', () => {
       is_active: true,
     }
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ created_count: 0, transactions: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ currency: 'MXN', cutoff_day: 20 }))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
@@ -383,6 +387,7 @@ describe('budget store auth flow', () => {
       is_active: true,
     }
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ created_count: 0, transactions: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ currency: 'MXN', cutoff_day: 20 }))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))

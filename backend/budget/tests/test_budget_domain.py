@@ -15,7 +15,13 @@ from budget.models import (
     RecurringExpense,
     Transaction,
 )
-from budget.services import build_budget_summary, expected_charges_for_period, get_budget_period, installment_projection
+from budget.services import (
+    auto_post_due_recurring_charges,
+    build_budget_summary,
+    expected_charges_for_period,
+    get_budget_period,
+    installment_projection,
+)
 
 
 class BudgetPeriodTests(TestCase):
@@ -282,6 +288,61 @@ class ExpectedChargeTests(TestCase):
         self.assertEqual(charges[0].name, "Netflix")
         self.assertEqual(charges[0].merchant, "Netflix")
         self.assertEqual(charges[0].amount_cents, 29900)
+
+    def test_auto_charge_recurring_posts_due_transaction_once(self):
+        recurring = RecurringExpense.objects.create(
+            name="Netflix",
+            merchant="Netflix",
+            amount_cents=29900,
+            category=self.category,
+            account=self.card,
+            start_date=date(2026, 4, 1),
+            charge_day=5,
+            auto_charge=True,
+        )
+
+        first_run = auto_post_due_recurring_charges(date(2026, 4, 25))
+        second_run = auto_post_due_recurring_charges(date(2026, 4, 25))
+
+        self.assertEqual(len(first_run), 1)
+        self.assertEqual(len(second_run), 0)
+        transaction = Transaction.objects.get(recurring_expense=recurring)
+        self.assertEqual(transaction.transaction_type, Transaction.TransactionType.EXPENSE)
+        self.assertEqual(transaction.date, date(2026, 4, 5))
+        self.assertEqual(transaction.account, self.card)
+        self.assertEqual(transaction.amount_cents, 29900)
+
+    def test_auto_charge_does_not_backfill_previous_calendar_months(self):
+        recurring = RecurringExpense.objects.create(
+            name="Netflix",
+            merchant="Netflix",
+            amount_cents=29900,
+            category=self.category,
+            account=self.card,
+            start_date=date(2026, 2, 1),
+            charge_day=5,
+            auto_charge=True,
+        )
+
+        created = auto_post_due_recurring_charges(date(2026, 4, 25))
+
+        self.assertEqual(len(created), 1)
+        transaction = Transaction.objects.get(recurring_expense=recurring)
+        self.assertEqual(transaction.date, date(2026, 4, 5))
+
+    def test_auto_charge_requires_configured_account(self):
+        recurring = RecurringExpense(
+            name="Netflix",
+            merchant="Netflix",
+            amount_cents=29900,
+            category=self.category,
+            start_date=date(2026, 4, 1),
+            charge_day=5,
+            auto_charge=True,
+        )
+
+        with self.assertRaises(ValidationError):
+            recurring.full_clean()
 
     def test_installment_plan_consumes_only_monthly_payment(self):
         InstallmentPlan.objects.create(

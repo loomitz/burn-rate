@@ -320,7 +320,73 @@ class BudgetApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data["merchant"], "Telmex")
+        self.assertFalse(response.data["auto_charge"])
         self.assertTrue(MerchantConcept.objects.filter(name="Telmex").exists())
+
+    def test_recurring_expense_api_can_create_automatic_charge(self):
+        response = self.client.post(
+            "/api/recurring-expenses/",
+            {
+                "name": "Internet mensual",
+                "merchant": "Telmex",
+                "amount_cents": 59900,
+                "category": self.category.id,
+                "account": self.account.id,
+                "start_date": "2026-04-01",
+                "charge_day": 21,
+                "auto_charge": True,
+                "is_active": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.data["auto_charge"])
+        self.assertEqual(response.data["charge_day"], 21)
+
+    def test_recurring_expense_api_requires_account_for_automatic_charge(self):
+        response = self.client.post(
+            "/api/recurring-expenses/",
+            {
+                "name": "Internet mensual",
+                "merchant": "Telmex",
+                "amount_cents": 59900,
+                "category": self.category.id,
+                "account": None,
+                "start_date": "2026-04-01",
+                "charge_day": 21,
+                "auto_charge": True,
+                "is_active": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("account", response.data)
+
+    def test_auto_post_recurring_charges_endpoint_creates_due_expense(self):
+        recurring = RecurringExpense.objects.create(
+            name="Internet",
+            merchant="Telmex",
+            amount_cents=59900,
+            category=self.category,
+            account=self.account,
+            start_date=date(2026, 4, 1),
+            charge_day=21,
+            auto_charge=True,
+        )
+
+        response = self.client.post("/api/expected-charges/auto-post/", {"date": "2026-04-25"}, format="json")
+        second_response = self.client.post("/api/expected-charges/auto-post/", {"date": "2026-04-25"}, format="json")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["created_count"], 1)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(second_response.data["created_count"], 0)
+        transaction = Transaction.objects.get(recurring_expense=recurring)
+        self.assertEqual(transaction.transaction_type, Transaction.TransactionType.EXPENSE)
+        self.assertEqual(transaction.date, date(2026, 4, 21))
+        self.assertEqual(transaction.created_by, self.user)
 
     def test_recurring_expense_update_only_allows_name_and_merchant(self):
         recurring = RecurringExpense.objects.create(
@@ -335,7 +401,13 @@ class BudgetApiTests(APITestCase):
 
         response = self.client.patch(
             f"/api/recurring-expenses/{recurring.id}/",
-            {"name": "Internet casa", "merchant": "Telmex Hogar"},
+            {
+                "name": "Internet casa",
+                "merchant": "Telmex Hogar",
+                "auto_charge": True,
+                "charge_day": 5,
+                "account": self.account.id,
+            },
             format="json",
         )
         blocked_response = self.client.patch(
@@ -348,6 +420,8 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(recurring.name, "Internet casa")
         self.assertEqual(recurring.merchant, "Telmex Hogar")
+        self.assertTrue(recurring.auto_charge)
+        self.assertEqual(recurring.charge_day, 5)
         self.assertEqual(blocked_response.status_code, 400)
         self.assertEqual(set(blocked_response.data["fields"]), {"amount_cents", "start_date"})
         self.assertEqual(recurring.amount_cents, 59900)

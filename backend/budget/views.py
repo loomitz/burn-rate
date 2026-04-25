@@ -3,6 +3,7 @@ from datetime import date
 from django.contrib.auth import login, logout
 from django.contrib.auth.models import User
 from django.db import transaction
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from rest_framework import mixins, status, viewsets
@@ -43,6 +44,7 @@ from .serializers import (
     UserSerializer,
 )
 from .services import (
+    auto_post_due_recurring_charges,
     build_budget_summary,
     confirm_expected_charge,
     expected_charges_for_period,
@@ -338,6 +340,7 @@ class TransactionViewSet(viewsets.ModelViewSet):
 
 
 class RecurringExpenseViewSet(StaffDestroyMixin, CommitmentEditableFieldsMixin, viewsets.ModelViewSet):
+    editable_fields = {"name", "merchant", "account", "charge_day", "auto_charge"}
     queryset = RecurringExpense.objects.select_related("category", "category__member", "account").all()
     serializer_class = RecurringExpenseSerializer
 
@@ -427,6 +430,21 @@ class ConfirmExpectedChargeView(APIView):
         account = Account.objects.get(pk=request.data["account"])
         transaction = confirm_expected_charge(source_type, source_id, charge_date, account, request.user)
         return Response(TransactionSerializer(transaction, context={"request": request}).data, status=status.HTTP_201_CREATED)
+
+
+class AutoPostRecurringChargesView(APIView):
+    def post(self, request):
+        requested_date = date.fromisoformat(request.data.get("date")) if request.data.get("date") else timezone.localdate()
+        as_of = min(requested_date, timezone.localdate())
+        transactions = auto_post_due_recurring_charges(as_of, request.user)
+        return Response(
+            {
+                "date": as_of,
+                "created_count": len(transactions),
+                "transactions": TransactionSerializer(transactions, many=True, context={"request": request}).data,
+            },
+            status=status.HTTP_201_CREATED if transactions else status.HTTP_200_OK,
+        )
 
 
 class DismissExpectedChargeView(APIView):

@@ -176,9 +176,12 @@ Use `PATCH /api/accounts/{id}/` to edit an existing account without deleting his
   "account": 1,
   "start_date": "2026-04-21",
   "charge_day": 5,
+  "auto_charge": true,
   "is_active": true
 }
 ```
+
+When `auto_charge=true`, `account` is required. Burn Rate records the real expense automatically once the configured day has arrived. Without `auto_charge`, the item remains a pending expected charge until the user confirms or dismisses it.
 
 `installment-plans` accepts the first payment date and `months_count`; the API calculates `end_date` from that count. For a purchase already in progress, use the original first payment date so the current payment number is calculated from the calendar:
 
@@ -274,6 +277,18 @@ Returns generated pending charges from recurring expenses and installment plans.
 `period=YYYY-MM` remains accepted for older callers, but the app should send a full `date` from the selected budget cycle so cutoff-based periods resolve correctly.
 
 The frontend treats recurring charges as actionable commitments. Installment charges remain automatic budget commitments and are shown through the MSI projection endpoint instead of the `Pagar/Omitir` action list.
+
+`POST /api/expected-charges/auto-post/`
+
+Payload:
+
+```json
+{
+  "date": "2026-05-20"
+}
+```
+
+Creates due real `expense` transactions for active recurring expenses with `auto_charge=true`, using each recurring expense's configured account. The operation is idempotent for each budget period, so repeated calls do not duplicate charges. The app calls it before refreshing dashboard data.
 
 `POST /api/expected-charges/confirm/`
 

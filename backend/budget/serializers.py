@@ -635,6 +635,7 @@ class RecurringExpenseSerializer(serializers.ModelSerializer):
             "start_date",
             "end_date",
             "charge_day",
+            "auto_charge",
             "is_active",
         ]
 
@@ -642,8 +643,12 @@ class RecurringExpenseSerializer(serializers.ModelSerializer):
         start_date = attrs.get("start_date", getattr(self.instance, "start_date", None))
         end_date = attrs.get("end_date", getattr(self.instance, "end_date", None))
         merchant = attrs.get("merchant", getattr(self.instance, "merchant", ""))
+        account = attrs.get("account", getattr(self.instance, "account", None))
+        auto_charge = attrs.get("auto_charge", getattr(self.instance, "auto_charge", False))
         if not merchant.strip():
             raise serializers.ValidationError({"merchant": "Escribe el comercio del cargo mensual."})
+        if auto_charge and account is None:
+            raise serializers.ValidationError({"account": "El cargo automatico necesita una cuenta configurada."})
         if end_date and start_date and end_date < start_date:
             raise serializers.ValidationError({"end_date": "La fecha final no puede ser anterior al inicio."})
         return attrs

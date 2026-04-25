@@ -189,6 +189,7 @@ export interface RecurringExpense {
   start_date: string
   end_date: string | null
   charge_day: number
+  auto_charge: boolean
   is_active: boolean
 }
 
@@ -518,6 +519,11 @@ export const useBudgetStore = defineStore('budget', () => {
     loading.value = true
     error.value = ''
     try {
+      await apiRequest('/api/expected-charges/auto-post/', {
+        method: 'POST',
+        body: JSON.stringify({ date }),
+      })
+
       const [
         settingsData,
         membersData,
@@ -631,7 +637,10 @@ export const useBudgetStore = defineStore('budget', () => {
     await fetchAll()
   }
 
-  async function updateRecurring(id: RecurringExpense['id'], payload: Pick<RecurringExpense, 'name' | 'merchant'>) {
+  async function updateRecurring(
+    id: RecurringExpense['id'],
+    payload: Partial<Pick<RecurringExpense, 'name' | 'merchant' | 'account' | 'charge_day' | 'auto_charge'>>,
+  ) {
     await apiRequest(`/api/recurring-expenses/${id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
     await fetchAll()
   }

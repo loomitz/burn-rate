@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     AccountViewSet,
+    AutoPostRecurringChargesView,
     AuthRefreshView,
     BootstrapClaimView,
     BootstrapStatusView,
@@ -57,6 +58,7 @@ urlpatterns = [
     path("settings/", SettingsView.as_view()),
     path("budget/summary/", BudgetSummaryView.as_view()),
     path("expected-charges/", ExpectedChargesView.as_view()),
+    path("expected-charges/auto-post/", AutoPostRecurringChargesView.as_view()),
     path("expected-charges/confirm/", ConfirmExpectedChargeView.as_view()),
     path("expected-charges/dismiss/", DismissExpectedChargeView.as_view()),
     path("installments/projection/", InstallmentProjectionView.as_view()),

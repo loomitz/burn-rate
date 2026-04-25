@@ -382,6 +382,7 @@ class RecurringExpense(models.Model):
     start_date = models.DateField()
     end_date = models.DateField(null=True, blank=True)
     charge_day = models.PositiveSmallIntegerField(default=1, validators=[MinValueValidator(1), MaxValueValidator(28)])
+    auto_charge = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -395,6 +396,8 @@ class RecurringExpense(models.Model):
     def clean(self) -> None:
         if not self.merchant:
             raise ValidationError({"merchant": "Los cargos mensuales requieren comercio."})
+        if self.auto_charge and self.account_id is None:
+            raise ValidationError({"account": "Los cargos automaticos requieren cuenta o medio de pago."})
         if self.end_date and self.end_date < self.start_date:
             raise ValidationError({"end_date": "La fecha final no puede ser anterior al inicio."})
 

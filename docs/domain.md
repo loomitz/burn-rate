@@ -58,9 +58,11 @@ Allowed account types:
 
 ## Recurring Expenses
 
-A recurring expense is a monthly commitment such as a subscription. It has an internal name, merchant, amount, category, optional account, start date, optional end date, and charge day.
+A recurring expense is a monthly commitment such as a subscription. It has an internal name, merchant, amount, category, optional account, start date, optional end date, charge day, and an optional automatic-charge flag.
 
 For each active period, Burn Rate generates a pending expected charge unless it was already confirmed or dismissed.
+
+When automatic charging is enabled, the recurring expense must have an account. Burn Rate posts the real expense once the configured day has arrived, and it does so idempotently per budget period so refreshes do not duplicate charges.
 
 ## Installment Plans
 

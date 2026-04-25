@@ -1,5 +1,28 @@
 # Agent History
 
+## 2026-04-25 - Pagos mensuales automáticos y ancho uniforme v0.1.14
+
+Objetivo: permitir que suscripciones/pagos mensuales se registren automáticamente al llegar su día de cargo y publicar los ajustes visuales de ancho entre tabs.
+
+Archivos tocados:
+
+- Agregado `auto_charge` a `RecurringExpense` con migración `0014_recurringexpense_auto_charge.py` y validación de cuenta requerida cuando el cargo automático está activo.
+- Agregado `POST /api/expected-charges/auto-post/` para crear gastos reales vencidos de forma idempotente.
+- Actualizado `frontend/src/stores/budget.ts` para ejecutar autopost antes de refrescar el estado principal.
+- Actualizado `frontend/src/App.vue` para configurar cargo automático, cuenta y día de pago al crear/editar pagos mensuales.
+- Actualizado `frontend/src/style.css` para usar el mismo ancho máximo de pantalla en las tabs principales.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md`, `docs/api.md`, `docs/domain.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.14`.
+
+Verificaciones locales:
+
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py test budget` pasó.
+- `pnpm test` pasó en `frontend/`.
+- `pnpm run build` pasó en `frontend/`.
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py makemigrations --check --dry-run` no detectó migraciones pendientes.
+- Revisión en navegador local confirmó que `Gastos` y `Pagos` usan el mismo ancho de pantalla.
+- `docker --context colima buildx build --builder beaglebackbone-builder --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.14 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura.
+- `docker --context colima buildx imagetools inspect` confirmó que `v0.1.14` y `latest` apuntan al digest `sha256:d3b0cfc6f139281e259562457fc8ed44ef61b030b95ad39dcba1e2848811e999`, con manifiestos `linux/amd64` y `linux/arm64`.
+
 ## 2026-04-24 - Iteración visual y sistema de diseño v0.1.13
 
 Objetivo: publicar los últimos ajustes visuales de Burn Rate y fijar el contrato de diseño.

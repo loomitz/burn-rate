@@ -56,6 +56,14 @@ type MerchantSuggestionTarget = 'expense' | 'recurring' | 'installment'
 type ThemePreference = 'auto' | 'light' | 'dark'
 type ResolvedTheme = 'light' | 'dark'
 type BudgetCycleOption = { value: string; label: string; start: string; end: string; offset: number }
+type SpendingChartSegment = {
+  key: string
+  label: string
+  amount_cents: number
+  percent: number
+  color: string
+  category_ids: number[]
+}
 
 const THEME_STORAGE_KEY = 'burn-rate-theme'
 const AUTH_REFRESH_INTERVAL_MS = 10 * 60 * 1000
@@ -141,6 +149,7 @@ const recurringForm = reactive({
   start_date: selectedDate.value,
   end_date: '',
   charge_day: 21,
+  auto_charge: false,
 })
 const installmentForm = reactive({
   name: '',
@@ -156,6 +165,9 @@ const commitmentEditForm = reactive({
   name: '',
   merchant: '',
   category: '',
+  account: '',
+  charge_day: 1,
+  auto_charge: false,
 })
 const settingsForm = reactive({ cutoff_day: 20 })
 const notice = reactive<{ type: NoticeType; message: string }>({ type: 'info', message: '' })
@@ -452,6 +464,55 @@ const selectedCategoryTransactions = computed(() => {
     )
   })
 })
+const spendingChartTotal = computed(() =>
+  (summary.value?.categories ?? []).reduce((total, category) => total + Math.max(category.spent_cents, 0), 0),
+)
+const spendingChartSegments = computed<SpendingChartSegment[]>(() => {
+  const spentCategories = (summary.value?.categories ?? [])
+    .filter((category) => category.spent_cents > 0)
+    .sort((a, b) => b.spent_cents - a.spent_cents)
+
+  if (!spentCategories.length || spendingChartTotal.value <= 0) return []
+
+  const visibleCategories = spentCategories.slice(0, 5)
+  const hiddenCategories = spentCategories.slice(5)
+  const baseSegments = visibleCategories.map((category) => ({
+    key: `category-${category.category_id}`,
+    label: category.member?.name ? `${category.category_name} · ${category.member.name}` : category.category_name,
+    amount_cents: category.spent_cents,
+    percent: (category.spent_cents / spendingChartTotal.value) * 100,
+    color: category.color,
+    category_ids: [category.category_id],
+  }))
+
+  if (!hiddenCategories.length) return baseSegments
+
+  const otherAmount = hiddenCategories.reduce((total, category) => total + category.spent_cents, 0)
+  return [
+    ...baseSegments,
+    {
+      key: 'other',
+      label: `Otras ${hiddenCategories.length}`,
+      amount_cents: otherAmount,
+      percent: (otherAmount / spendingChartTotal.value) * 100,
+      color: 'var(--chart-other)',
+      category_ids: hiddenCategories.map((category) => category.category_id),
+    },
+  ]
+})
+const spendingChartStyle = computed(() => {
+  if (!spendingChartSegments.value.length) {
+    return { '--spending-chart-fill': 'conic-gradient(var(--surface-tint), var(--surface-tint))' }
+  }
+  let cursor = 0
+  const stops = spendingChartSegments.value.map((segment) => {
+    const start = cursor
+    cursor += segment.percent
+    return `${segment.color} ${start.toFixed(2)}% ${cursor.toFixed(2)}%`
+  })
+  return { '--spending-chart-fill': `conic-gradient(${stops.join(', ')})` }
+})
+const spendingChartLeadSegment = computed(() => spendingChartSegments.value[0] ?? null)
 
 onMounted(async () => {
   systemThemeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
@@ -525,6 +586,12 @@ function normalizeText(value: string) {
 
 function lookupText(value: string) {
   return normalizeText(value).toLocaleLowerCase('es-MX')
+}
+
+function secondaryCommitmentLabel(name: string, merchant: string) {
+  const cleanMerchant = normalizeText(merchant)
+  if (!cleanMerchant || lookupText(cleanMerchant) === lookupText(name)) return ''
+  return cleanMerchant
 }
 
 function inviteTokenFromLocation() {
@@ -1222,6 +1289,10 @@ async function submitRecurring() {
     showNotice('Falta categoría. Elige dónde cae este pago mensual.', 'error')
     return
   }
+  if (recurringForm.auto_charge && !recurringForm.account) {
+    showNotice('El cargo automático necesita una cuenta configurada.', 'error')
+    return
+  }
   if (recurringForm.end_date && recurringForm.end_date < recurringForm.start_date) {
     showNotice('La fecha final queda antes del inicio. Corrige una de las dos fechas.', 'error')
     return
@@ -1236,11 +1307,13 @@ async function submitRecurring() {
       start_date: recurringForm.start_date,
       end_date: recurringForm.end_date || null,
       charge_day: chargeDay,
+      auto_charge: recurringForm.auto_charge,
       is_active: true,
     })
     recurringForm.name = ''
     recurringForm.merchant = ''
     recurringForm.amount = ''
+    recurringForm.auto_charge = false
     showCommitmentForm.value = false
     commitmentTab.value = 'subscriptions'
   })
@@ -1305,15 +1378,33 @@ function isConfirmingCommitmentDelete(type: CommitmentEditKind, id: number) {
   return deleteConfirmCommitment.value?.type === type && deleteConfirmCommitment.value.id === id
 }
 
-function openCommitmentEdit(type: CommitmentEditKind, item: { id: number; name: string; merchant: string; category?: number | { id: number } }) {
+function openCommitmentEdit(
+  type: CommitmentEditKind,
+  item: {
+    id: number
+    name: string
+    merchant: string
+    category?: number | { id: number }
+    account?: number | { id: number } | null
+    charge_day?: number
+    auto_charge?: boolean
+  },
+) {
   editingCommitment.value = { type, id: item.id }
   deleteConfirmCommitment.value = null
   commitmentEditForm.name = item.name
   commitmentEditForm.merchant = item.merchant
   if (type === 'installment') {
     commitmentEditForm.category = typeof item.category === 'object' ? String(item.category.id) : String(item.category ?? '')
+    commitmentEditForm.account = ''
+    commitmentEditForm.charge_day = 1
+    commitmentEditForm.auto_charge = false
   } else {
     commitmentEditForm.category = ''
+    commitmentEditForm.account =
+      typeof item.account === 'object' && item.account !== null ? String(item.account.id) : String(item.account ?? '')
+    commitmentEditForm.charge_day = item.charge_day ?? 1
+    commitmentEditForm.auto_charge = Boolean(item.auto_charge)
   }
 }
 
@@ -1323,6 +1414,9 @@ function closeCommitmentEdit() {
   commitmentEditForm.name = ''
   commitmentEditForm.merchant = ''
   commitmentEditForm.category = ''
+  commitmentEditForm.account = ''
+  commitmentEditForm.charge_day = 1
+  commitmentEditForm.auto_charge = false
 }
 
 function startCommitmentDelete(type: CommitmentEditKind, id: number) {
@@ -1344,6 +1438,7 @@ function installmentPlanDetail(id: number) {
 async function saveRecurringExpenseEdit(expense: { id: number }) {
   const name = normalizeText(commitmentEditForm.name)
   const merchant = normalizeText(commitmentEditForm.merchant)
+  const chargeDay = Math.min(28, Math.max(1, Number(commitmentEditForm.charge_day) || 1))
   if (!name) {
     showNotice('Falta nombre del pago mensual. Escríbelo para guardar.', 'error')
     return
@@ -1352,8 +1447,18 @@ async function saveRecurringExpenseEdit(expense: { id: number }) {
     showNotice('Falta comercio del pago mensual. Escríbelo para guardar.', 'error')
     return
   }
+  if (commitmentEditForm.auto_charge && !commitmentEditForm.account) {
+    showNotice('El cargo automático necesita una cuenta configurada.', 'error')
+    return
+  }
   await runAction(`edit-recurring-${expense.id}`, 'Pago mensual actualizado.', async () => {
-    await store.updateRecurring(expense.id, { name, merchant })
+    await store.updateRecurring(expense.id, {
+      name,
+      merchant,
+      account: commitmentEditForm.account ? Number(commitmentEditForm.account) : null,
+      charge_day: chargeDay,
+      auto_charge: commitmentEditForm.auto_charge,
+    })
     closeCommitmentEdit()
   })
 }
@@ -1497,6 +1602,13 @@ function commitmentCategoryValue() {
 
 function commitmentAccountValue() {
   return commitmentKind.value === 'subscription' ? recurringForm.account : installmentForm.account
+}
+
+function commitmentAccountStatusLabel() {
+  if (commitmentKind.value === 'subscription' && recurringForm.auto_charge && !recurringForm.account) {
+    return 'Necesaria'
+  }
+  return commitmentAccountValue() ? 'Lista' : 'Opcional'
 }
 
 function chooseCommitmentCategory(categoryId: number) {
@@ -2100,6 +2212,52 @@ function categoryIconComponent(icon?: string | null) {
         </div>
         <p v-else>No hay categorías rebasadas ni pagos urgentes en este ciclo.</p>
       </section>
+
+      <section v-if="summary" class="spending-chart-panel" aria-labelledby="spending-chart-title">
+        <div class="spending-chart-copy">
+          <span>Distribución del gasto</span>
+          <h2 id="spending-chart-title">Cómo se está yendo el dinero</h2>
+          <p v-if="spendingChartTotal">
+            {{ spendingChartLeadSegment?.label }} concentra {{ spendingChartLeadSegment?.percent.toFixed(0) }}% del gasto del periodo.
+          </p>
+          <p v-else>Registra gastos para ver la proporción real por categoría en este ciclo.</p>
+        </div>
+
+        <div class="spending-chart-layout">
+          <figure class="spending-donut" :style="spendingChartStyle" role="img" :aria-label="`Gasto total ${money(spendingChartTotal, settings.currency)}`">
+            <span>
+              <small>Gastado</small>
+              <strong>{{ money(spendingChartTotal, settings.currency) }}</strong>
+            </span>
+          </figure>
+
+          <ol v-if="spendingChartSegments.length" class="spending-legend" aria-label="Gasto por categoría">
+            <li
+              v-for="segment in spendingChartSegments"
+              :key="segment.key"
+              :style="{ '--category-color': segment.color }"
+            >
+              <button
+                v-if="segment.category_ids.length === 1"
+                type="button"
+                @click="selectedCategoryId = segment.category_ids[0]; scrollToTop()"
+              >
+                <span class="legend-swatch" aria-hidden="true"></span>
+                <b>{{ segment.label }}</b>
+                <em>{{ segment.percent.toFixed(0) }}%</em>
+                <strong>{{ money(segment.amount_cents, settings.currency) }}</strong>
+              </button>
+              <div v-else>
+                <span class="legend-swatch" aria-hidden="true"></span>
+                <b>{{ segment.label }}</b>
+                <em>{{ segment.percent.toFixed(0) }}%</em>
+                <strong>{{ money(segment.amount_cents, settings.currency) }}</strong>
+              </div>
+            </li>
+          </ol>
+          <p v-else class="spending-empty">Todavía no hay gastos en este periodo.</p>
+        </div>
+      </section>
     </section>
 
     <section
@@ -2305,7 +2463,7 @@ function categoryIconComponent(icon?: string | null) {
           <section class="choice-block commitment-choice-block">
             <div class="section-title-row">
               <h2>Cuenta</h2>
-              <span>{{ commitmentAccountValue() ? 'Lista' : 'Opcional' }}</span>
+              <span>{{ commitmentAccountStatusLabel() }}</span>
             </div>
 
             <label class="search-field account-search-field">
@@ -2390,9 +2548,18 @@ function categoryIconComponent(icon?: string | null) {
               <label>Inicio<input v-model="recurringForm.start_date" type="date" required /></label>
               <label>Fin opcional<input v-model="recurringForm.end_date" type="date" /></label>
             </div>
+            <label class="switch-row auto-charge-switch">
+              <input v-model="recurringForm.auto_charge" type="checkbox" role="switch" />
+              <span class="switch-track" aria-hidden="true"></span>
+              <span>
+                <b>Cargar automáticamente</b>
+                <small>Cuando llegue el día de pago, se registra el gasto con la cuenta configurada.</small>
+              </span>
+            </label>
             <div class="preview-box">
               <b>Cómo se verá</b>
               <span>Primer pago {{ recurringForm.start_date }}</span>
+              <span>{{ recurringForm.auto_charge ? 'Se registrará automáticamente' : 'Quedará como pago pendiente' }}</span>
               <span>Duración indefinida</span>
             </div>
           </section>
@@ -2528,7 +2695,9 @@ function categoryIconComponent(icon?: string | null) {
           >
             <div>
               <b>{{ row.expense.name }}</b>
-              <span>{{ row.expense.merchant }}</span>
+              <span v-if="secondaryCommitmentLabel(row.expense.name, row.expense.merchant)">
+                {{ secondaryCommitmentLabel(row.expense.name, row.expense.merchant) }}
+              </span>
               <span class="commitment-category-pill">
                 <span class="category-icon" :style="categoryStyle(recurringCommitmentCategory(row)?.color)">
                   <component :is="categoryIconComponent(recurringCommitmentCategory(row)?.icon)" aria-hidden="true" />
@@ -2538,6 +2707,9 @@ function categoryIconComponent(icon?: string | null) {
                   <b>{{ recurringCommitmentCategoryLabel(row) }}</b>
                 </span>
               </span>
+              <small>
+                {{ row.expense.auto_charge ? `Cargo automático día ${row.expense.charge_day}` : `Recordatorio día ${row.expense.charge_day}` }}
+              </small>
               <small v-if="!row.charge">Sin pago pendiente en este periodo</small>
             </div>
             <strong>{{ money(row.expense.amount_cents, settings.currency) }}</strong>
@@ -2579,6 +2751,26 @@ function categoryIconComponent(icon?: string | null) {
                 <label>Nombre<input v-model="commitmentEditForm.name" required /></label>
                 <label>Comercio<input v-model="commitmentEditForm.merchant" required /></label>
               </div>
+              <div class="field-row commitment-date-row">
+                <label>Día de pago<input v-model.number="commitmentEditForm.charge_day" type="number" min="1" max="28" /></label>
+                <label>
+                  Cuenta
+                  <select v-model="commitmentEditForm.account">
+                    <option value="">Sin cuenta</option>
+                    <option v-for="account in activeAccounts" :key="account.id" :value="String(account.id)">
+                      {{ account.name }}
+                    </option>
+                  </select>
+                </label>
+              </div>
+              <label class="switch-row auto-charge-switch">
+                <input v-model="commitmentEditForm.auto_charge" type="checkbox" role="switch" />
+                <span class="switch-track" aria-hidden="true"></span>
+                <span>
+                  <b>Cargar automáticamente</b>
+                  <small>Registra el gasto real al llegar el día configurado.</small>
+                </span>
+              </label>
               <div class="commitment-readonly">
                 <span>Monto {{ money(row.expense.amount_cents, settings.currency) }}</span>
                 <span>Inicio {{ row.expense.start_date }}</span>
@@ -2631,7 +2823,9 @@ function categoryIconComponent(icon?: string | null) {
             <div class="installment-main">
               <div>
                 <b>{{ plan.name }}</b>
-                <span>{{ plan.merchant }}</span>
+                <span v-if="secondaryCommitmentLabel(plan.name, plan.merchant)">
+                  {{ secondaryCommitmentLabel(plan.name, plan.merchant) }}
+                </span>
                 <span class="commitment-category-pill">
                   <span class="category-icon" :style="categoryStyle(plan.category.color)">
                     <component :is="categoryIconComponent(plan.category.icon)" aria-hidden="true" />
