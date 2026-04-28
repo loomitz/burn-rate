@@ -1501,6 +1501,11 @@ h2 {
   background: #fff1e5;
 }
 
+.category-card.projected-danger {
+  border-color: #dfa45c;
+  background: #fff7e8;
+}
+
 .category-card-main:focus-visible,
 .category-card:focus-within {
   outline: 3px solid color-mix(in srgb, var(--category-color) 26%, transparent);
@@ -1628,6 +1633,10 @@ h2 {
   color: #9a2f1e;
 }
 
+.status-pill.projected {
+  color: #9a5a12;
+}
+
 .meter {
   height: 6px;
   overflow: hidden;
@@ -1645,6 +1654,10 @@ h2 {
   position: relative;
 }
 
+.hero-meter.category-meter {
+  height: 8px;
+}
+
 .category-meter .meter-segment {
   position: absolute;
   top: 0;
@@ -1653,7 +1666,7 @@ h2 {
   min-width: 0;
 }
 
-.category-meter .meter-segment.free {
+.category-meter .meter-segment.spent {
   left: 0;
   border-radius: inherit;
   background: var(--category-fill-color, var(--category-color));
@@ -1661,7 +1674,29 @@ h2 {
 
 .category-meter .meter-segment.committed {
   border-radius: inherit;
-  background: color-mix(in srgb, var(--category-fill-color, var(--category-color)) 42%, #a3a3a3);
+  background:
+    repeating-linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--category-fill-color, var(--category-color)) 42%, #a3a3a3) 0 6px,
+      color-mix(in srgb, var(--category-fill-color, var(--category-color)) 24%, #f5d08c) 6px 12px
+    );
+}
+
+.category-meter .meter-overflow {
+  position: absolute;
+  top: -2px;
+  right: 0;
+  bottom: -2px;
+  display: block;
+  width: 10px;
+  border-radius: inherit;
+  background: #d64309;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #d64309 18%, var(--surface));
+}
+
+.category-meter.projected-over-budget .meter-overflow {
+  background: var(--category-fill-color, var(--category-color));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--category-fill-color, var(--category-color)) 24%, var(--surface));
 }
 
 .category-commitment-line {
@@ -3595,6 +3630,11 @@ input[type='color'] {
   background: color-mix(in srgb, var(--danger) 9%, var(--surface));
 }
 
+:root[data-theme='dark'] .category-card.projected-danger {
+  border-color: color-mix(in srgb, #f3b95f 54%, var(--line));
+  background: color-mix(in srgb, #f3b95f 9%, var(--surface));
+}
+
 :root[data-theme='dark'] .alert-band {
   border-color: color-mix(in srgb, var(--ember) 40%, var(--line));
   color: var(--ember-dark);
@@ -3603,6 +3643,10 @@ input[type='color'] {
 
 :root[data-theme='dark'] .status-pill.warning {
   color: #ffb29a;
+}
+
+:root[data-theme='dark'] .status-pill.projected {
+  color: #f4bd6e;
 }
 
 :root[data-theme='dark'] .meter,

@@ -1693,14 +1693,29 @@ function percentOfBudget(amountCents: number, budgetCents: number) {
   return Math.max(0, Math.min(100, (amountCents / budgetCents) * 100))
 }
 
-function categoryFreePercent(item: BudgetCategorySummary) {
-  return percentOfBudget(Math.max(item.available_cents, 0), item.budget_cents)
+function categorySpentPercent(item: BudgetCategorySummary) {
+  return percentOfBudget(Math.max(item.spent_cents, 0), item.budget_cents)
 }
 
 function categoryCommittedPercent(item: BudgetCategorySummary) {
-  const freeCents = Math.max(item.available_cents, 0)
-  const visibleCommittedCents = Math.min(Math.max(item.expected_cents, 0), Math.max(item.budget_cents - freeCents, 0))
+  const spentWithinBudgetCents = Math.min(Math.max(item.spent_cents, 0), Math.max(item.budget_cents, 0))
+  const remainingBudgetCents = Math.max(item.budget_cents - spentWithinBudgetCents, 0)
+  const visibleCommittedCents = Math.min(Math.max(item.expected_cents, 0), remainingBudgetCents)
   return percentOfBudget(visibleCommittedCents, item.budget_cents)
+}
+
+function categoryRealOverspent(item: BudgetCategorySummary) {
+  return item.real_available_cents < 0
+}
+
+function categoryProjectedOverspent(item: BudgetCategorySummary) {
+  return item.real_available_cents >= 0 && item.available_cents < 0
+}
+
+function categoryStatusLabel(item: BudgetCategorySummary) {
+  if (categoryProjectedOverspent(item)) return 'Compromiso'
+  if (categoryRealOverspent(item)) return 'Revisar'
+  return item.budget_behavior === 'carryover' ? 'Acumula' : 'Bien'
 }
 
 function projectionPeriodLabel(index: number) {
@@ -2008,8 +2023,21 @@ function categoryIconComponent(icon?: string | null) {
             <b>{{ selectedCategory.overspend_count }}</b>
           </article>
         </div>
-        <div class="meter hero-meter">
-          <i :style="{ width: `${Math.max(0, Math.min(100, selectedCategory.percent_available))}%` }"></i>
+        <div
+          class="meter hero-meter category-meter"
+          :class="{
+            'is-over-budget': categoryRealOverspent(selectedCategory),
+            'projected-over-budget': categoryProjectedOverspent(selectedCategory),
+          }"
+          :style="{ '--category-fill-color': categoryRealOverspent(selectedCategory) ? '#d64309' : selectedCategory.color }"
+        >
+          <span class="meter-segment spent" :style="{ width: `${categorySpentPercent(selectedCategory)}%` }"></span>
+          <span
+            v-if="selectedCategory.expected_cents"
+            class="meter-segment committed"
+            :style="{ left: `${categorySpentPercent(selectedCategory)}%`, width: `${categoryCommittedPercent(selectedCategory)}%` }"
+          ></span>
+          <span v-if="selectedCategory.is_overspent" class="meter-overflow"></span>
         </div>
       </section>
 
@@ -2122,7 +2150,10 @@ function categoryIconComponent(icon?: string | null) {
             v-for="item in summary?.categories"
             :key="item.category_id"
             class="category-card"
-            :class="{ danger: item.is_overspent }"
+            :class="{
+              danger: categoryRealOverspent(item),
+              'projected-danger': categoryProjectedOverspent(item),
+            }"
             :style="{ '--category-color': item.color }"
           >
             <button
@@ -2150,21 +2181,29 @@ function categoryIconComponent(icon?: string | null) {
                     {{ item.overspend_count }} excedentes · {{ money(item.overspend_total_cents, settings.currency) }}
                   </small>
                 </div>
-                <span class="status-pill" :class="{ warning: item.is_overspent }">
-                  {{ item.is_overspent ? 'Revisar' : item.budget_behavior === 'carryover' ? 'Acumula' : 'Bien' }}
+                <span
+                  class="status-pill"
+                  :class="{ warning: categoryRealOverspent(item), projected: categoryProjectedOverspent(item) }"
+                >
+                  {{ categoryStatusLabel(item) }}
                 </span>
               </div>
               <div
                 class="meter category-meter"
-                :style="{ '--category-fill-color': item.is_overspent ? '#d64309' : item.color }"
+                :class="{
+                  'is-over-budget': categoryRealOverspent(item),
+                  'projected-over-budget': categoryProjectedOverspent(item),
+                }"
+                :style="{ '--category-fill-color': categoryRealOverspent(item) ? '#d64309' : item.color }"
                 aria-hidden="true"
               >
-                <span class="meter-segment free" :style="{ width: `${categoryFreePercent(item)}%` }"></span>
+                <span class="meter-segment spent" :style="{ width: `${categorySpentPercent(item)}%` }"></span>
                 <span
                   v-if="item.expected_cents"
                   class="meter-segment committed"
-                  :style="{ left: `${categoryFreePercent(item)}%`, width: `${categoryCommittedPercent(item)}%` }"
+                  :style="{ left: `${categorySpentPercent(item)}%`, width: `${categoryCommittedPercent(item)}%` }"
                 ></span>
+                <span v-if="item.is_overspent" class="meter-overflow"></span>
               </div>
               <footer>
                 <span>{{ item.member?.name ?? 'Casa' }}</span>
@@ -2399,6 +2438,7 @@ function categoryIconComponent(icon?: string | null) {
             <b>{{ transaction.merchant || transaction.category_name || transaction.transaction_type }}</b>
             <span>
               {{ transaction.category_name ?? transaction.transaction_type }} ·
+              {{ transaction.account_name ?? 'sin cuenta' }} ·
               {{ transaction.created_by_username ?? 'sin usuario' }} · {{ transaction.date }}
             </span>
           </div>

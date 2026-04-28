@@ -1,5 +1,24 @@
 # Agent History
 
+## 2026-04-28 - Barras por gasto y cuenta en movimientos v0.1.15
+
+Objetivo: invertir la lectura visual de las barras de presupuesto para que muestren avance por gasto/compromiso y hacer explícita la cuenta usada en cada movimiento reciente.
+
+Archivos tocados:
+
+- Actualizado `frontend/src/App.vue` para calcular barras por gasto real, segmento de compromiso y estados separados para excedente real vs. excedente proyectado.
+- Actualizado `frontend/src/App.vue` para mostrar la cuenta de pago en las tarjetas de `Gastos recientes`.
+- Actualizado `frontend/src/style.css` para barras segmentadas, excedentes visuales y compromiso rayado respetando el color de cada categoría.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.15`.
+
+Verificaciones locales:
+
+- `pnpm test` pasó en `frontend/`.
+- `pnpm run build` pasó en `frontend/`.
+- Revisión en navegador local confirmó las barras por gasto/compromiso y la cuenta visible en movimientos.
+- `docker --context colima buildx build --builder beaglebackbone-builder --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.15 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura.
+- `docker --context colima buildx imagetools inspect` confirmó que `v0.1.15` y `latest` apuntan al digest `sha256:d3284900e6230336d9086c316b0e0586f22843101b8be3cea3431679fb16b0c9`, con manifiestos `linux/amd64` y `linux/arm64`.
+
 ## 2026-04-25 - Pagos mensuales automáticos y ancho uniforme v0.1.14
 
 Objetivo: permitir que suscripciones/pagos mensuales se registren automáticamente al llegar su día de cargo y publicar los ajustes visuales de ancho entre tabs.
