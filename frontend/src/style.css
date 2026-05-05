@@ -756,6 +756,7 @@ h2 {
   .cycle-step-button:hover,
   .month-chip:hover,
   .icon-select-button:hover,
+  .spending-legend button:hover,
   .choice-chips button:hover,
   .segmented button:hover,
   .theme-switch button:hover,
@@ -1171,14 +1172,15 @@ h2 {
 
 .spending-chart-panel {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.68fr);
   gap: var(--space-lg);
   align-items: center;
   border: 1px solid color-mix(in srgb, var(--plan-accent) 20%, var(--line));
   border-radius: var(--radius-sm);
-  padding: clamp(1.125rem, 4vw, 1.5rem);
+  padding: clamp(1.125rem, 4vw, 1.75rem);
   background:
-    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--plan-accent) 12%, transparent), transparent 46%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 92%, var(--plan-soft)), color-mix(in srgb, var(--surface) 96%, var(--paper))),
+    radial-gradient(circle at 80% 18%, color-mix(in srgb, var(--plan-accent) 9%, transparent), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, var(--plan-soft)), color-mix(in srgb, var(--surface) 96%, var(--paper))),
     var(--surface);
   box-shadow: var(--shadow-soft);
 }
@@ -1196,7 +1198,7 @@ h2 {
 
 .spending-chart-copy h2 {
   color: var(--ink);
-  font-size: clamp(1.35rem, 4vw, 1.8rem);
+  font-size: clamp(1.85rem, 5.2vw, 2.75rem);
   line-height: 1.08;
 }
 
@@ -1209,17 +1211,17 @@ h2 {
 }
 
 .spending-chart-layout {
-  display: grid;
-  grid-template-columns: minmax(180px, 0.76fr) minmax(0, 1fr);
-  gap: var(--space-lg);
-  align-items: center;
+  display: contents;
 }
 
 .spending-donut {
   position: relative;
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: center;
   display: grid;
   place-items: center;
-  width: min(100%, 230px);
+  width: min(100%, 240px);
   aspect-ratio: 1;
   margin: 0;
   border-radius: 50%;
@@ -1232,7 +1234,7 @@ h2 {
 .spending-donut::before {
   content: '';
   position: absolute;
-  inset: 22%;
+  inset: 26%;
   border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
   border-radius: inherit;
   background:
@@ -1265,10 +1267,16 @@ h2 {
 }
 
 .spending-legend {
+  grid-column: 1 / -1;
   display: grid;
-  gap: 8px;
+  gap: 0;
   margin: 0;
   padding: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 48%, transparent);
   list-style: none;
 }
 
@@ -1276,44 +1284,92 @@ h2 {
   min-width: 0;
 }
 
+.spending-legend li + li {
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
 .spending-legend button,
 .spending-legend div {
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) auto auto;
-  gap: 8px;
+  grid-template-columns: 56px 14px minmax(0, 1fr) minmax(76px, 0.28fr) minmax(92px, auto) 24px;
+  gap: 10px;
   align-items: center;
   width: 100%;
-  min-height: 42px;
-  border: 1px solid color-mix(in srgb, var(--category-color) 22%, var(--line));
-  border-radius: var(--radius-control);
-  padding: 8px 10px;
+  min-height: 66px;
+  border: 0;
+  border-radius: 0;
+  padding: 8px 14px;
   color: var(--ink);
-  background: color-mix(in srgb, var(--category-color) 7%, var(--surface));
+  background: transparent;
   text-align: left;
+  transition:
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+.spending-legend button:hover {
+  background: color-mix(in srgb, var(--category-color) 6%, transparent);
 }
 
 .spending-legend b {
   min-width: 0;
   overflow: hidden;
   color: var(--ink);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body);
   font-weight: 850;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.spending-legend em {
+.legend-percent {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.legend-percent em {
   color: color-mix(in srgb, var(--category-color) 76%, var(--ink));
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-body);
   font-style: normal;
   font-weight: 900;
 }
 
+.legend-percent i {
+  display: block;
+  width: min(100%, 74px);
+  height: 6px;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--category-color) 88%, var(--ink)) 0 var(--legend-percent),
+      transparent var(--legend-percent) 100%
+    );
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
 .spending-legend strong {
-  color: var(--muted);
-  font-size: var(--font-size-sm);
+  color: color-mix(in srgb, var(--ink) 82%, var(--category-color));
+  font-size: var(--font-size-body);
   font-weight: 800;
+  text-align: right;
   white-space: nowrap;
+}
+
+.legend-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  color: color-mix(in srgb, var(--category-color) 82%, var(--ink));
+  background: color-mix(in srgb, var(--category-color) 10%, var(--surface-tint));
+}
+
+.legend-icon svg {
+  width: 28px;
+  height: 28px;
+  stroke-width: 2.4;
 }
 
 .legend-swatch {
@@ -1324,7 +1380,14 @@ h2 {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 16%, transparent);
 }
 
+.legend-chevron {
+  width: 20px;
+  height: 20px;
+  color: var(--muted);
+}
+
 .spending-empty {
+  grid-column: 1 / -1;
   border: 1px dashed color-mix(in srgb, var(--plan-accent) 22%, var(--line));
   border-radius: var(--radius-control);
   padding: var(--space-md);
@@ -3796,7 +3859,7 @@ input[type='color'] {
 
 :root[data-theme='dark'] .spending-chart-panel {
   background:
-    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--plan-accent) 14%, transparent), transparent 46%),
+    radial-gradient(circle at 80% 18%, color-mix(in srgb, var(--plan-accent) 12%, transparent), transparent 38%),
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 90%, var(--plan-soft)), color-mix(in srgb, var(--surface) 96%, #0d0f0f)),
     var(--surface);
 }
@@ -3943,27 +4006,53 @@ input[type='color'] {
   }
 
   .spending-chart-panel {
+    grid-template-columns: 1fr;
     gap: var(--space-md);
     padding: var(--space-md);
   }
 
   .spending-chart-layout {
+    display: grid;
     grid-template-columns: 1fr;
     gap: var(--space-md);
   }
 
   .spending-donut {
+    grid-column: auto;
+    grid-row: auto;
     width: min(76vw, 220px);
     justify-self: center;
   }
 
   .spending-legend button,
   .spending-legend div {
-    grid-template-columns: 14px minmax(0, 1fr) auto;
+    grid-template-columns: 50px 14px minmax(0, 1fr) auto;
+    min-height: 64px;
+    padding: 8px 10px;
   }
 
+  .legend-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+  }
+
+  .legend-icon svg {
+    width: 25px;
+    height: 25px;
+  }
+
+  .legend-percent {
+    justify-items: end;
+  }
+
+  .legend-percent i,
   .spending-legend strong {
-    grid-column: 2 / -1;
+    display: none;
+  }
+
+  .legend-chevron {
+    display: none;
   }
 
   .plan-balance strong {

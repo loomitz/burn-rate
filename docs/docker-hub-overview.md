@@ -7,7 +7,7 @@ Está pensada para instalarse detrás de una VPN, red privada o reverse proxy co
 ## Imagen
 
 ```bash
-docker pull loomitz/burnrate:v0.1.17
+docker pull loomitz/burnrate:v0.1.18
 ```
 
 También está disponible:
@@ -46,7 +46,7 @@ Crea un archivo `docker-compose.yml`:
 ```yaml
 services:
   app:
-    image: loomitz/burnrate:v0.1.17
+    image: loomitz/burnrate:v0.1.18
     environment:
       DB_NAME: ${DB_NAME:-burn_rate}
       DB_USER: ${DB_USER:-burn_rate}
@@ -221,7 +221,7 @@ DJANGO_CSRF_COOKIE_SECURE=true
 DJANGO_TRUST_X_FORWARDED_PROTO=true
 ```
 
-La imagen `v0.1.17` fue revisada y publicada para `linux/amd64` y `linux/arm64`.
+La imagen `v0.1.18` fue revisada y publicada para `linux/amd64` y `linux/arm64`.
 
 ## Código fuente
 
@@ -233,6 +233,7 @@ https://github.com/loomitz/burn-rate
 
 ## Tags
 
+- `v0.1.18`: gráfico de distribución sin agrupación de otras categorías y lista visual con iconos, porcentajes y montos.
 - `v0.1.17`: categorias fuera de presupuesto, resumen separado de esos cargos y origen CSRF local para Vite en `5174`.
 - `v0.1.16`: edición de gastos recientes y resumen de pago para no generar intereses por tarjeta.
 - `v0.1.15`: barras de presupuesto llenadas por gasto/compromiso, excedente proyectado distinguible y cuenta visible en movimientos.
