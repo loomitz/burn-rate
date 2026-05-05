@@ -1,5 +1,23 @@
 # Agent History
 
+## 2026-05-05 - Distribución de gasto sin agrupación v0.1.18
+
+Objetivo: publicar el rediseño del gráfico de distribución de gasto para mostrar cada categoría real sin agrupar las menores como "Otras".
+
+Archivos tocados:
+
+- Actualizado `frontend/src/App.vue` para calcular todos los segmentos de gasto por categoría y conservar el click al detalle.
+- Actualizado `frontend/src/style.css` para un panel tipo ledger con donut, icono de categoría, punto de color, porcentaje, barra corta, monto y flecha.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.18`.
+
+Verificaciones locales:
+
+- `pnpm test -- --runInBand` pasó en `frontend/`.
+- `pnpm build` pasó en `frontend/`.
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py test budget` pasó en `backend/` con 82 tests.
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py makemigrations --check --dry-run` no detectó migraciones pendientes.
+- `curl http://127.0.0.1:5173/` y `curl http://127.0.0.1:8001/healthz/` respondieron `200`.
+
 ## 2026-05-04 - Edición de gastos y pago para no generar intereses v0.1.16
 
 Objetivo: publicar el resumen por tarjeta del pago necesario para no generar intereses y permitir corregir gastos recientes desde la interfaz.

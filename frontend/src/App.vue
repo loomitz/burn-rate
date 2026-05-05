@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { Laptop, Moon, Pencil, Search, Sun, X } from '@lucide/vue'
+import { ChevronRight, Laptop, Moon, Pencil, Search, Sun, X } from '@lucide/vue'
 import {
   useBudgetStore,
   type Account,
@@ -65,6 +65,7 @@ type SpendingChartSegment = {
   amount_cents: number
   percent: number
   color: string
+  icon: string
   category_ids: number[]
 }
 
@@ -499,41 +500,27 @@ const spendingChartSegments = computed<SpendingChartSegment[]>(() => {
 
   if (!spentCategories.length || spendingChartTotal.value <= 0) return []
 
-  const visibleCategories = spentCategories.slice(0, 5)
-  const hiddenCategories = spentCategories.slice(5)
-  const baseSegments = visibleCategories.map((category) => ({
+  return spentCategories.map((category) => ({
     key: `category-${category.category_id}`,
     label: category.member?.name ? `${category.category_name} · ${category.member.name}` : category.category_name,
     amount_cents: category.spent_cents,
     percent: (category.spent_cents / spendingChartTotal.value) * 100,
     color: category.color,
+    icon: category.icon,
     category_ids: [category.category_id],
   }))
-
-  if (!hiddenCategories.length) return baseSegments
-
-  const otherAmount = hiddenCategories.reduce((total, category) => total + category.spent_cents, 0)
-  return [
-    ...baseSegments,
-    {
-      key: 'other',
-      label: `Otras ${hiddenCategories.length}`,
-      amount_cents: otherAmount,
-      percent: (otherAmount / spendingChartTotal.value) * 100,
-      color: 'var(--chart-other)',
-      category_ids: hiddenCategories.map((category) => category.category_id),
-    },
-  ]
 })
 const spendingChartStyle = computed(() => {
   if (!spendingChartSegments.value.length) {
     return { '--spending-chart-fill': 'conic-gradient(var(--surface-tint), var(--surface-tint))' }
   }
   let cursor = 0
+  const separator = spendingChartSegments.value.length > 1 ? 0.58 : 0
   const stops = spendingChartSegments.value.map((segment) => {
     const start = cursor
     cursor += segment.percent
-    return `${segment.color} ${start.toFixed(2)}% ${cursor.toFixed(2)}%`
+    const colorEnd = Math.max(start, cursor - Math.min(separator, segment.percent * 0.42))
+    return `${segment.color} ${start.toFixed(2)}% ${colorEnd.toFixed(2)}%, var(--surface) ${colorEnd.toFixed(2)}% ${cursor.toFixed(2)}%`
   })
   return { '--spending-chart-fill': `conic-gradient(${stops.join(', ')})` }
 })
@@ -2411,22 +2398,19 @@ function categoryIconComponent(icon?: string | null) {
               :key="segment.key"
               :style="{ '--category-color': segment.color }"
             >
-              <button
-                v-if="segment.category_ids.length === 1"
-                type="button"
-                @click="selectedCategoryId = segment.category_ids[0]; scrollToTop()"
-              >
+              <button type="button" @click="selectedCategoryId = segment.category_ids[0]; scrollToTop()">
+                <span class="legend-icon" aria-hidden="true">
+                  <component :is="categoryIconComponent(segment.icon)" />
+                </span>
                 <span class="legend-swatch" aria-hidden="true"></span>
                 <b>{{ segment.label }}</b>
-                <em>{{ segment.percent.toFixed(0) }}%</em>
+                <span class="legend-percent">
+                  <em>{{ segment.percent.toFixed(0) }}%</em>
+                  <i :style="{ '--legend-percent': `${Math.max(6, segment.percent)}%` }" aria-hidden="true"></i>
+                </span>
                 <strong>{{ money(segment.amount_cents, settings.currency) }}</strong>
+                <ChevronRight class="legend-chevron" aria-hidden="true" />
               </button>
-              <div v-else>
-                <span class="legend-swatch" aria-hidden="true"></span>
-                <b>{{ segment.label }}</b>
-                <em>{{ segment.percent.toFixed(0) }}%</em>
-                <strong>{{ money(segment.amount_cents, settings.currency) }}</strong>
-              </div>
             </li>
           </ol>
           <p v-else class="spending-empty">Todavía no hay gastos en este periodo.</p>

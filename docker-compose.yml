@@ -1,6 +1,6 @@
 services:
   app:
-    image: ${BURN_RATE_IMAGE:-loomitz/burnrate:v0.1.17}
+    image: ${BURN_RATE_IMAGE:-loomitz/burnrate:v0.1.18}
     build:
       context: .
       dockerfile: Dockerfile
