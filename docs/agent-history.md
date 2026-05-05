@@ -17,6 +17,9 @@ Verificaciones locales:
 - `USE_SQLITE_FOR_TESTS=true uv run python manage.py test budget` pasó en `backend/` con 82 tests.
 - `USE_SQLITE_FOR_TESTS=true uv run python manage.py makemigrations --check --dry-run` no detectó migraciones pendientes.
 - `curl http://127.0.0.1:5173/` y `curl http://127.0.0.1:8001/healthz/` respondieron `200`.
+- `docker --context colima buildx build --builder beaglebackbone-builder --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.18 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura.
+- `docker --context colima buildx imagetools inspect` confirmó que `v0.1.18` y `latest` apuntan al digest `sha256:1557ad20ee78d87b72d62a7875364bfb59717e73d3aec94dce4c0c245530c204`, con manifiestos `linux/amd64` y `linux/arm64`.
+- `docker --context colima run --rm --platform linux/arm64 --entrypoint sh ... loomitz/burnrate:v0.1.18 -c 'python manage.py check'` pasó dentro de la imagen publicada.
 
 ## 2026-05-04 - Edición de gastos y pago para no generar intereses v0.1.16
 
