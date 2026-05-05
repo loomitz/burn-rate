@@ -1,5 +1,25 @@
 # Agent History
 
+## 2026-05-04 - Edición de gastos y pago para no generar intereses v0.1.16
+
+Objetivo: publicar el resumen por tarjeta del pago necesario para no generar intereses y permitir corregir gastos recientes desde la interfaz.
+
+Archivos tocados:
+
+- Agregado `GET /api/credit-cards/interest-free-payment/` con totales por tarjeta activa.
+- Actualizado `frontend/src/App.vue` para editar gastos recientes en línea y mostrar el resumen de pago de tarjeta en `Cargos`.
+- Actualizados `frontend/src/stores/budget.ts`, pruebas backend/frontend y documentación de API/dominio/producto.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.16`.
+
+Verificaciones locales:
+
+- `USE_SQLITE_FOR_TESTS=true uv run pytest` pasó en `backend/`.
+- `pnpm test` pasó en `frontend/`.
+- `pnpm build` pasó en `frontend/`.
+- `docker --context colima buildx build --builder beaglebackbone-builder --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.16 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura.
+- `docker --context colima buildx imagetools inspect` confirmó que `v0.1.16` y `latest` apuntan al digest `sha256:9259c42f7350971df38867f416cdf28a36f35a0837b01db313d23b0c381b068d`, con manifiestos `linux/amd64` y `linux/arm64`.
+- `docker --context colima run --rm --platform linux/arm64 --entrypoint sh ... loomitz/burnrate:v0.1.16 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+
 ## 2026-04-28 - Barras por gasto y cuenta en movimientos v0.1.15
 
 Objetivo: invertir la lectura visual de las barras de presupuesto para que muestren avance por gasto/compromiso y hacer explícita la cuenta usada en cada movimiento reciente.
