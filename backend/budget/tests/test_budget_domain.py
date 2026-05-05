@@ -18,6 +18,7 @@ from budget.models import (
 from budget.services import (
     auto_post_due_recurring_charges,
     build_budget_summary,
+    credit_card_interest_free_payment_summary,
     expected_charges_for_period,
     get_budget_period,
     installment_projection,
@@ -426,3 +427,70 @@ class ExpectedChargeTests(TestCase):
         self.assertEqual(projection["periods"][0]["total_cents"], 22700)
         self.assertEqual(projection["periods"][11]["total_cents"], 21738)
         self.assertTrue(projection["plans"][0]["round_up_monthly_payment"])
+
+    def test_interest_free_payment_summary_groups_cycle_card_purchases_and_installments_by_credit_card(self):
+        other_card = Account.objects.create(name="Tarjeta azul", account_type=Account.AccountType.CREDIT_CARD)
+        debit = Account.objects.create(name="Debito", account_type=Account.AccountType.DEBIT_CARD)
+        plan = InstallmentPlan.objects.create(
+            name="Laptop",
+            merchant="Liverpool",
+            total_amount_cents=600000,
+            category=self.category,
+            account=self.card,
+            start_date=date(2026, 4, 21),
+            end_date=date(2026, 6, 21),
+        )
+        InstallmentPlan.objects.create(
+            name="Celular",
+            merchant="Apple",
+            total_amount_cents=300000,
+            category=self.category,
+            account=other_card,
+            start_date=date(2026, 4, 21),
+            end_date=date(2026, 6, 21),
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Super",
+            amount_cents=100000,
+            date=date(2026, 4, 25),
+            account=self.card,
+            category=self.category,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Ciclo anterior",
+            amount_cents=50000,
+            date=date(2026, 4, 20),
+            account=self.card,
+            category=self.category,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Pago confirmado MSI",
+            amount_cents=200000,
+            date=date(2026, 4, 25),
+            account=self.card,
+            category=self.category,
+            installment_plan=plan,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Debito",
+            amount_cents=70000,
+            date=date(2026, 4, 25),
+            account=debit,
+            category=self.category,
+        )
+
+        summary = credit_card_interest_free_payment_summary(date(2026, 4, 25))
+        rows = {row["account_name"]: row for row in summary["cards"]}
+
+        self.assertEqual(summary["period"], {"start": date(2026, 4, 21), "end": date(2026, 5, 20)})
+        self.assertEqual(rows["Tarjeta dorada"]["cycle_purchase_cents"], 100000)
+        self.assertEqual(rows["Tarjeta dorada"]["installment_cents"], 200000)
+        self.assertEqual(rows["Tarjeta dorada"]["interest_free_payment_cents"], 300000)
+        self.assertEqual(rows["Tarjeta azul"]["cycle_purchase_cents"], 0)
+        self.assertEqual(rows["Tarjeta azul"]["installment_cents"], 100000)
+        self.assertEqual(rows["Tarjeta azul"]["interest_free_payment_cents"], 100000)
+        self.assertEqual(summary["total_cents"], 400000)

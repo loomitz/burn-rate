@@ -47,6 +47,7 @@ from .services import (
     auto_post_due_recurring_charges,
     build_budget_summary,
     confirm_expected_charge,
+    credit_card_interest_free_payment_summary,
     expected_charges_for_period,
     get_budget_period,
     installment_projection,
@@ -420,6 +421,13 @@ class InstallmentProjectionView(APIView):
         months = int(request.query_params.get("months", 6))
         projection_date = date.fromisoformat(value) if value else None
         return Response(installment_projection(projection_date, months_ahead=months))
+
+
+class CreditCardInterestFreePaymentView(APIView):
+    def get(self, request):
+        value = request.query_params.get("date")
+        summary_date = date.fromisoformat(value) if value else None
+        return Response(credit_card_interest_free_payment_summary(summary_date))
 
 
 class ConfirmExpectedChargeView(APIView):

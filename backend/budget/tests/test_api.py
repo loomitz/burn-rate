@@ -704,6 +704,36 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.data["periods"][0]["plans"][0]["merchant"], "Liverpool")
         self.assertEqual(response.data["plans"][0]["remaining_payments"], 2)
 
+    def test_credit_card_interest_free_payment_endpoint_returns_card_totals_for_cycle(self):
+        card = Account.objects.create(name="Tarjeta dorada", account_type=Account.AccountType.CREDIT_CARD)
+        InstallmentPlan.objects.create(
+            name="Laptop",
+            merchant="Liverpool",
+            total_amount_cents=600000,
+            category=self.category,
+            account=card,
+            start_date=date(2026, 4, 21),
+            end_date=date(2026, 6, 21),
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Super",
+            amount_cents=100000,
+            date=date(2026, 4, 25),
+            account=card,
+            category=self.category,
+            created_by=self.user,
+        )
+
+        response = self.client.get("/api/credit-cards/interest-free-payment/?date=2026-04-25")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["total_cents"], 300000)
+        self.assertEqual(response.data["cards"][0]["account_name"], "Tarjeta dorada")
+        self.assertEqual(response.data["cards"][0]["cycle_purchase_cents"], 100000)
+        self.assertEqual(response.data["cards"][0]["installment_cents"], 200000)
+        self.assertEqual(response.data["cards"][0]["interest_free_payment_cents"], 300000)
+
     def test_non_admin_cannot_change_settings_accounts_people_or_categories(self):
         User.objects.create_user(username="reader", password="testpass123")
         self.client.logout()

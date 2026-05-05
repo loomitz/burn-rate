@@ -60,6 +60,22 @@ describe('budget store auth flow', () => {
     )
     fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        period: { start: '2026-04-21', end: '2026-05-20' },
+        total_cents: 300000,
+        cards: [
+          {
+            account_id: 3,
+            account_name: 'Tarjeta dorada',
+            account_color: '#475569',
+            cycle_purchase_cents: 100000,
+            installment_cents: 200000,
+            interest_free_payment_cents: 300000,
+          },
+        ],
+      }),
+    )
   }
 
   it('keeps auth unresolved until bootstrap status chooses first-run claim', async () => {
@@ -215,6 +231,8 @@ describe('budget store auth flow', () => {
     )
     fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ period: { start: '2026-04-21', end: '2026-05-20' }, total_cents: 0, cards: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ period: { start: '2026-04-21', end: '2026-05-20' }, total_cents: 0, cards: [] }))
 
     const store = useBudgetStore()
 
@@ -225,6 +243,44 @@ describe('budget store auth flow', () => {
       method: 'PATCH',
       body: JSON.stringify({ name: 'Banco casa', color: '#2563eb', is_active: false }),
     })
+  })
+
+  it('loads the credit card interest-free payment summary with household data', async () => {
+    mockFetchAllResponses()
+
+    const store = useBudgetStore()
+
+    await store.fetchAll('2026-04-25')
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toContain(
+      '/api/credit-cards/interest-free-payment/?date=2026-04-25',
+    )
+    expect(store.creditCardPaymentSummary?.total_cents).toBe(300000)
+    expect(store.creditCardPaymentSummary?.cards[0].interest_free_payment_cents).toBe(300000)
+  })
+
+  it('updates transactions through the transaction endpoint and refreshes the affected period', async () => {
+    const payload = {
+      merchant: 'Farmacia central',
+      amount_cents: 18450,
+      date: '2026-05-02',
+      category: 7,
+      account: 3,
+      note: 'Ticket corregido',
+    }
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    mockFetchAllResponses()
+
+    const store = useBudgetStore()
+
+    await store.updateTransaction(21, payload)
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/transactions/21/')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+    expect(fetchMock.mock.calls.map((call) => call[0])).toContain('/api/transactions/')
   })
 
   it('updates household members through the member endpoint', async () => {
@@ -248,6 +304,7 @@ describe('budget store auth flow', () => {
     )
     fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ period: { start: '2026-04-21', end: '2026-05-20' }, total_cents: 0, cards: [] }))
 
     const store = useBudgetStore()
 
@@ -362,6 +419,7 @@ describe('budget store auth flow', () => {
     )
     fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ period: { start: '2026-04-21', end: '2026-05-20' }, total_cents: 0, cards: [] }))
 
     const store = useBudgetStore()
 
@@ -406,6 +464,7 @@ describe('budget store auth flow', () => {
     )
     fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ period: { start: '2026-04-21', end: '2026-05-20' }, total_cents: 0, cards: [] }))
 
     const store = useBudgetStore()
 

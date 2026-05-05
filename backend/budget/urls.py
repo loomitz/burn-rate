@@ -10,6 +10,7 @@ from .views import (
     BudgetSummaryView,
     CategoryViewSet,
     ConfirmExpectedChargeView,
+    CreditCardInterestFreePaymentView,
     DismissExpectedChargeView,
     ExpectedChargesView,
     HouseholdMemberViewSet,
@@ -62,5 +63,6 @@ urlpatterns = [
     path("expected-charges/confirm/", ConfirmExpectedChargeView.as_view()),
     path("expected-charges/dismiss/", DismissExpectedChargeView.as_view()),
     path("installments/projection/", InstallmentProjectionView.as_view()),
+    path("credit-cards/interest-free-payment/", CreditCardInterestFreePaymentView.as_view()),
     path("", include(router.urls)),
 ]

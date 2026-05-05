@@ -13,6 +13,7 @@ import {
   type Invitation,
   type RecurringExpense,
   type Scope,
+  type Transaction,
 } from './stores/budget'
 import { apiErrorMessage, centsFromInput, money } from './stores/api'
 import { categoryIcons, getCategoryIcon } from './categoryIcons'
@@ -37,6 +38,7 @@ const {
   installmentPlans,
   expectedCharges,
   installmentProjection,
+  creditCardPaymentSummary,
   summary,
   invitations,
   resolvedInvitation,
@@ -98,6 +100,7 @@ const createdInvitationLink = ref('')
 const editingAccountId = ref<number | null>(null)
 const editingMemberId = ref<number | null>(null)
 const editingCategoryId = ref<number | null>(null)
+const editingTransactionId = ref<number | null>(null)
 const accountFormOpen = ref(false)
 const memberFormOpen = ref(false)
 const categoryFormOpen = ref(false)
@@ -111,6 +114,7 @@ const invitationForm = reactive({
   is_admin: false,
 })
 const expenseForm = reactive({ merchant: '', amount: '', category: '', account: '', date: selectedDate.value, note: '' })
+const transactionEditForm = reactive({ merchant: '', amount: '', category: '', account: '', date: selectedDate.value, note: '' })
 const accountForm = reactive({
   name: '',
   account_type: 'cash',
@@ -371,6 +375,8 @@ const currentInstallmentTotal = computed(() => installmentProjection.value?.curr
 const registeredInstallmentTotal = computed(() =>
   projectedInstallmentPlans.value.reduce((total, plan) => total + plan.total_amount_cents, 0),
 )
+const creditCardPaymentCards = computed(() => creditCardPaymentSummary.value?.cards ?? [])
+const creditCardInterestFreeTotal = computed(() => creditCardPaymentSummary.value?.total_cents ?? 0)
 const currentCommitmentTotal = computed(() => recurringExpectedTotal.value + currentInstallmentTotal.value)
 const maxProjectedPeriodTotal = computed(() =>
   Math.max(1, ...projectedInstallmentPeriods.value.map((period) => period.total_cents)),
@@ -582,6 +588,10 @@ onUnmounted(() => {
 
 function normalizeText(value: string) {
   return value.trim()
+}
+
+function centsToInput(cents: number) {
+  return (cents / 100).toFixed(2)
 }
 
 function lookupText(value: string) {
@@ -1025,6 +1035,58 @@ async function submitExpense() {
     expenseForm.note = ''
     merchantSuggestionsOpen.value = false
     expensesTab.value = 'feed'
+  })
+}
+
+function openTransactionEdit(transaction: Transaction) {
+  editingTransactionId.value = transaction.id
+  transactionEditForm.merchant = transaction.merchant
+  transactionEditForm.amount = centsToInput(transaction.amount_cents)
+  transactionEditForm.category = transaction.category ? String(transaction.category) : ''
+  transactionEditForm.account = transaction.account ? String(transaction.account) : ''
+  transactionEditForm.date = transaction.date
+  transactionEditForm.note = transaction.note
+}
+
+function cancelTransactionEdit() {
+  editingTransactionId.value = null
+  transactionEditForm.merchant = ''
+  transactionEditForm.amount = ''
+  transactionEditForm.category = ''
+  transactionEditForm.account = ''
+  transactionEditForm.date = selectedDate.value
+  transactionEditForm.note = ''
+}
+
+async function saveTransactionEdit(transaction: Transaction) {
+  const merchant = normalizeText(transactionEditForm.merchant)
+  const amountCents = centsFromInput(transactionEditForm.amount)
+  if (!merchant) {
+    showNotice('Falta comercio o concepto. Escríbelo antes de guardar el cambio.', 'error')
+    return
+  }
+  if (amountCents <= 0) {
+    showNotice('Falta monto válido. Escribe una cantidad mayor a cero.', 'error')
+    return
+  }
+  if (!transactionEditForm.category) {
+    showNotice('Falta categoría. Elige una para actualizar el gasto.', 'error')
+    return
+  }
+  if (!transactionEditForm.account) {
+    showNotice('Falta cuenta. Elige desde dónde se pagó.', 'error')
+    return
+  }
+  await runAction(`edit-transaction-${transaction.id}`, 'Gasto actualizado. El presupuesto ya está recalculado.', async () => {
+    await store.updateTransaction(transaction.id, {
+      merchant,
+      amount_cents: amountCents,
+      date: transactionEditForm.date,
+      account: Number(transactionEditForm.account),
+      category: Number(transactionEditForm.category),
+      note: transactionEditForm.note,
+    })
+    cancelTransactionEdit()
   })
 }
 
@@ -2433,16 +2495,80 @@ function categoryIconComponent(icon?: string | null) {
           <h2>Gastos recientes</h2>
           <span>Hoy: {{ money(selectedDateExpenseTotal, settings.currency) }}</span>
         </div>
-        <article v-for="transaction in recentExpenses" :key="transaction.id" class="feed-row accent-left">
-          <div>
-            <b>{{ transaction.merchant || transaction.category_name || transaction.transaction_type }}</b>
-            <span>
-              {{ transaction.category_name ?? transaction.transaction_type }} ·
-              {{ transaction.account_name ?? 'sin cuenta' }} ·
-              {{ transaction.created_by_username ?? 'sin usuario' }} · {{ transaction.date }}
-            </span>
-          </div>
-          <strong>-{{ money(transaction.amount_cents, settings.currency) }}</strong>
+        <article
+          v-for="transaction in recentExpenses"
+          :key="transaction.id"
+          class="feed-row accent-left"
+          :class="{ editing: editingTransactionId === transaction.id }"
+        >
+          <template v-if="editingTransactionId !== transaction.id">
+            <div>
+              <b>{{ transaction.merchant || transaction.category_name || transaction.transaction_type }}</b>
+              <span>
+                {{ transaction.category_name ?? transaction.transaction_type }} ·
+                {{ transaction.account_name ?? 'sin cuenta' }} ·
+                {{ transaction.created_by_username ?? 'sin usuario' }} · {{ transaction.date }}
+              </span>
+            </div>
+            <div class="feed-row-actions">
+              <strong>-{{ money(transaction.amount_cents, settings.currency) }}</strong>
+              <button
+                class="square-action edit-action"
+                type="button"
+                :aria-label="`Editar ${transaction.merchant || transaction.category_name || 'gasto'}`"
+                :title="`Editar ${transaction.merchant || transaction.category_name || 'gasto'}`"
+                @click="openTransactionEdit(transaction)"
+              >
+                <Pencil :size="16" :stroke-width="2.4" />
+              </button>
+            </div>
+          </template>
+          <form
+            v-else
+            class="transaction-edit-form form-stack inline-edit-form"
+            @submit.prevent="saveTransactionEdit(transaction)"
+          >
+            <div class="field-row featured-fields">
+              <label>Comercio o concepto<input v-model="transactionEditForm.merchant" required /></label>
+              <label>Monto<input v-model="transactionEditForm.amount" inputmode="decimal" required /></label>
+            </div>
+            <div class="field-row expense-meta-row">
+              <label>Fecha<input v-model="transactionEditForm.date" type="date" required /></label>
+              <label>
+                Categoría
+                <select v-model="transactionEditForm.category" required>
+                  <option value="" disabled>Elige una categoría</option>
+                  <option v-for="category in categories" :key="category.id" :value="String(category.id)">
+                    {{ category.name }}
+                  </option>
+                </select>
+              </label>
+            </div>
+            <div class="field-row expense-meta-row">
+              <label>
+                Cuenta
+                <select v-model="transactionEditForm.account" required>
+                  <option value="" disabled>Elige una cuenta</option>
+                  <option v-for="account in accounts" :key="account.id" :value="String(account.id)">
+                    {{ account.name }}
+                  </option>
+                </select>
+              </label>
+              <label>Nota opcional<textarea v-model="transactionEditForm.note" rows="2"></textarea></label>
+            </div>
+            <div class="action-row">
+              <button
+                class="primary expense-primary"
+                type="submit"
+                :disabled="actionBusy === `edit-transaction-${transaction.id}`"
+              >
+                {{ actionBusy === `edit-transaction-${transaction.id}` ? 'Guardando...' : 'Guardar cambios' }}
+              </button>
+              <button class="secondary" type="button" @click="cancelTransactionEdit">
+                Cancelar
+              </button>
+            </div>
+          </form>
         </article>
         <p v-if="!recentExpenses.length" class="empty-line">No hay gastos registrados.</p>
       </section>
@@ -2713,6 +2839,40 @@ function categoryIconComponent(icon?: string | null) {
             <small>{{ projectedInstallmentPlans.length }} compras a meses activas</small>
           </article>
         </div>
+
+        <section v-if="creditCardPaymentSummary" class="credit-card-payment-panel" aria-label="Pago para no generar intereses">
+          <div class="credit-card-payment-header">
+            <div>
+              <span>Pago para no generar intereses</span>
+              <small>Compras registradas + compras a meses del ciclo</small>
+            </div>
+            <strong>{{ money(creditCardInterestFreeTotal, settings.currency) }}</strong>
+          </div>
+          <div v-if="creditCardPaymentCards.length" class="credit-card-payment-list">
+            <article
+              v-for="card in creditCardPaymentCards"
+              :key="card.account_id"
+              class="credit-card-payment-row"
+              :style="{ '--account-color': card.account_color }"
+            >
+              <div>
+                <b>{{ card.account_name }}</b>
+                <span>{{ money(card.interest_free_payment_cents, settings.currency) }}</span>
+              </div>
+              <dl>
+                <div>
+                  <dt>Compras del ciclo</dt>
+                  <dd>{{ money(card.cycle_purchase_cents, settings.currency) }}</dd>
+                </div>
+                <div>
+                  <dt>A meses del ciclo</dt>
+                  <dd>{{ money(card.installment_cents, settings.currency) }}</dd>
+                </div>
+              </dl>
+            </article>
+          </div>
+          <p v-else class="empty-line">No hay tarjetas de crédito activas.</p>
+        </section>
 
         <div class="segmented">
           <button :class="{ active: commitmentTab === 'subscriptions' }" type="button" @click="commitmentTab = 'subscriptions'">Mensuales</button>

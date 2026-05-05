@@ -2212,6 +2212,21 @@ h2 {
   font-weight: 800;
 }
 
+.feed-row .feed-row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.feed-row-actions .square-action {
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.transaction-edit-form {
+  grid-column: 1 / -1;
+}
+
 .feed-row small {
   color: var(--muted);
   font-size: var(--font-size-sm);
@@ -2431,6 +2446,101 @@ h2 {
   font-size: 18px;
   font-weight: 900;
   white-space: nowrap;
+}
+
+.credit-card-payment-panel {
+  display: grid;
+  gap: var(--space-sm);
+  border: 1px solid color-mix(in srgb, var(--commitments-accent) 16%, var(--line));
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm);
+  background: color-mix(in srgb, var(--surface) 82%, var(--commitments-soft));
+}
+
+.credit-card-payment-header,
+.credit-card-payment-row,
+.credit-card-payment-row dl {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.credit-card-payment-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.credit-card-payment-header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.credit-card-payment-header span,
+.credit-card-payment-row b {
+  color: var(--ink);
+  font-size: var(--font-size-sm);
+  font-weight: 900;
+}
+
+.credit-card-payment-header small,
+.credit-card-payment-row dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.credit-card-payment-header strong,
+.credit-card-payment-row span,
+.credit-card-payment-row dd {
+  color: var(--commitments-accent);
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.credit-card-payment-list {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.credit-card-payment-row {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--account-color, var(--commitments-accent)) 18%, var(--line));
+  border-radius: 8px;
+  padding: var(--space-xs) var(--space-sm);
+  background: color-mix(in srgb, var(--account-color, var(--commitments-accent)) 5%, var(--surface));
+}
+
+.credit-card-payment-row::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 4px;
+  border-radius: 0 999px 999px 0;
+  background: var(--account-color, var(--commitments-accent));
+}
+
+.credit-card-payment-row > div {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-xs);
+}
+
+.credit-card-payment-row dl {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.credit-card-payment-row dt,
+.credit-card-payment-row dd {
+  margin: 0;
+}
+
+.credit-card-payment-row dd {
+  font-size: var(--font-size-sm);
 }
 
 .inline-confirm {

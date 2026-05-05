@@ -56,6 +56,8 @@ Allowed account types:
 - `debit_card`
 - `credit_card`
 
+Credit cards also have a derived "payment to avoid interest" summary for the selected budget period. It is calculated per active credit card as real cycle expenses paid with that card, excluding transactions linked to installment plans, plus that cycle's monthly payment for active interest-free installment plans assigned to the same card.
+
 ## Recurring Expenses
 
 A recurring expense is a monthly commitment such as a subscription. It has an internal name, merchant, amount, category, optional account, start date, optional end date, charge day, and an optional automatic-charge flag.

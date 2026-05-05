@@ -491,6 +491,62 @@ def installment_projection(value: date | None = None, months_ahead: int = 6) -> 
     }
 
 
+def credit_card_interest_free_payment_summary(value: date | None = None) -> dict:
+    period = get_budget_period(value)
+    cards = list(Account.objects.filter(account_type=Account.AccountType.CREDIT_CARD, is_active=True).order_by("name"))
+    card_ids = [card.id for card in cards]
+
+    purchase_rows = (
+        Transaction.objects.filter(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            account_id__in=card_ids,
+            installment_plan__isnull=True,
+            date__gte=period.start,
+            date__lte=period.end,
+        )
+        .values("account_id")
+        .annotate(total=Sum("amount_cents"))
+    )
+    purchases_by_account = {row["account_id"]: row["total"] or 0 for row in purchase_rows}
+
+    installments_by_account: dict[int, int] = {}
+    plans = InstallmentPlan.objects.filter(
+        is_active=True,
+        account_id__in=card_ids,
+        start_date__lte=period.end,
+        end_date__gte=period.start,
+    ).select_related("account")
+    for plan in plans:
+        payment = installment_charge_for_period(plan, period)
+        if payment is None:
+            continue
+        installments_by_account[plan.account_id] = installments_by_account.get(plan.account_id, 0) + payment["amount_cents"]
+
+    rows = []
+    total = 0
+    for card in cards:
+        cycle_purchase_cents = purchases_by_account.get(card.id, 0)
+        installment_cents = installments_by_account.get(card.id, 0)
+        interest_free_payment_cents = cycle_purchase_cents + installment_cents
+        total += interest_free_payment_cents
+        rows.append(
+            {
+                "account_id": card.id,
+                "account_name": card.name,
+                "account_color": card.color,
+                "cycle_purchase_cents": cycle_purchase_cents,
+                "installment_cents": installment_cents,
+                "interest_free_payment_cents": interest_free_payment_cents,
+            }
+        )
+
+    return {
+        "period": {"start": period.start, "end": period.end},
+        "total_cents": total,
+        "cards": rows,
+    }
+
+
 def build_budget_summary(value: date | None = None, scope: str = "family", member_id: int | None = None):
     period = get_budget_period(value)
     ensure_allocations(period)

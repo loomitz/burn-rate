@@ -345,3 +345,28 @@ Response shape:
 ```
 
 Each plan row includes current payment amount, payment number, total payments, remaining payments, category, optional member, and optional account.
+
+### Credit card payment to avoid interest
+
+`GET /api/credit-cards/interest-free-payment/?date=YYYY-MM-DD`
+
+Returns the selected budget period and one row per active credit card. Each row calculates the payment needed to avoid interest as cycle purchases registered with that card plus the current period's interest-free installment payments assigned to that card.
+
+Response shape:
+
+```json
+{
+  "period": { "start": "2026-04-21", "end": "2026-05-20" },
+  "total_cents": 300000,
+  "cards": [
+    {
+      "account_id": 3,
+      "account_name": "Tarjeta dorada",
+      "account_color": "#475569",
+      "cycle_purchase_cents": 100000,
+      "installment_cents": 200000,
+      "interest_free_payment_cents": 300000
+    }
+  ]
+}
+```

@@ -266,6 +266,21 @@ export interface InstallmentProjection {
   plans: InstallmentProjectionPlan[]
 }
 
+export interface CreditCardPaymentSummaryCard {
+  account_id: number
+  account_name: string
+  account_color: string
+  cycle_purchase_cents: number
+  installment_cents: number
+  interest_free_payment_cents: number
+}
+
+export interface CreditCardPaymentSummary {
+  period: { start: string; end: string }
+  total_cents: number
+  cards: CreditCardPaymentSummaryCard[]
+}
+
 export interface BudgetCategorySummary {
   category_id: number
   category_name: string
@@ -342,6 +357,7 @@ export const useBudgetStore = defineStore('budget', () => {
   const installmentPlans = ref<InstallmentPlan[]>([])
   const expectedCharges = ref<ExpectedCharge[]>([])
   const installmentProjection = ref<InstallmentProjection | null>(null)
+  const creditCardPaymentSummary = ref<CreditCardPaymentSummary | null>(null)
   const summary = ref<BudgetSummary | null>(null)
   const invitations = ref<Invitation[]>([])
   const resolvedInvitation = ref<ResolvedInvitation | null>(null)
@@ -380,6 +396,7 @@ export const useBudgetStore = defineStore('budget', () => {
     installmentPlans.value = []
     expectedCharges.value = []
     installmentProjection.value = null
+    creditCardPaymentSummary.value = null
     summary.value = null
     invitations.value = []
     resolvedInvitation.value = null
@@ -536,6 +553,7 @@ export const useBudgetStore = defineStore('budget', () => {
         summaryData,
         expectedData,
         installmentData,
+        creditCardPaymentData,
       ] = await Promise.all([
         apiRequest<Settings>('/api/settings/'),
         apiRequest<HouseholdMember[]>('/api/household-members/'),
@@ -548,6 +566,7 @@ export const useBudgetStore = defineStore('budget', () => {
         apiRequest<BudgetSummary>(`/api/budget/summary/?${summaryParams}`),
         apiRequest<{ charges: ExpectedCharge[] }>(`/api/expected-charges/?date=${date}`),
         apiRequest<InstallmentProjection>(`/api/installments/projection/?date=${date}&months=6`),
+        apiRequest<CreditCardPaymentSummary>(`/api/credit-cards/interest-free-payment/?date=${date}`),
       ])
       if (requestId !== fetchAllRequestId) return
       settings.value = settingsData
@@ -561,6 +580,7 @@ export const useBudgetStore = defineStore('budget', () => {
       summary.value = summaryData
       expectedCharges.value = expectedData.charges
       installmentProjection.value = installmentData
+      creditCardPaymentSummary.value = creditCardPaymentData
     } catch (err) {
       if (requestId !== fetchAllRequestId) return
       error.value = 'No se pudo cargar Burn Rate.'
@@ -629,6 +649,11 @@ export const useBudgetStore = defineStore('budget', () => {
 
   async function createTransaction(payload: Partial<Transaction>) {
     await apiRequest('/api/transactions/', { method: 'POST', body: JSON.stringify(payload) })
+    await fetchAll(payload.date ?? new Date().toISOString().slice(0, 10))
+  }
+
+  async function updateTransaction(id: Transaction['id'], payload: Partial<Transaction>) {
+    await apiRequest(`/api/transactions/${id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
     await fetchAll(payload.date ?? new Date().toISOString().slice(0, 10))
   }
 
@@ -749,6 +774,7 @@ export const useBudgetStore = defineStore('budget', () => {
     installmentPlans,
     expectedCharges,
     installmentProjection,
+    creditCardPaymentSummary,
     summary,
     invitations,
     resolvedInvitation,
@@ -776,6 +802,7 @@ export const useBudgetStore = defineStore('budget', () => {
     createAccount,
     updateAccount,
     createTransaction,
+    updateTransaction,
     createRecurring,
     updateRecurring,
     deleteRecurring,
