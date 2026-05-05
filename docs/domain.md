@@ -26,17 +26,22 @@ Categories are the budget envelopes.
 
 A personal category must have a member. A family/global category must not have a member. The UI calls this scope `Familia`; `global` is only the internal database value.
 
+Each category also has a `budget_treatment`:
+
+- `budgeted`: normal budget category. It receives period allocations, consumes budget, participates in available-balance calculations, and can be monthly-reset or carryover.
+- `tracking_only`: outside the budget. It records manual expenses, recurring commitments, or installment plans for visibility, but it does not receive allocations, consume budget, create overspend records, affect account balances, or contribute to credit-card payment-to-avoid-interest totals.
+
 Each category stores a presentation color and an icon key. The icon key points to the curated local frontend icon catalog, so the database does not store SVG markup or external asset URLs. The frontend currently renders that catalog with Lucide Vue icons while preserving short stable keys such as `tag`, `paw`, and `shopping-cart`.
 
 ## Budget Allocations
 
-Each active category has a monthly default budget. When a period is viewed, Burn Rate materializes a `BudgetAllocation` for that category and period. This preserves historical budgets when a default budget changes later.
+Each active budgeted category has a monthly default budget. When a period is viewed, Burn Rate materializes a `BudgetAllocation` for that category and period. This preserves historical budgets when a default budget changes later. Tracking-only categories never materialize budget allocations.
 
 ## Transactions
 
 Transactions are manual financial movements.
 
-- `expense`: consumes budget and requires category, account, and a merchant/name for the expense.
+- `expense`: consumes budget and requires category, account, and a merchant/name for the expense. If the category is tracking-only, the account is optional and the transaction stays outside budget/account calculations.
 - `income`: adds money to a destination account but does not affect category spending.
 - `transfer`: moves money between accounts and does not affect category spending.
 - `expected_charge`: reserved for future persisted expected charges.
@@ -56,7 +61,7 @@ Allowed account types:
 - `debit_card`
 - `credit_card`
 
-Credit cards also have a derived "payment to avoid interest" summary for the selected budget period. It is calculated per active credit card as real cycle expenses paid with that card, excluding transactions linked to installment plans, plus that cycle's monthly payment for active interest-free installment plans assigned to the same card.
+Credit cards also have a derived "payment to avoid interest" summary for the selected budget period. It is calculated per active credit card as real cycle expenses paid with that card, excluding transactions linked to installment plans and tracking-only transactions, plus that cycle's monthly payment for active budgeted interest-free installment plans assigned to the same card.
 
 ## Recurring Expenses
 
@@ -64,7 +69,7 @@ A recurring expense is a monthly commitment such as a subscription. It has an in
 
 For each active period, Burn Rate generates a pending expected charge unless it was already confirmed or dismissed.
 
-When automatic charging is enabled, the recurring expense must have an account. Burn Rate posts the real expense once the configured day has arrived, and it does so idempotently per budget period so refreshes do not duplicate charges.
+When automatic charging is enabled for a budgeted category, the recurring expense must have an account. Tracking-only recurring expenses can post without an account so they do not affect account balances. Burn Rate posts the real expense once the configured day has arrived, and it does so idempotently per budget period so refreshes do not duplicate charges.
 
 ## Installment Plans
 
@@ -86,6 +91,8 @@ Budget summary includes:
 - Percent available.
 
 The family summary is the shared household budget and excludes personal categories. A member summary includes only that person's personal categories. The API also supports a technical `total` scope for reports that need family plus every personal category together.
+
+Tracking-only categories are excluded from the family, member, and total budget summaries. They are exposed through a separate off-budget summary with period totals for registered and expected amounts.
 
 ## Demo Data
 

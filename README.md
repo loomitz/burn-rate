@@ -59,7 +59,7 @@ cp .env.example .env
 DB_PASSWORD=usa-una-password-real
 DJANGO_SECRET_KEY=usa-un-secreto-largo-y-aleatorio
 DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,tu-host.local
-DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://tu-host.local:8000
+DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://localhost:5173,http://localhost:5174,http://tu-host.local:8000
 BURN_RATE_PUBLIC_URL=http://tu-host.local:8000
 ```
 
@@ -89,12 +89,12 @@ La base de datos no publica puertos al host por defecto. Solo se expone la aplic
 
 Si vas a instalar desde Docker Hub sin clonar este repositorio, crea un archivo `docker-compose.yml` con este template:
 
-La imagen `loomitz/burnrate:v0.1.16` está publicada para `linux/amd64` y `linux/arm64`.
+La imagen `loomitz/burnrate:v0.1.17` está publicada para `linux/amd64` y `linux/arm64`.
 
 ```yaml
 services:
   app:
-    image: loomitz/burnrate:v0.1.16
+    image: loomitz/burnrate:v0.1.17
     environment:
       DB_NAME: ${DB_NAME:-burn_rate}
       DB_USER: ${DB_USER:-burn_rate}
@@ -104,8 +104,8 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?configura DJANGO_SECRET_KEY}
       DJANGO_DEBUG: "false"
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
-      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
-      DJANGO_CORS_ALLOWED_ORIGINS: ${DJANGO_CORS_ALLOWED_ORIGINS:-}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174}
+      DJANGO_CORS_ALLOWED_ORIGINS: ${DJANGO_CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174}
       DJANGO_SESSION_COOKIE_AGE: ${DJANGO_SESSION_COOKIE_AGE:-2592000}
       DJANGO_SESSION_SAVE_EVERY_REQUEST: "true"
       DJANGO_SESSION_COOKIE_SAMESITE: Lax
@@ -164,7 +164,7 @@ DB_USER=burn_rate
 DB_PASSWORD=usa-una-password-real
 DJANGO_SECRET_KEY=usa-un-secreto-largo-y-aleatorio
 DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
-DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174
 BURN_RATE_PUBLIC_URL=http://localhost:8000
 ```
 
@@ -211,7 +211,7 @@ Si estas variables no están completas, el flujo sigue funcionando y muestra el 
 
 | Variable | Uso |
 | --- | --- |
-| `BURN_RATE_IMAGE` | Imagen usada por el `docker-compose.yml` del repo. Por defecto `loomitz/burnrate:v0.1.16`. |
+| `BURN_RATE_IMAGE` | Imagen usada por el `docker-compose.yml` del repo. Por defecto `loomitz/burnrate:v0.1.17`. |
 | `APP_BIND` | Interfaz del host donde Docker publica la app. Por defecto `127.0.0.1`. |
 | `APP_PORT` | Puerto del host para acceder a Burn Rate. Por defecto `8000`. |
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Credenciales de PostgreSQL. |
@@ -219,7 +219,7 @@ Si estas variables no están completas, el flujo sigue funcionando y muestra el 
 | `DJANGO_SECRET_KEY` | Obligatorio en producción. Debe ser largo y privado. |
 | `DJANGO_DEBUG` | Debe ser `false` fuera de desarrollo. |
 | `DJANGO_ALLOWED_HOSTS` | Hosts válidos para Django, separados por coma. |
-| `DJANGO_CSRF_TRUSTED_ORIGINS` | Orígenes confiables para POST desde navegador. Incluye protocolo. |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | Orígenes confiables para POST desde navegador. Incluye protocolo y el puerto real del frontend si usas Vite. |
 | `DJANGO_SESSION_COOKIE_AGE` | Duración de sesión en segundos. Por defecto 30 días. |
 | `DJANGO_SESSION_SAVE_EVERY_REQUEST` | Renueva la sesión en cada request cuando está en `true`. |
 | `DJANGO_SESSION_COOKIE_SECURE` | Usa cookies de sesión solo por HTTPS cuando está en `true`. |
@@ -311,6 +311,7 @@ pnpm dev
 ```
 
 La interfaz queda en `http://localhost:5173` y Vite proxya `/api` hacia Django en `http://localhost:8001`.
+Si Vite cae al puerto alterno `5174`, ese origen tambien debe estar en `DJANGO_CSRF_TRUSTED_ORIGINS`; los defaults locales del repo ya lo incluyen.
 
 ## Pruebas y checks
 

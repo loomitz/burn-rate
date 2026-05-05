@@ -121,6 +121,9 @@ export interface HouseholdMember {
   is_admin?: boolean
 }
 
+export type BudgetTreatment = 'budgeted' | 'tracking_only'
+export type BudgetBehavior = 'monthly_reset' | 'carryover'
+
 export interface Category {
   id: number
   name: string
@@ -129,10 +132,11 @@ export interface Category {
   order: number
   is_active: boolean
   scope: 'global' | 'personal'
+  budget_treatment: BudgetTreatment
   member: number | null
   member_name: string | null
   monthly_budget_cents: number
-  budget_behavior: 'monthly_reset' | 'carryover'
+  budget_behavior: BudgetBehavior
   carryover_initial_balance_cents: number
   carryover_start_date: string | null
   overspend_tracking_start_date: string
@@ -223,7 +227,7 @@ export interface ExpectedCharge {
   merchant: string
   amount_cents: number
   date: string
-  category: { id: number; name: string; scope: string; color: string; icon: string }
+  category: { id: number; name: string; scope: string; budget_treatment?: BudgetTreatment; color: string; icon: string }
   member: { id: number; name: string; color: string } | null
   account: { id: number; name: string } | null
   payment_number: number | null
@@ -245,7 +249,7 @@ export interface InstallmentProjectionPlan {
   remaining_payments: number
   projected_total_cents?: number
   monthly_amounts?: Array<{ period_end: string; amount_cents: number }>
-  category: { id: number; name: string; scope: string; color: string; icon: string }
+  category: { id: number; name: string; scope: string; budget_treatment?: BudgetTreatment; color: string; icon: string }
   member: { id: number; name: string; color: string } | null
   account: { id: number; name: string } | null
 }
@@ -288,6 +292,7 @@ export interface BudgetCategorySummary {
   member: { id: number; name: string; color: string } | null
   color: string
   icon: string
+  budget_treatment: BudgetTreatment
   budget_cents: number
   spent_cents: number
   expected_cents: number
@@ -299,7 +304,7 @@ export interface BudgetCategorySummary {
   carryover_start_date: string | null
   percent_available: number
   is_overspent: boolean
-  budget_behavior: 'monthly_reset' | 'carryover'
+  budget_behavior: BudgetBehavior
   overspend_count: number
   overspend_total_cents: number
   last_overspend_cents: number
@@ -331,6 +336,30 @@ export interface BudgetSummary {
   categories: BudgetCategorySummary[]
 }
 
+export interface OffBudgetCategorySummary {
+  category_id: number
+  category_name: string
+  scope: string
+  member: { id: number; name: string; color: string } | null
+  color: string
+  icon: string
+  budget_treatment: BudgetTreatment
+  spent_cents: number
+  expected_cents: number
+  total_cents: number
+}
+
+export interface OffBudgetSummary {
+  period: { start: string; end: string }
+  totals: {
+    spent_cents: number
+    expected_cents: number
+    total_cents: number
+  }
+  categories: OffBudgetCategorySummary[]
+  expected_charges: ExpectedCharge[]
+}
+
 type AuthResponse = { user?: User | null } | null
 type InvitationListResponse = Invitation[] | { invitations?: Invitation[]; results?: Invitation[] }
 
@@ -358,6 +387,7 @@ export const useBudgetStore = defineStore('budget', () => {
   const expectedCharges = ref<ExpectedCharge[]>([])
   const installmentProjection = ref<InstallmentProjection | null>(null)
   const creditCardPaymentSummary = ref<CreditCardPaymentSummary | null>(null)
+  const offBudgetSummary = ref<OffBudgetSummary | null>(null)
   const summary = ref<BudgetSummary | null>(null)
   const invitations = ref<Invitation[]>([])
   const resolvedInvitation = ref<ResolvedInvitation | null>(null)
@@ -397,6 +427,7 @@ export const useBudgetStore = defineStore('budget', () => {
     expectedCharges.value = []
     installmentProjection.value = null
     creditCardPaymentSummary.value = null
+    offBudgetSummary.value = null
     summary.value = null
     invitations.value = []
     resolvedInvitation.value = null
@@ -553,6 +584,7 @@ export const useBudgetStore = defineStore('budget', () => {
         summaryData,
         expectedData,
         installmentData,
+        offBudgetData,
         creditCardPaymentData,
       ] = await Promise.all([
         apiRequest<Settings>('/api/settings/'),
@@ -566,6 +598,7 @@ export const useBudgetStore = defineStore('budget', () => {
         apiRequest<BudgetSummary>(`/api/budget/summary/?${summaryParams}`),
         apiRequest<{ charges: ExpectedCharge[] }>(`/api/expected-charges/?date=${date}`),
         apiRequest<InstallmentProjection>(`/api/installments/projection/?date=${date}&months=6`),
+        apiRequest<OffBudgetSummary>(`/api/budget/off-budget-summary/?date=${date}`),
         apiRequest<CreditCardPaymentSummary>(`/api/credit-cards/interest-free-payment/?date=${date}`),
       ])
       if (requestId !== fetchAllRequestId) return
@@ -580,6 +613,7 @@ export const useBudgetStore = defineStore('budget', () => {
       summary.value = summaryData
       expectedCharges.value = expectedData.charges
       installmentProjection.value = installmentData
+      offBudgetSummary.value = offBudgetData
       creditCardPaymentSummary.value = creditCardPaymentData
     } catch (err) {
       if (requestId !== fetchAllRequestId) return
@@ -690,7 +724,7 @@ export const useBudgetStore = defineStore('budget', () => {
     await fetchAll()
   }
 
-  async function confirmCharge(charge: ExpectedCharge, accountId: number) {
+  async function confirmCharge(charge: ExpectedCharge, accountId: number | null) {
     await apiRequest('/api/expected-charges/confirm/', {
       method: 'POST',
       body: JSON.stringify({
@@ -775,6 +809,7 @@ export const useBudgetStore = defineStore('budget', () => {
     expectedCharges,
     installmentProjection,
     creditCardPaymentSummary,
+    offBudgetSummary,
     summary,
     invitations,
     resolvedInvitation,

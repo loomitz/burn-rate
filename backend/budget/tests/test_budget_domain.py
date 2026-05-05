@@ -16,7 +16,9 @@ from budget.models import (
     Transaction,
 )
 from budget.services import (
+    account_balance,
     auto_post_due_recurring_charges,
+    build_off_budget_summary,
     build_budget_summary,
     credit_card_interest_free_payment_summary,
     expected_charges_for_period,
@@ -243,6 +245,74 @@ class BudgetSummaryTests(TestCase):
         summary = build_budget_summary(date(2026, 4, 25), scope="total")
 
         self.assertEqual(summary["totals"]["spent_cents"], 0)
+
+    def test_tracking_only_category_is_excluded_from_budget_summary_allocations_and_card_payment(self):
+        external = Category.objects.create(
+            name="Tarjeta ajena",
+            scope=Category.Scope.GLOBAL,
+            budget_treatment=Category.BudgetTreatment.TRACKING_ONLY,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Compra externa",
+            amount_cents=75000,
+            date=date(2026, 4, 25),
+            category=external,
+            created_by=self.user,
+        )
+
+        summary = build_budget_summary(date(2026, 4, 25), scope="total")
+        card_payment = credit_card_interest_free_payment_summary(date(2026, 4, 25))
+
+        self.assertEqual(summary["totals"]["budget_cents"], 600000)
+        self.assertEqual(summary["totals"]["spent_cents"], 0)
+        self.assertNotIn(external.id, [item["category_id"] for item in summary["categories"]])
+        self.assertFalse(BudgetAllocation.objects.filter(category=external).exists())
+        self.assertEqual(card_payment["total_cents"], 0)
+        self.assertEqual(account_balance(self.cash), 0)
+
+    def test_off_budget_summary_tracks_manual_and_expected_debts_separately(self):
+        external = Category.objects.create(
+            name="Deuda no presupuestada",
+            scope=Category.Scope.GLOBAL,
+            budget_treatment=Category.BudgetTreatment.TRACKING_ONLY,
+            icon="credit-card",
+            color="#7c3aed",
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Prestamo familiar",
+            amount_cents=50000,
+            date=date(2026, 4, 25),
+            category=external,
+            created_by=self.user,
+        )
+        RecurringExpense.objects.create(
+            name="Pago externo mensual",
+            merchant="Banco externo",
+            amount_cents=12000,
+            category=external,
+            start_date=date(2026, 4, 21),
+            charge_day=25,
+        )
+        InstallmentPlan.objects.create(
+            name="Compra tarjeta ajena",
+            merchant="Liverpool",
+            total_amount_cents=240000,
+            category=external,
+            start_date=date(2026, 4, 21),
+            end_date=date(2026, 5, 21),
+        )
+
+        summary = build_off_budget_summary(date(2026, 4, 25))
+
+        self.assertEqual(summary["totals"]["spent_cents"], 50000)
+        self.assertEqual(summary["totals"]["expected_cents"], 132000)
+        self.assertEqual(summary["totals"]["total_cents"], 182000)
+        self.assertEqual(summary["categories"][0]["category_name"], "Deuda no presupuestada")
+        self.assertEqual(summary["categories"][0]["spent_cents"], 50000)
+        self.assertEqual(summary["categories"][0]["expected_cents"], 132000)
+        self.assertEqual(len(summary["expected_charges"]), 2)
 
     def test_only_cash_accounts_can_have_initial_balance(self):
         cash = Account.objects.create(

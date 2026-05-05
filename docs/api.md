@@ -138,13 +138,14 @@ The response includes `access_enabled`, `user_username`, `user_email`, and `user
 {
   "name": "Mascotas",
   "scope": "global",
+  "budget_treatment": "budgeted",
   "monthly_budget_cents": 100000,
   "color": "#ca8a04",
   "icon": "paw"
 }
 ```
 
-Categories default to `budget_behavior="monthly_reset"`. To create a category that accumulates unused budget, set `budget_behavior="carryover"` and include `carryover_initial_balance_cents` plus `carryover_start_date`:
+Categories default to `budget_treatment="budgeted"` and `budget_behavior="monthly_reset"`. To create a category that accumulates unused budget, set `budget_behavior="carryover"` and include `carryover_initial_balance_cents` plus `carryover_start_date`:
 
 ```json
 {
@@ -157,7 +158,19 @@ Categories default to `budget_behavior="monthly_reset"`. To create a category th
 }
 ```
 
-`budget_behavior`, `carryover_initial_balance_cents`, and `carryover_start_date` are creation-time configuration. They cannot be changed later. Use `PATCH /api/categories/{id}/` with name, color, icon, scope, member, `is_active`, or `monthly_budget_cents` to edit an existing category without deleting historical transactions. When `monthly_budget_cents` changes, include `budget_effective_date`; the new budget applies from that budget cycle forward.
+To create a category outside the budget, set `budget_treatment="tracking_only"` and omit the monthly budget:
+
+```json
+{
+  "name": "Tarjeta ajena",
+  "scope": "global",
+  "budget_treatment": "tracking_only",
+  "color": "#7c3aed",
+  "icon": "credit-card"
+}
+```
+
+Tracking-only categories can be used by expenses, recurring expenses, and installment plans, but they do not participate in budget summaries, budget allocations, account balances, or credit-card payment-to-avoid-interest totals. `budget_treatment`, `budget_behavior`, `carryover_initial_balance_cents`, and `carryover_start_date` are creation-time configuration. They cannot be changed later. Use `PATCH /api/categories/{id}/` with name, color, icon, scope, member, `is_active`, or `monthly_budget_cents` to edit an existing budgeted category without deleting historical transactions. When `monthly_budget_cents` changes, include `budget_effective_date`; the new budget applies from that budget cycle forward.
 
 `icon` is a stable key from the frontend's curated local icon catalog. Existing categories default to `tag`; old keys such as `paw`, `bolt`, and `box` remain valid. The frontend can also normalize `lucide:`-prefixed values to the same local keys when the icon exists in the curated catalog.
 
@@ -181,7 +194,7 @@ Use `PATCH /api/accounts/{id}/` to edit an existing account without deleting his
 }
 ```
 
-When `auto_charge=true`, `account` is required. Burn Rate records the real expense automatically once the configured day has arrived. Without `auto_charge`, the item remains a pending expected charge until the user confirms or dismisses it.
+When `auto_charge=true`, `account` is required for budgeted categories. Tracking-only recurring expenses can omit `account` and will be registered without changing account balances. Burn Rate records the real expense automatically once the configured day has arrived. Without `auto_charge`, the item remains a pending expected charge until the user confirms or dismisses it.
 
 `installment-plans` accepts the first payment date and `months_count`; the API calculates `end_date` from that count. For a purchase already in progress, use the original first payment date so the current payment number is calculated from the calendar:
 
@@ -196,6 +209,18 @@ When `auto_charge=true`, `account` is required. Burn Rate records the real expen
   "months_count": 12,
   "round_up_monthly_payment": true,
   "is_active": true
+}
+```
+
+Expenses in tracking-only categories can omit `account`:
+
+```json
+{
+  "transaction_type": "expense",
+  "merchant": "Compra ajena",
+  "amount_cents": 25000,
+  "date": "2026-04-25",
+  "category": 9
 }
 ```
 
@@ -256,6 +281,7 @@ The category row includes:
 - `projected_available_cents`
 - `carryover_real_balance_cents`
 - `budget_behavior`
+- `budget_treatment`
 - `overspend_count`
 - `overspend_total_cents`
 - `last_overspend_cents`
@@ -266,7 +292,20 @@ The category row includes:
 
 For `monthly_reset` categories, `available_cents` is the cycle budget minus real spend and pending expected charges, while the overspend fields summarize closed cycles where real spend exceeded the budget. For `carryover` categories, `real_available_cents` is the accumulated real balance and `projected_available_cents`/`available_cents` subtract pending expected charges as the current free amount.
 
-The frontend uses `category_id` from these rows to let the user click a category card and inspect the matching expense transactions for the active period.
+The frontend uses `category_id` from these rows to let the user click a category card and inspect the matching expense transactions for the active period. Tracking-only categories are excluded from this endpoint.
+
+`GET /api/budget/off-budget-summary/?date=YYYY-MM-DD`
+
+Returns period totals for tracking-only categories:
+
+```json
+{
+  "period": { "start": "2026-04-21", "end": "2026-05-20" },
+  "totals": { "spent_cents": 25000, "expected_cents": 12000, "total_cents": 37000 },
+  "categories": [],
+  "expected_charges": []
+}
+```
 
 ## Expected Charges
 
@@ -288,7 +327,7 @@ Payload:
 }
 ```
 
-Creates due real `expense` transactions for active recurring expenses with `auto_charge=true`, using each recurring expense's configured account. The operation is idempotent for each budget period, so repeated calls do not duplicate charges. The app calls it before refreshing dashboard data.
+Creates due real `expense` transactions for active recurring expenses with `auto_charge=true`, using each budgeted recurring expense's configured account. Tracking-only automatic charges can post without an account. The operation is idempotent for each budget period, so repeated calls do not duplicate charges. The app calls it before refreshing dashboard data.
 
 `POST /api/expected-charges/confirm/`
 
@@ -303,7 +342,7 @@ Payload:
 }
 ```
 
-Creates a real `expense` transaction. The transaction `merchant` comes from the commitment `merchant`, not from the internal commitment `name`.
+Creates a real `expense` transaction. The transaction `merchant` comes from the commitment `merchant`, not from the internal commitment `name`. Tracking-only expected charges may send `"account": null`.
 
 `POST /api/expected-charges/dismiss/`
 
@@ -350,7 +389,7 @@ Each plan row includes current payment amount, payment number, total payments, r
 
 `GET /api/credit-cards/interest-free-payment/?date=YYYY-MM-DD`
 
-Returns the selected budget period and one row per active credit card. Each row calculates the payment needed to avoid interest as cycle purchases registered with that card plus the current period's interest-free installment payments assigned to that card.
+Returns the selected budget period and one row per active credit card. Each row calculates the payment needed to avoid interest as cycle purchases registered with that card plus the current period's budgeted interest-free installment payments assigned to that card. Tracking-only transactions and installment plans are excluded.
 
 Response shape:
 
