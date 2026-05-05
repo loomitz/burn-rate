@@ -97,6 +97,24 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.data["icon"], "paw")
         self.assertEqual(response.data["budget_behavior"], Category.BudgetBehavior.MONTHLY_RESET)
 
+    def test_category_can_be_created_as_tracking_only_without_budget(self):
+        response = self.client.post(
+            "/api/categories/",
+            {
+                "name": "Tarjeta ajena",
+                "scope": "global",
+                "budget_treatment": "tracking_only",
+                "color": "#7c3aed",
+                "icon": "credit-card",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["budget_treatment"], "tracking_only")
+        self.assertEqual(response.data["monthly_budget_cents"], 0)
+        self.assertFalse(CategoryBudgetChange.objects.filter(category_id=response.data["id"]).exists())
+
     def test_category_can_be_created_as_carryover_budget(self):
         response = self.client.post(
             "/api/categories/",
@@ -229,6 +247,67 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(summary.data["scope"], "family")
         self.assertEqual(summary.data["totals"]["spent_cents"], 25000)
         self.assertEqual(summary.data["categories"][0]["icon"], "tag")
+
+    def test_can_create_tracking_only_expense_without_account_and_get_off_budget_summary(self):
+        external = Category.objects.create(
+            name="Gasto externo",
+            scope=Category.Scope.GLOBAL,
+            budget_treatment="tracking_only",
+        )
+
+        response = self.client.post(
+            "/api/transactions/",
+            {
+                "transaction_type": "expense",
+                "merchant": "Compra ajena",
+                "amount_cents": 25000,
+                "date": "2026-04-25",
+                "category": external.id,
+            },
+            format="json",
+        )
+        budget_summary = self.client.get("/api/budget/summary/?date=2026-04-25&scope=total")
+        off_budget_summary = self.client.get("/api/budget/off-budget-summary/?date=2026-04-25")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertIsNone(response.data["account"])
+        self.assertEqual(budget_summary.data["totals"]["spent_cents"], 0)
+        self.assertEqual(off_budget_summary.status_code, 200)
+        self.assertEqual(off_budget_summary.data["totals"]["spent_cents"], 25000)
+        self.assertEqual(off_budget_summary.data["categories"][0]["category_name"], "Gasto externo")
+
+    def test_can_confirm_tracking_only_expected_charge_without_account(self):
+        external = Category.objects.create(
+            name="Deuda externa",
+            scope=Category.Scope.GLOBAL,
+            budget_treatment="tracking_only",
+        )
+        recurring = RecurringExpense.objects.create(
+            name="Pago externo",
+            merchant="Banco externo",
+            amount_cents=12000,
+            category=external,
+            start_date=date(2026, 4, 21),
+            charge_day=25,
+        )
+
+        response = self.client.post(
+            "/api/expected-charges/confirm/",
+            {
+                "source_type": "recurring",
+                "source_id": recurring.id,
+                "date": "2026-04-25",
+                "account": None,
+            },
+            format="json",
+        )
+        budget_summary = self.client.get("/api/budget/summary/?date=2026-04-25&scope=total")
+        off_budget_summary = self.client.get("/api/budget/off-budget-summary/?date=2026-04-25")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertIsNone(response.data["account"])
+        self.assertEqual(budget_summary.data["totals"]["spent_cents"], 0)
+        self.assertEqual(off_budget_summary.data["totals"]["spent_cents"], 12000)
 
     def test_expense_creates_merchant_concept_suggestion(self):
         first = self.client.post(

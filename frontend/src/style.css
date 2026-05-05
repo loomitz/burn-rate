@@ -1053,6 +1053,55 @@ h2 {
   box-shadow: var(--shadow-soft);
 }
 
+.off-budget-panel {
+  display: grid;
+  gap: var(--space-sm);
+  border: 1px solid color-mix(in srgb, #7c3aed 18%, var(--line));
+  border-radius: var(--radius-sm);
+  padding: clamp(1rem, 3vw, 1.25rem);
+  background: color-mix(in srgb, var(--surface) 86%, #ede9fe);
+}
+
+.off-budget-list {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.off-budget-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-sm);
+  border: 1px solid color-mix(in srgb, var(--category-color) 18%, var(--line));
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  background: color-mix(in srgb, var(--category-color) 6%, var(--surface));
+}
+
+.off-budget-row > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.off-budget-row b,
+.off-budget-row small {
+  overflow-wrap: anywhere;
+}
+
+.off-budget-row small {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+}
+
+.off-budget-row strong {
+  color: color-mix(in srgb, var(--category-color) 72%, var(--ink));
+  font-size: var(--font-size-label);
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 .plan-balance {
   display: grid;
   gap: var(--space-xs);
@@ -2018,6 +2067,14 @@ h2 {
   word-break: break-word;
 }
 
+.choice-chips button .choice-note {
+  display: block;
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-weight: 750;
+}
+
 .choice-chips .category-icon {
   flex: 0 0 32px;
 }
@@ -2271,6 +2328,26 @@ h2 {
   margin: 0;
   color: var(--muted);
   font-size: var(--font-size-sm);
+}
+
+.tracking-only-note,
+.tracking-inline {
+  color: color-mix(in srgb, #7c3aed 72%, var(--muted));
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+}
+
+.tracking-only-note {
+  margin: 0;
+  border: 1px solid color-mix(in srgb, #7c3aed 18%, var(--line));
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: color-mix(in srgb, #ede9fe 44%, var(--surface));
+}
+
+.tracking-inline {
+  display: block;
+  margin-top: 3px;
 }
 
 .empty-card {

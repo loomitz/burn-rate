@@ -7,7 +7,7 @@ Está pensada para instalarse detrás de una VPN, red privada o reverse proxy co
 ## Imagen
 
 ```bash
-docker pull loomitz/burnrate:v0.1.16
+docker pull loomitz/burnrate:v0.1.17
 ```
 
 También está disponible:
@@ -46,7 +46,7 @@ Crea un archivo `docker-compose.yml`:
 ```yaml
 services:
   app:
-    image: loomitz/burnrate:v0.1.16
+    image: loomitz/burnrate:v0.1.17
     environment:
       DB_NAME: ${DB_NAME:-burn_rate}
       DB_USER: ${DB_USER:-burn_rate}
@@ -57,7 +57,7 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?configura DJANGO_SECRET_KEY}
       DJANGO_DEBUG: "false"
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
-      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174}
 
       DJANGO_SESSION_COOKIE_AGE: ${DJANGO_SESSION_COOKIE_AGE:-2592000}
       DJANGO_SESSION_SAVE_EVERY_REQUEST: "true"
@@ -122,7 +122,7 @@ DB_PASSWORD=usa-una-password-real
 
 DJANGO_SECRET_KEY=usa-un-secreto-largo-y-aleatorio
 DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
-DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174
 
 BURN_RATE_PUBLIC_URL=http://localhost:8000
 BURN_RATE_FRONTEND_URL=http://localhost:8000
@@ -221,7 +221,7 @@ DJANGO_CSRF_COOKIE_SECURE=true
 DJANGO_TRUST_X_FORWARDED_PROTO=true
 ```
 
-La imagen `v0.1.16` fue revisada y publicada para `linux/amd64` y `linux/arm64`.
+La imagen `v0.1.17` fue revisada y publicada para `linux/amd64` y `linux/arm64`.
 
 ## Código fuente
 
@@ -233,6 +233,7 @@ https://github.com/loomitz/burn-rate
 
 ## Tags
 
+- `v0.1.17`: categorias fuera de presupuesto, resumen separado de esos cargos y origen CSRF local para Vite en `5174`.
 - `v0.1.16`: edición de gastos recientes y resumen de pago para no generar intereses por tarjeta.
 - `v0.1.15`: barras de presupuesto llenadas por gasto/compromiso, excedente proyectado distinguible y cuenta visible en movimientos.
 - `v0.1.14`: cargos automáticos configurables para pagos mensuales, endpoint de autopost idempotente y ancho consistente entre tabs.

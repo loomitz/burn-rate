@@ -45,6 +45,7 @@ from .serializers import (
 )
 from .services import (
     auto_post_due_recurring_charges,
+    build_off_budget_summary,
     build_budget_summary,
     confirm_expected_charge,
     credit_card_interest_free_payment_summary,
@@ -376,6 +377,13 @@ class BudgetSummaryView(APIView):
         return Response(summary)
 
 
+class OffBudgetSummaryView(APIView):
+    def get(self, request):
+        value = request.query_params.get("date")
+        summary_date = date.fromisoformat(value) if value else None
+        return Response(build_off_budget_summary(summary_date))
+
+
 class ExpectedChargesView(APIView):
     def get(self, request):
         period_param = request.query_params.get("period")
@@ -402,6 +410,7 @@ class ExpectedChargesView(APIView):
                         "id": charge.category.id,
                         "name": charge.category.name,
                         "scope": charge.category.scope,
+                        "budget_treatment": charge.category.budget_treatment,
                         "color": charge.category.color,
                         "icon": charge.category.icon,
                     },
@@ -435,7 +444,8 @@ class ConfirmExpectedChargeView(APIView):
         source_type = request.data["source_type"]
         source_id = int(request.data["source_id"])
         charge_date = date.fromisoformat(request.data["date"])
-        account = Account.objects.get(pk=request.data["account"])
+        account_id = request.data.get("account")
+        account = Account.objects.get(pk=account_id) if account_id else None
         transaction = confirm_expected_charge(source_type, source_id, charge_date, account, request.user)
         return Response(TransactionSerializer(transaction, context={"request": request}).data, status=status.HTTP_201_CREATED)
 

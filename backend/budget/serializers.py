@@ -444,6 +444,7 @@ class CategorySerializer(serializers.ModelSerializer):
             "order",
             "is_active",
             "scope",
+            "budget_treatment",
             "member",
             "member_name",
             "monthly_budget_cents",
@@ -457,6 +458,10 @@ class CategorySerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         scope = attrs.get("scope", getattr(self.instance, "scope", Category.Scope.GLOBAL))
         member = attrs.get("member", getattr(self.instance, "member", None))
+        budget_treatment = attrs.get(
+            "budget_treatment",
+            getattr(self.instance, "budget_treatment", Category.BudgetTreatment.BUDGETED),
+        )
         budget_behavior = attrs.get("budget_behavior", getattr(self.instance, "budget_behavior", Category.BudgetBehavior.MONTHLY_RESET))
         carryover_start_date = attrs.get("carryover_start_date", getattr(self.instance, "carryover_start_date", None))
         carryover_initial_balance = attrs.get(
@@ -469,6 +474,8 @@ class CategorySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"member": "Las categorias personales requieren una persona."})
         if scope == Category.Scope.GLOBAL and member is not None:
             raise serializers.ValidationError({"member": "Las categorias globales no deben tener persona."})
+        if self.instance and budget_treatment != self.instance.budget_treatment:
+            raise serializers.ValidationError({"budget_treatment": "El tipo de categoria solo se define al crear."})
         if self.instance and budget_behavior != self.instance.budget_behavior:
             raise serializers.ValidationError({"budget_behavior": "El comportamiento de presupuesto solo se define al crear."})
         if self.instance:
@@ -478,6 +485,12 @@ class CategorySerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"carryover_start_date": "La fecha de inicio acumulable solo se define al crear."})
             if monthly_budget is not None and monthly_budget != self.instance.monthly_budget_cents and budget_effective_date is None:
                 raise serializers.ValidationError({"budget_effective_date": "Indica la fecha efectiva del cambio de presupuesto."})
+        if budget_treatment == Category.BudgetTreatment.TRACKING_ONLY:
+            attrs["monthly_budget_cents"] = 0
+            attrs["budget_behavior"] = Category.BudgetBehavior.MONTHLY_RESET
+            attrs["carryover_initial_balance_cents"] = 0
+            attrs["carryover_start_date"] = None
+            return attrs
         if budget_behavior == Category.BudgetBehavior.CARRYOVER:
             initial_data = self.initial_data if hasattr(self, "initial_data") else {}
             if not self.instance and "carryover_initial_balance_cents" not in initial_data:
@@ -495,6 +508,8 @@ class CategorySerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         budget_effective_date = validated_data.pop("budget_effective_date", None)
         category = super().create(validated_data)
+        if category.budget_treatment == Category.BudgetTreatment.TRACKING_ONLY:
+            return category
         effective_date = (
             category.carryover_start_date
             if category.budget_behavior == Category.BudgetBehavior.CARRYOVER
@@ -601,11 +616,12 @@ class TransactionSerializer(serializers.ModelSerializer):
         destination = attrs.get("destination_account", getattr(self.instance, "destination_account", None))
         category = attrs.get("category", getattr(self.instance, "category", None))
         if transaction_type in [Transaction.TransactionType.EXPENSE, Transaction.TransactionType.EXPECTED_CHARGE]:
+            is_tracking_only = category and category.budget_treatment == Category.BudgetTreatment.TRACKING_ONLY
             if not attrs.get("merchant", getattr(self.instance, "merchant", "")):
                 raise serializers.ValidationError({"merchant": "Los gastos requieren comercio o nombre."})
             if category is None:
                 raise serializers.ValidationError({"category": "Los gastos requieren categoria."})
-            if account is None:
+            if account is None and not is_tracking_only:
                 raise serializers.ValidationError({"account": "Los gastos requieren cuenta o medio de pago."})
         if transaction_type == Transaction.TransactionType.TRANSFER:
             if account is None or destination is None:
@@ -645,9 +661,11 @@ class RecurringExpenseSerializer(serializers.ModelSerializer):
         merchant = attrs.get("merchant", getattr(self.instance, "merchant", ""))
         account = attrs.get("account", getattr(self.instance, "account", None))
         auto_charge = attrs.get("auto_charge", getattr(self.instance, "auto_charge", False))
+        category = attrs.get("category", getattr(self.instance, "category", None))
         if not merchant.strip():
             raise serializers.ValidationError({"merchant": "Escribe el comercio del cargo mensual."})
-        if auto_charge and account is None:
+        is_tracking_only = category and category.budget_treatment == Category.BudgetTreatment.TRACKING_ONLY
+        if auto_charge and account is None and not is_tracking_only:
             raise serializers.ValidationError({"account": "El cargo automatico necesita una cuenta configurada."})
         if end_date and start_date and end_date < start_date:
             raise serializers.ValidationError({"end_date": "La fecha final no puede ser anterior al inicio."})

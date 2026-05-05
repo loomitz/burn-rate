@@ -39,6 +39,7 @@ const {
   expectedCharges,
   installmentProjection,
   creditCardPaymentSummary,
+  offBudgetSummary,
   summary,
   invitations,
   resolvedInvitation,
@@ -134,6 +135,7 @@ const memberForm = reactive({
 const categoryForm = reactive({
   name: '',
   scope: 'global',
+  budget_treatment: 'budgeted' as 'budgeted' | 'tracking_only',
   member: '',
   monthly_budget: '',
   budget_behavior: 'monthly_reset' as 'monthly_reset' | 'carryover',
@@ -283,6 +285,7 @@ const onboardingChecklist = computed(() => {
 })
 
 const visibleCategories = computed(() => activeCategories.value)
+const trackingOnlyCategories = computed(() => categories.value.filter((category) => category.budget_treatment === 'tracking_only'))
 const activeBudgetPeriod = computed(() => budgetPeriodForDate(selectedDate.value, settings.value.cutoff_day))
 const currentBudgetPeriod = computed(() => budgetPeriodForDate(todayIso, settings.value.cutoff_day))
 const budgetCycleOptions = computed<BudgetCycleOption[]>(() => {
@@ -330,7 +333,7 @@ const planAttentionItems = computed(() => {
       body: `Va ${money(Math.abs(category.available_cents), settings.value.currency)} arriba del presupuesto.`,
   }))
   const upcomingCharges = expectedCharges.value
-    .filter((charge) => charge.source_type === 'recurring')
+    .filter((charge) => charge.source_type === 'recurring' && charge.category.budget_treatment !== 'tracking_only')
     .slice(0, 2)
     .map((charge) => ({
       key: `charge-${charge.key}`,
@@ -377,6 +380,7 @@ const registeredInstallmentTotal = computed(() =>
 )
 const creditCardPaymentCards = computed(() => creditCardPaymentSummary.value?.cards ?? [])
 const creditCardInterestFreeTotal = computed(() => creditCardPaymentSummary.value?.total_cents ?? 0)
+const offBudgetTotal = computed(() => offBudgetSummary.value?.totals.total_cents ?? 0)
 const currentCommitmentTotal = computed(() => recurringExpectedTotal.value + currentInstallmentTotal.value)
 const maxProjectedPeriodTotal = computed(() =>
   Math.max(1, ...projectedInstallmentPeriods.value.map((period) => period.total_cents)),
@@ -412,6 +416,19 @@ const filteredCommitmentAccounts = computed(() => {
     return `${account.name} ${account.account_type}`.toLowerCase().includes(query)
   })
 })
+const selectedExpenseCategory = computed(() =>
+  expenseForm.category ? categoryLookup.value.get(Number(expenseForm.category)) ?? null : null,
+)
+const selectedTransactionEditCategory = computed(() =>
+  transactionEditForm.category ? categoryLookup.value.get(Number(transactionEditForm.category)) ?? null : null,
+)
+const selectedCommitmentCategory = computed(() => {
+  const categoryId = commitmentCategoryValue()
+  return categoryId ? categoryLookup.value.get(Number(categoryId)) ?? null : null
+})
+const expenseIsTrackingOnly = computed(() => selectedExpenseCategory.value?.budget_treatment === 'tracking_only')
+const transactionEditIsTrackingOnly = computed(() => selectedTransactionEditCategory.value?.budget_treatment === 'tracking_only')
+const commitmentIsTrackingOnly = computed(() => selectedCommitmentCategory.value?.budget_treatment === 'tracking_only')
 const merchantConceptSuggestions = computed(() => {
   const query = lookupText(merchantValueForTarget())
   return merchantConcepts.value
@@ -441,9 +458,11 @@ const categorySubmitLabel = computed(() => {
 const editingCategory = computed(() => categories.value.find((category) => category.id === editingCategoryId.value) ?? null)
 const categoryBudgetChanged = computed(() => {
   if (!editingCategory.value) return false
+  if (categoryForm.budget_treatment === 'tracking_only') return false
   return centsFromInput(categoryForm.monthly_budget) !== editingCategory.value.monthly_budget_cents
 })
 const categoryBehaviorLabel = computed(() => {
+  if (categoryForm.budget_treatment === 'tracking_only') return 'Fuera de presupuesto'
   if (categoryForm.budget_behavior === 'carryover') return 'Acumula saldo'
   return 'Se reinicia cada mes'
 })
@@ -1016,17 +1035,20 @@ async function submitExpense() {
     showNotice('Falta categoría. Elige una para guardar el gasto.', 'error')
     return
   }
-  if (!expenseForm.account) {
+  if (!expenseIsTrackingOnly.value && !expenseForm.account) {
     showNotice('Falta cuenta. Elige desde dónde se pagó.', 'error')
     return
   }
-  await runAction('expense', 'Gasto guardado. El presupuesto ya está actualizado.', async () => {
+  await runAction(
+    'expense',
+    expenseIsTrackingOnly.value ? 'Registro fuera de presupuesto guardado.' : 'Gasto guardado. El presupuesto ya está actualizado.',
+    async () => {
     await store.createTransaction({
       transaction_type: 'expense',
       merchant,
       amount_cents: amountCents,
       date: expenseForm.date,
-      account: Number(expenseForm.account),
+      account: expenseIsTrackingOnly.value ? null : Number(expenseForm.account),
       category: Number(expenseForm.category),
       note: expenseForm.note,
     })
@@ -1035,7 +1057,8 @@ async function submitExpense() {
     expenseForm.note = ''
     merchantSuggestionsOpen.value = false
     expensesTab.value = 'feed'
-  })
+    },
+  )
 }
 
 function openTransactionEdit(transaction: Transaction) {
@@ -1073,21 +1096,25 @@ async function saveTransactionEdit(transaction: Transaction) {
     showNotice('Falta categoría. Elige una para actualizar el gasto.', 'error')
     return
   }
-  if (!transactionEditForm.account) {
+  if (!transactionEditIsTrackingOnly.value && !transactionEditForm.account) {
     showNotice('Falta cuenta. Elige desde dónde se pagó.', 'error')
     return
   }
-  await runAction(`edit-transaction-${transaction.id}`, 'Gasto actualizado. El presupuesto ya está recalculado.', async () => {
+  await runAction(
+    `edit-transaction-${transaction.id}`,
+    transactionEditIsTrackingOnly.value ? 'Registro fuera de presupuesto actualizado.' : 'Gasto actualizado. El presupuesto ya está recalculado.',
+    async () => {
     await store.updateTransaction(transaction.id, {
       merchant,
       amount_cents: amountCents,
       date: transactionEditForm.date,
-      account: Number(transactionEditForm.account),
+      account: transactionEditIsTrackingOnly.value ? null : Number(transactionEditForm.account),
       category: Number(transactionEditForm.category),
       note: transactionEditForm.note,
     })
     cancelTransactionEdit()
-  })
+    },
+  )
 }
 
 async function submitAccount() {
@@ -1243,7 +1270,8 @@ function usernameSuggestionFromName(name: string) {
 async function submitCategory() {
   const name = normalizeText(categoryForm.name)
   const memberId = categoryForm.scope === 'personal' ? Number(categoryForm.member) : null
-  const monthlyBudgetCents = centsFromInput(categoryForm.monthly_budget)
+  const isTrackingOnly = categoryForm.budget_treatment === 'tracking_only'
+  const monthlyBudgetCents = isTrackingOnly ? 0 : centsFromInput(categoryForm.monthly_budget)
   const carryoverInitialBalanceCents = centsFromInput(categoryForm.carryover_initial_balance || '0')
   if (!name) {
     showNotice('Falta nombre de categoría. Escríbelo para guardar.', 'error')
@@ -1253,11 +1281,11 @@ async function submitCategory() {
     showNotice('Falta persona. Elige a quién pertenece esta categoría.', 'error')
     return
   }
-  if (monthlyBudgetCents <= 0) {
+  if (!isTrackingOnly && monthlyBudgetCents <= 0) {
     showNotice('Falta presupuesto mensual válido. Escribe una cantidad mayor a cero.', 'error')
     return
   }
-  if (!editingCategoryId.value && categoryForm.budget_behavior === 'carryover' && !categoryForm.carryover_start_date) {
+  if (!isTrackingOnly && !editingCategoryId.value && categoryForm.budget_behavior === 'carryover' && !categoryForm.carryover_start_date) {
     showNotice('Falta fecha de inicio. Indica desde cuándo acumula saldo.', 'error')
     return
   }
@@ -1282,8 +1310,9 @@ async function submitCategory() {
       }
       await store.updateCategory(editingCategoryId.value, payload)
     } else {
-      payload.budget_behavior = categoryForm.budget_behavior
-      if (categoryForm.budget_behavior === 'carryover') {
+      payload.budget_treatment = categoryForm.budget_treatment
+      payload.budget_behavior = isTrackingOnly ? 'monthly_reset' : categoryForm.budget_behavior
+      if (!isTrackingOnly && categoryForm.budget_behavior === 'carryover') {
         payload.carryover_initial_balance_cents = carryoverInitialBalanceCents
         payload.carryover_start_date = categoryForm.carryover_start_date
       }
@@ -1298,6 +1327,7 @@ function editCategory(category: Category) {
   editingCategoryId.value = category.id
   categoryForm.name = category.name
   categoryForm.scope = category.scope
+  categoryForm.budget_treatment = category.budget_treatment
   categoryForm.member = category.member ? String(category.member) : ''
   categoryForm.monthly_budget = String(category.monthly_budget_cents / 100)
   categoryForm.budget_behavior = category.budget_behavior
@@ -1314,6 +1344,7 @@ function resetCategoryForm() {
   editingCategoryId.value = null
   categoryForm.name = ''
   categoryForm.scope = 'global'
+  categoryForm.budget_treatment = 'budgeted'
   categoryForm.member = ''
   categoryForm.monthly_budget = ''
   categoryForm.budget_behavior = 'monthly_reset'
@@ -1351,7 +1382,7 @@ async function submitRecurring() {
     showNotice('Falta categoría. Elige dónde cae este pago mensual.', 'error')
     return
   }
-  if (recurringForm.auto_charge && !recurringForm.account) {
+  if (recurringForm.auto_charge && !commitmentIsTrackingOnly.value && !recurringForm.account) {
     showNotice('El cargo automático necesita una cuenta configurada.', 'error')
     return
   }
@@ -1365,7 +1396,7 @@ async function submitRecurring() {
       merchant,
       amount_cents: amountCents,
       category: Number(recurringForm.category),
-      account: recurringForm.account ? Number(recurringForm.account) : null,
+      account: commitmentIsTrackingOnly.value ? null : recurringForm.account ? Number(recurringForm.account) : null,
       start_date: recurringForm.start_date,
       end_date: recurringForm.end_date || null,
       charge_day: chargeDay,
@@ -1416,7 +1447,7 @@ async function submitInstallment() {
       merchant,
       total_amount_cents: totalAmountCents,
       category: Number(installmentForm.category),
-      account: installmentForm.account ? Number(installmentForm.account) : null,
+      account: commitmentIsTrackingOnly.value ? null : installmentForm.account ? Number(installmentForm.account) : null,
       start_date: installmentForm.start_date,
       months_count: monthsCount,
       round_up_monthly_payment: installmentForm.round_up_monthly_payment,
@@ -1577,8 +1608,9 @@ async function saveSettings() {
 }
 
 async function confirmCharge(charge: ExpectedCharge) {
-  const fallback = charge.account?.id ?? activeAccounts.value[0]?.id
-  if (!fallback) {
+  const isTrackingOnly = charge.category.budget_treatment === 'tracking_only'
+  const fallback = isTrackingOnly ? null : (charge.account?.id ?? activeAccounts.value[0]?.id ?? null)
+  if (!isTrackingOnly && !fallback) {
     showNotice('Falta cuenta activa. Crea o activa una cuenta antes de marcar este pago.', 'error')
     return
   }
@@ -1652,6 +1684,8 @@ function closeCommitmentForm() {
 
 function chooseExpenseCategory(categoryId: number) {
   expenseForm.category = String(categoryId)
+  const category = categoryLookup.value.get(categoryId)
+  if (category?.budget_treatment === 'tracking_only') expenseForm.account = ''
 }
 
 function chooseExpenseAccount(accountId: number) {
@@ -1676,9 +1710,13 @@ function commitmentAccountStatusLabel() {
 function chooseCommitmentCategory(categoryId: number) {
   if (commitmentKind.value === 'subscription') {
     recurringForm.category = String(categoryId)
+    const category = categoryLookup.value.get(categoryId)
+    if (category?.budget_treatment === 'tracking_only') recurringForm.account = ''
     return
   }
   installmentForm.category = String(categoryId)
+  const category = categoryLookup.value.get(categoryId)
+  if (category?.budget_treatment === 'tracking_only') installmentForm.account = ''
 }
 
 function chooseCommitmentAccount(accountId: number | null) {
@@ -1780,6 +1818,10 @@ function categoryStatusLabel(item: BudgetCategorySummary) {
   return item.budget_behavior === 'carryover' ? 'Acumula' : 'Bien'
 }
 
+function transactionIsTrackingOnly(transaction: Transaction) {
+  return Boolean(transaction.category && categoryLookup.value.get(transaction.category)?.budget_treatment === 'tracking_only')
+}
+
 function projectionPeriodLabel(index: number) {
   return index === 0 ? 'Act.' : `+${index}`
 }
@@ -1810,13 +1852,15 @@ function recurringCommitmentCategory(row: { expense: RecurringExpense; charge?: 
 }
 
 function recurringCommitmentCategoryLabel(row: { expense: RecurringExpense; charge?: ExpectedCharge }) {
-  if (row.expense.member_name) return `${row.expense.category_name} · ${row.expense.member_name}`
-  return row.expense.category_name
+  const suffix = recurringCommitmentCategory(row)?.budget_treatment === 'tracking_only' ? ' · fuera de presupuesto' : ''
+  if (row.expense.member_name) return `${row.expense.category_name} · ${row.expense.member_name}${suffix}`
+  return `${row.expense.category_name}${suffix}`
 }
 
 function installmentCommitmentCategoryLabel(plan: InstallmentProjectionPlan) {
-  if (plan.member) return `${plan.category.name} · ${plan.member.name}`
-  return plan.category.name
+  const suffix = plan.category.budget_treatment === 'tracking_only' ? ' · fuera de presupuesto' : ''
+  if (plan.member) return `${plan.category.name} · ${plan.member.name}${suffix}`
+  return `${plan.category.name}${suffix}`
 }
 
 function categoryIconComponent(icon?: string | null) {
@@ -2300,6 +2344,35 @@ function categoryIconComponent(icon?: string | null) {
         </dl>
       </section>
 
+      <section v-if="offBudgetSummary && (offBudgetTotal > 0 || trackingOnlyCategories.length)" class="off-budget-panel" aria-label="Registros fuera de presupuesto">
+        <div class="section-title-row">
+          <div>
+            <h2>Fuera de presupuesto</h2>
+          </div>
+          <span>{{ money(offBudgetTotal, settings.currency) }}</span>
+        </div>
+        <div v-if="offBudgetSummary.categories.length" class="off-budget-list">
+          <article
+            v-for="item in offBudgetSummary.categories"
+            :key="item.category_id"
+            class="off-budget-row"
+            :style="{ '--category-color': item.color }"
+          >
+            <span class="category-icon" :style="{ '--category-color': item.color }">
+              <component :is="categoryIconComponent(item.icon)" aria-hidden="true" />
+            </span>
+            <div>
+              <b>{{ item.category_name }}</b>
+              <small>
+                Registrado {{ money(item.spent_cents, settings.currency) }} · por venir {{ money(item.expected_cents, settings.currency) }}
+              </small>
+            </div>
+            <strong>{{ money(item.total_cents, settings.currency) }}</strong>
+          </article>
+        </div>
+        <p v-else class="empty-line">Sin registros fuera de presupuesto en este periodo.</p>
+      </section>
+
       <section class="attention-panel" :class="{ calm: !planAttentionItems.length }">
         <div class="section-title-row">
           <h2>{{ planAttentionItems.length ? 'Atención de casa' : 'Casa tranquila' }}</h2>
@@ -2404,7 +2477,8 @@ function categoryIconComponent(icon?: string | null) {
               <span class="category-icon" :style="{ '--category-color': category.color }">
                 <component :is="categoryIconComponent(category.icon)" aria-hidden="true" />
               </span>
-              {{ category.name }}
+              <span>{{ category.name }}</span>
+              <small v-if="category.budget_treatment === 'tracking_only'" class="choice-note">Fuera de presupuesto</small>
             </button>
             <p v-if="!filteredExpenseCategories.length" class="empty-line">No encontramos esa categoría.</p>
           </div>
@@ -2413,15 +2487,19 @@ function categoryIconComponent(icon?: string | null) {
         <section class="choice-block">
           <div class="section-title-row">
             <h2>Cuenta</h2>
-            <span>{{ expenseForm.account ? 'Lista' : 'Desde dónde se pagó' }}</span>
+            <span>{{ expenseIsTrackingOnly ? 'No aplica' : expenseForm.account ? 'Lista' : 'Desde dónde se pagó' }}</span>
           </div>
 
-          <label class="search-field account-search-field">
+          <p v-if="expenseIsTrackingOnly" class="tracking-only-note">
+            Este registro no afecta presupuesto ni saldos de cuentas.
+          </p>
+
+          <label v-if="!expenseIsTrackingOnly" class="search-field account-search-field">
             Buscar cuenta
             <input v-model="expenseAccountSearch" type="search" placeholder="BBVA, caja, tarjeta" autocomplete="off" />
           </label>
 
-          <div class="choice-chips account-card-list" role="list">
+          <div v-if="!expenseIsTrackingOnly" class="choice-chips account-card-list" role="list">
             <button
               v-for="account in filteredExpenseAccounts"
               :key="account.id"
@@ -2509,6 +2587,7 @@ function categoryIconComponent(icon?: string | null) {
                 {{ transaction.account_name ?? 'sin cuenta' }} ·
                 {{ transaction.created_by_username ?? 'sin usuario' }} · {{ transaction.date }}
               </span>
+              <small v-if="transactionIsTrackingOnly(transaction)" class="tracking-inline">Fuera de presupuesto</small>
             </div>
             <div class="feed-row-actions">
               <strong>-{{ money(transaction.amount_cents, settings.currency) }}</strong>
@@ -2539,13 +2618,13 @@ function categoryIconComponent(icon?: string | null) {
                 <select v-model="transactionEditForm.category" required>
                   <option value="" disabled>Elige una categoría</option>
                   <option v-for="category in categories" :key="category.id" :value="String(category.id)">
-                    {{ category.name }}
+                    {{ category.name }}{{ category.budget_treatment === 'tracking_only' ? ' · fuera de presupuesto' : '' }}
                   </option>
                 </select>
               </label>
             </div>
             <div class="field-row expense-meta-row">
-              <label>
+              <label v-if="!transactionEditIsTrackingOnly">
                 Cuenta
                 <select v-model="transactionEditForm.account" required>
                   <option value="" disabled>Elige una cuenta</option>
@@ -2554,6 +2633,7 @@ function categoryIconComponent(icon?: string | null) {
                   </option>
                 </select>
               </label>
+              <p v-else class="tracking-only-note">No afecta saldos de cuentas.</p>
               <label>Nota opcional<textarea v-model="transactionEditForm.note" rows="2"></textarea></label>
             </div>
             <div class="action-row">
@@ -2620,7 +2700,8 @@ function categoryIconComponent(icon?: string | null) {
                 <span class="category-icon" :style="{ '--category-color': category.color }">
                   <component :is="categoryIconComponent(category.icon)" aria-hidden="true" />
                 </span>
-                {{ category.name }}
+                <span>{{ category.name }}</span>
+                <small v-if="category.budget_treatment === 'tracking_only'" class="choice-note">Fuera de presupuesto</small>
               </button>
               <p v-if="!filteredCommitmentCategories.length" class="empty-line">No encontramos esa categoría.</p>
             </div>
@@ -2629,15 +2710,19 @@ function categoryIconComponent(icon?: string | null) {
           <section class="choice-block commitment-choice-block">
             <div class="section-title-row">
               <h2>Cuenta</h2>
-              <span>{{ commitmentAccountStatusLabel() }}</span>
+              <span>{{ commitmentIsTrackingOnly ? 'No aplica' : commitmentAccountStatusLabel() }}</span>
             </div>
 
-            <label class="search-field account-search-field">
+            <p v-if="commitmentIsTrackingOnly" class="tracking-only-note">
+              Este compromiso queda aparte y no afecta la distribución del gasto.
+            </p>
+
+            <label v-if="!commitmentIsTrackingOnly" class="search-field account-search-field">
               Buscar cuenta
               <input v-model="commitmentAccountSearch" type="search" placeholder="BBVA, caja, tarjeta" autocomplete="off" />
             </label>
 
-            <div class="choice-chips account-card-list" role="list">
+            <div v-if="!commitmentIsTrackingOnly" class="choice-chips account-card-list" role="list">
               <button
                 class="account-choice-card no-account-choice"
                 type="button"
@@ -2719,7 +2804,7 @@ function categoryIconComponent(icon?: string | null) {
               <span class="switch-track" aria-hidden="true"></span>
               <span>
                 <b>Cargar automáticamente</b>
-                <small>Cuando llegue el día de pago, se registra el gasto con la cuenta configurada.</small>
+                <small>{{ commitmentIsTrackingOnly ? 'Cuando llegue el día, se registra sin afectar cuentas.' : 'Cuando llegue el día de pago, se registra el gasto con la cuenta configurada.' }}</small>
               </span>
             </label>
             <div class="preview-box">
@@ -3061,7 +3146,7 @@ function categoryIconComponent(icon?: string | null) {
                 <select v-model="commitmentEditForm.category" required>
                   <option value="">Categoría</option>
                   <option v-for="category in activeCategories" :key="category.id" :value="category.id">
-                    {{ category.name }}{{ category.member_name ? ` - ${category.member_name}` : '' }}
+                    {{ category.name }}{{ category.member_name ? ` - ${category.member_name}` : '' }}{{ category.budget_treatment === 'tracking_only' ? ' · fuera de presupuesto' : '' }}
                   </option>
                 </select>
               </label>
@@ -3344,8 +3429,11 @@ function categoryIconComponent(icon?: string | null) {
                   <b>{{ category.name }}</b>
                   <span>
                     {{ category.scope === 'global' ? 'Familia' : category.member_name || 'Personal' }} ·
-                    {{ money(category.monthly_budget_cents, settings.currency) }} ·
-                    {{ category.budget_behavior === 'carryover' ? 'acumulable' : 'mensual' }} ·
+                    {{
+                      category.budget_treatment === 'tracking_only'
+                        ? 'fuera de presupuesto'
+                        : `${money(category.monthly_budget_cents, settings.currency)} · ${category.budget_behavior === 'carryover' ? 'acumulable' : 'mensual'}`
+                    }} ·
                     {{ category.is_active ? 'activa' : 'inactiva' }}
                   </span>
                 </div>
@@ -3368,7 +3456,27 @@ function categoryIconComponent(icon?: string | null) {
               <div v-if="!editingCategoryId" class="segmented blue-segmented">
                 <button
                   type="button"
+                  :class="{ active: categoryForm.budget_treatment === 'budgeted' }"
+                  @click="categoryForm.budget_treatment = 'budgeted'"
+                >
+                  Presupuestada
+                </button>
+                <button
+                  type="button"
+                  :class="{ active: categoryForm.budget_treatment === 'tracking_only' }"
+                  @click="categoryForm.budget_treatment = 'tracking_only'; categoryForm.budget_behavior = 'monthly_reset'"
+                >
+                  Fuera de presupuesto
+                </button>
+              </div>
+              <div v-else class="commitment-readonly">
+                <span>{{ categoryForm.budget_treatment === 'tracking_only' ? 'Fuera de presupuesto' : 'Presupuestada' }}</span>
+              </div>
+              <div v-if="!editingCategoryId" class="segmented blue-segmented">
+                <button
+                  type="button"
                   :class="{ active: categoryForm.budget_behavior === 'monthly_reset' }"
+                  :disabled="categoryForm.budget_treatment === 'tracking_only'"
                   @click="categoryForm.budget_behavior = 'monthly_reset'"
                 >
                   Mensual
@@ -3376,6 +3484,7 @@ function categoryIconComponent(icon?: string | null) {
                 <button
                   type="button"
                   :class="{ active: categoryForm.budget_behavior === 'carryover' }"
+                  :disabled="categoryForm.budget_treatment === 'tracking_only'"
                   @click="categoryForm.budget_behavior = 'carryover'"
                 >
                   Acumulable
@@ -3392,8 +3501,11 @@ function categoryIconComponent(icon?: string | null) {
                   <option v-for="member in members" :key="member.id" :value="member.id">{{ member.name }}</option>
                 </select>
               </label>
-              <label>Presupuesto mensual<input v-model="categoryForm.monthly_budget" inputmode="decimal" required /></label>
-              <div v-if="!editingCategoryId && categoryForm.budget_behavior === 'carryover'" class="field-row">
+              <p v-if="categoryForm.budget_treatment === 'tracking_only'" class="tracking-only-note">
+                Esta categoría solo registra historial aparte; no consume presupuesto ni modifica saldos.
+              </p>
+              <label v-else>Presupuesto mensual<input v-model="categoryForm.monthly_budget" inputmode="decimal" required /></label>
+              <div v-if="!editingCategoryId && categoryForm.budget_treatment === 'budgeted' && categoryForm.budget_behavior === 'carryover'" class="field-row">
                 <label>Saldo inicial<input v-model="categoryForm.carryover_initial_balance" inputmode="decimal" required /></label>
                 <label>Inicio<input v-model="categoryForm.carryover_start_date" type="date" required /></label>
               </div>

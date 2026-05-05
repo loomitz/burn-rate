@@ -77,6 +77,10 @@ class Category(models.Model):
         GLOBAL = "global", "Global"
         PERSONAL = "personal", "Personal"
 
+    class BudgetTreatment(models.TextChoices):
+        BUDGETED = "budgeted", "Presupuestada"
+        TRACKING_ONLY = "tracking_only", "Fuera de presupuesto"
+
     class BudgetBehavior(models.TextChoices):
         MONTHLY_RESET = "monthly_reset", "Se reinicia cada mes"
         CARRYOVER = "carryover", "Acumula saldo"
@@ -87,6 +91,11 @@ class Category(models.Model):
     order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
     scope = models.CharField(max_length=16, choices=Scope.choices, default=Scope.GLOBAL)
+    budget_treatment = models.CharField(
+        max_length=24,
+        choices=BudgetTreatment.choices,
+        default=BudgetTreatment.BUDGETED,
+    )
     member = models.ForeignKey(
         HouseholdMember,
         null=True,
@@ -125,6 +134,15 @@ class Category(models.Model):
             raise ValidationError({"member": "Las categorias personales requieren una persona."})
         if self.scope == self.Scope.GLOBAL and self.member_id is not None:
             raise ValidationError({"member": "Las categorias globales no deben tener persona."})
+        if self.budget_treatment == self.BudgetTreatment.TRACKING_ONLY:
+            if self.monthly_budget_cents != 0:
+                raise ValidationError({"monthly_budget_cents": "Las categorias fuera de presupuesto no usan presupuesto mensual."})
+            if self.budget_behavior != self.BudgetBehavior.MONTHLY_RESET:
+                raise ValidationError({"budget_behavior": "Las categorias fuera de presupuesto no usan comportamiento acumulable."})
+            if self.carryover_start_date is not None:
+                raise ValidationError({"carryover_start_date": "Las categorias fuera de presupuesto no usan fecha acumulable."})
+            if self.carryover_initial_balance_cents != 0:
+                raise ValidationError({"carryover_initial_balance_cents": "Las categorias fuera de presupuesto no usan saldo inicial."})
         if self.budget_behavior == self.BudgetBehavior.CARRYOVER and self.carryover_start_date is None:
             raise ValidationError({"carryover_start_date": "Las categorias acumulables requieren fecha de inicio."})
         if self.budget_behavior == self.BudgetBehavior.MONTHLY_RESET and self.carryover_start_date is not None:
@@ -337,11 +355,16 @@ class Transaction(models.Model):
         if self.amount_cents <= 0:
             raise ValidationError({"amount_cents": "El monto debe ser positivo."})
         if self.transaction_type in [self.TransactionType.EXPENSE, self.TransactionType.EXPECTED_CHARGE]:
+            is_tracking_only = (
+                self.category_id is not None
+                and self.category
+                and self.category.budget_treatment == Category.BudgetTreatment.TRACKING_ONLY
+            )
             if not self.merchant:
                 raise ValidationError({"merchant": "Los gastos requieren comercio o nombre."})
             if self.category_id is None:
                 raise ValidationError({"category": "Los gastos requieren categoria."})
-            if self.account_id is None:
+            if self.account_id is None and not is_tracking_only:
                 raise ValidationError({"account": "Los gastos requieren cuenta o medio de pago."})
         if self.transaction_type == self.TransactionType.TRANSFER:
             if self.account_id is None or self.destination_account_id is None:
@@ -396,7 +419,8 @@ class RecurringExpense(models.Model):
     def clean(self) -> None:
         if not self.merchant:
             raise ValidationError({"merchant": "Los cargos mensuales requieren comercio."})
-        if self.auto_charge and self.account_id is None:
+        is_tracking_only = self.category.budget_treatment == Category.BudgetTreatment.TRACKING_ONLY if self.category_id else False
+        if self.auto_charge and self.account_id is None and not is_tracking_only:
             raise ValidationError({"account": "Los cargos automaticos requieren cuenta o medio de pago."})
         if self.end_date and self.end_date < self.start_date:
             raise ValidationError({"end_date": "La fecha final no puede ser anterior al inicio."})

@@ -141,7 +141,10 @@ def ensure_category_allocation(category: Category, period: BudgetPeriod) -> Budg
 
 
 def ensure_allocations(period: BudgetPeriod) -> None:
-    for category in Category.objects.filter(is_active=True):
+    for category in Category.objects.filter(
+        is_active=True,
+        budget_treatment=Category.BudgetTreatment.BUDGETED,
+    ):
         ensure_category_allocation(category, period)
 
 
@@ -178,7 +181,10 @@ def record_category_budget_change(
 
 
 def categories_for_scope(scope: str, member_id: int | None = None):
-    queryset = Category.objects.filter(is_active=True)
+    queryset = Category.objects.filter(
+        is_active=True,
+        budget_treatment=Category.BudgetTreatment.BUDGETED,
+    )
     if scope in ["family", "global"]:
         return queryset.filter(scope=Category.Scope.GLOBAL)
     if scope == "member":
@@ -427,6 +433,7 @@ def installment_projection(value: date | None = None, months_ahead: int = 6) -> 
                         "id": plan.category.id,
                         "name": plan.category.name,
                         "scope": plan.category.scope,
+                        "budget_treatment": plan.category.budget_treatment,
                         "color": plan.category.color,
                         "icon": plan.category.icon,
                     },
@@ -475,6 +482,7 @@ def installment_projection(value: date | None = None, months_ahead: int = 6) -> 
                     "id": plan.category.id,
                     "name": plan.category.name,
                     "scope": plan.category.scope,
+                    "budget_treatment": plan.category.budget_treatment,
                     "color": plan.category.color,
                     "icon": plan.category.icon,
                 },
@@ -504,6 +512,7 @@ def credit_card_interest_free_payment_summary(value: date | None = None) -> dict
             date__gte=period.start,
             date__lte=period.end,
         )
+        .exclude(category__budget_treatment=Category.BudgetTreatment.TRACKING_ONLY)
         .values("account_id")
         .annotate(total=Sum("amount_cents"))
     )
@@ -515,7 +524,7 @@ def credit_card_interest_free_payment_summary(value: date | None = None) -> dict
         account_id__in=card_ids,
         start_date__lte=period.end,
         end_date__gte=period.start,
-    ).select_related("account")
+    ).exclude(category__budget_treatment=Category.BudgetTreatment.TRACKING_ONLY).select_related("account")
     for plan in plans:
         payment = installment_charge_for_period(plan, period)
         if payment is None:
@@ -627,6 +636,7 @@ def build_budget_summary(value: date | None = None, scope: str = "family", membe
                 "member": member_payload,
                 "color": category.color,
                 "icon": category.icon,
+                "budget_treatment": category.budget_treatment,
                 "budget_behavior": category.budget_behavior,
                 "budget_cents": budget,
                 "spent_cents": spent,
@@ -682,6 +692,100 @@ def build_budget_summary(value: date | None = None, scope: str = "family", membe
     }
 
 
+def build_off_budget_summary(value: date | None = None) -> dict:
+    period = get_budget_period(value)
+    categories = list(
+        Category.objects.filter(
+            is_active=True,
+            budget_treatment=Category.BudgetTreatment.TRACKING_ONLY,
+        ).select_related("member")
+    )
+    category_ids = [category.id for category in categories]
+
+    spent_rows = (
+        Transaction.objects.filter(
+            transaction_type__in=[Transaction.TransactionType.EXPENSE, Transaction.TransactionType.EXPECTED_CHARGE],
+            category_id__in=category_ids,
+            date__gte=period.start,
+            date__lte=period.end,
+        )
+        .values("category_id")
+        .annotate(total=Sum("amount_cents"))
+    )
+    spent_by_category = {row["category_id"]: row["total"] or 0 for row in spent_rows}
+
+    expected_charges = [
+        charge for charge in expected_charges_for_period(period) if charge.category.id in category_ids
+    ]
+    expected_by_category: dict[int, int] = {}
+    expected_payload = []
+    for charge in expected_charges:
+        expected_by_category[charge.category.id] = expected_by_category.get(charge.category.id, 0) + charge.amount_cents
+        member = charge.category.member
+        expected_payload.append(
+            {
+                "key": charge.key,
+                "source_type": charge.source_type,
+                "source_id": charge.source_id,
+                "name": charge.name,
+                "merchant": charge.merchant,
+                "amount_cents": charge.amount_cents,
+                "date": charge.date,
+                "period_start": charge.period_start,
+                "period_end": charge.period_end,
+                "category": {
+                    "id": charge.category.id,
+                    "name": charge.category.name,
+                    "scope": charge.category.scope,
+                    "budget_treatment": charge.category.budget_treatment,
+                    "color": charge.category.color,
+                    "icon": charge.category.icon,
+                },
+                "member": None if member is None else {"id": member.id, "name": member.name, "color": member.color},
+                "account": None if charge.account is None else {"id": charge.account.id, "name": charge.account.name},
+                "payment_number": charge.payment_number,
+                "payments_total": charge.payments_total,
+                "total_amount_cents": charge.total_amount_cents,
+            }
+        )
+
+    items = []
+    totals = {"spent_cents": 0, "expected_cents": 0, "total_cents": 0}
+    for category in categories:
+        spent = spent_by_category.get(category.id, 0)
+        expected = expected_by_category.get(category.id, 0)
+        total = spent + expected
+        if total == 0:
+            continue
+        member_payload = None
+        if category.member:
+            member_payload = {"id": category.member.id, "name": category.member.name, "color": category.member.color}
+        items.append(
+            {
+                "category_id": category.id,
+                "category_name": category.name,
+                "scope": category.scope,
+                "member": member_payload,
+                "color": category.color,
+                "icon": category.icon,
+                "budget_treatment": category.budget_treatment,
+                "spent_cents": spent,
+                "expected_cents": expected,
+                "total_cents": total,
+            }
+        )
+        totals["spent_cents"] += spent
+        totals["expected_cents"] += expected
+        totals["total_cents"] += total
+
+    return {
+        "period": {"start": period.start, "end": period.end},
+        "totals": totals,
+        "categories": items,
+        "expected_charges": expected_payload,
+    }
+
+
 def account_balance(account: Account) -> int:
     income = (
         Transaction.objects.filter(
@@ -694,7 +798,9 @@ def account_balance(account: Account) -> int:
         Transaction.objects.filter(
             transaction_type__in=[Transaction.TransactionType.EXPENSE, Transaction.TransactionType.EXPECTED_CHARGE],
             account=account,
-        ).aggregate(total=Sum("amount_cents"))["total"]
+        )
+        .exclude(category__budget_treatment=Category.BudgetTreatment.TRACKING_ONLY)
+        .aggregate(total=Sum("amount_cents"))["total"]
         or 0
     )
     transfers_out = (
@@ -714,7 +820,7 @@ def account_balance(account: Account) -> int:
     return account.initial_balance_cents + income + transfers_in - expenses - transfers_out
 
 
-def confirm_expected_charge(source_type: str, source_id: int, charge_date: date, account: Account, user):
+def confirm_expected_charge(source_type: str, source_id: int, charge_date: date, account: Account | None, user):
     period = get_budget_period(charge_date)
     charge = next(
         (

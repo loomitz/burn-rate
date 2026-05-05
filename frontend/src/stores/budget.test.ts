@@ -9,6 +9,15 @@ function jsonResponse(data: unknown, status = 200) {
   })
 }
 
+function emptyOffBudgetSummary() {
+  return {
+    period: { start: '2026-04-21', end: '2026-05-20' },
+    totals: { spent_cents: 0, expected_cents: 0, total_cents: 0 },
+    categories: [],
+    expected_charges: [],
+  }
+}
+
 describe('budget store auth flow', () => {
   const fetchMock = vi.fn()
   const readyOnboardingStatus = {
@@ -60,6 +69,27 @@ describe('budget store auth flow', () => {
     )
     fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        period: { start: '2026-04-21', end: '2026-05-20' },
+        totals: { spent_cents: 25000, expected_cents: 12000, total_cents: 37000 },
+        categories: [
+          {
+            category_id: 9,
+            category_name: 'Tarjeta ajena',
+            scope: 'global',
+            member: null,
+            color: '#7c3aed',
+            icon: 'credit-card',
+            budget_treatment: 'tracking_only',
+            spent_cents: 25000,
+            expected_cents: 12000,
+            total_cents: 37000,
+          },
+        ],
+        expected_charges: [],
+      }),
+    )
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         period: { start: '2026-04-21', end: '2026-05-20' },
@@ -231,6 +261,7 @@ describe('budget store auth flow', () => {
     )
     fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse(emptyOffBudgetSummary()))
     fetchMock.mockResolvedValueOnce(jsonResponse({ period: { start: '2026-04-21', end: '2026-05-20' }, total_cents: 0, cards: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ period: { start: '2026-04-21', end: '2026-05-20' }, total_cents: 0, cards: [] }))
 
@@ -257,6 +288,18 @@ describe('budget store auth flow', () => {
     )
     expect(store.creditCardPaymentSummary?.total_cents).toBe(300000)
     expect(store.creditCardPaymentSummary?.cards[0].interest_free_payment_cents).toBe(300000)
+  })
+
+  it('loads the off-budget summary with household data', async () => {
+    mockFetchAllResponses()
+
+    const store = useBudgetStore()
+
+    await store.fetchAll('2026-04-25')
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toContain('/api/budget/off-budget-summary/?date=2026-04-25')
+    expect(store.offBudgetSummary?.totals.total_cents).toBe(37000)
+    expect(store.offBudgetSummary?.categories[0].category_name).toBe('Tarjeta ajena')
   })
 
   it('updates transactions through the transaction endpoint and refreshes the affected period', async () => {
@@ -304,6 +347,7 @@ describe('budget store auth flow', () => {
     )
     fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse(emptyOffBudgetSummary()))
     fetchMock.mockResolvedValueOnce(jsonResponse({ period: { start: '2026-04-21', end: '2026-05-20' }, total_cents: 0, cards: [] }))
 
     const store = useBudgetStore()
@@ -322,10 +366,38 @@ describe('budget store auth flow', () => {
       name: 'Despensa',
       scope: 'global' as const,
       member: null,
+      budget_treatment: 'budgeted' as const,
       monthly_budget_cents: 200000,
       budget_behavior: 'monthly_reset' as const,
       color: '#e11d48',
       icon: 'shopping-cart',
+      is_active: true,
+      order: 0,
+    }
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    mockFetchAllResponses()
+
+    const store = useBudgetStore()
+
+    await store.createCategory(payload)
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/categories/')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  })
+
+  it('creates tracking-only categories without a monthly budget', async () => {
+    const payload = {
+      name: 'Tarjeta ajena',
+      scope: 'global' as const,
+      member: null,
+      budget_treatment: 'tracking_only' as const,
+      monthly_budget_cents: 0,
+      budget_behavior: 'monthly_reset' as const,
+      color: '#7c3aed',
+      icon: 'credit-card',
       is_active: true,
       order: 0,
     }
@@ -348,6 +420,7 @@ describe('budget store auth flow', () => {
       name: 'Viajes',
       scope: 'global' as const,
       member: null,
+      budget_treatment: 'budgeted' as const,
       monthly_budget_cents: 250000,
       budget_behavior: 'carryover' as const,
       carryover_initial_balance_cents: -50000,
@@ -419,6 +492,7 @@ describe('budget store auth flow', () => {
     )
     fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse(emptyOffBudgetSummary()))
     fetchMock.mockResolvedValueOnce(jsonResponse({ period: { start: '2026-04-21', end: '2026-05-20' }, total_cents: 0, cards: [] }))
 
     const store = useBudgetStore()
@@ -464,6 +538,7 @@ describe('budget store auth flow', () => {
     )
     fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse(emptyOffBudgetSummary()))
     fetchMock.mockResolvedValueOnce(jsonResponse({ period: { start: '2026-04-21', end: '2026-05-20' }, total_cents: 0, cards: [] }))
 
     const store = useBudgetStore()
