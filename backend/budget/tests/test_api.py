@@ -898,39 +898,116 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.data["periods"][0]["plans"][0]["merchant"], "Liverpool")
         self.assertEqual(response.data["plans"][0]["remaining_payments"], 2)
 
-    def test_credit_card_interest_free_payment_endpoint_returns_card_totals_for_cycle(self):
-        card = Account.objects.create(
-            name="Tarjeta dorada",
+    def test_card_payments_endpoint_returns_closed_open_and_owners(self):
+        ana = HouseholdMember.objects.create(name="Anita", color="#2563eb")
+        beto = HouseholdMember.objects.create(name="Beto", color="#dc2626")
+        oro = Account.objects.create(
+            name="Tarjeta oro",
             account_type=Account.AccountType.CREDIT_CARD,
             cutoff_day=20,
+            owner=ana,
+        )
+        azul = Account.objects.create(
+            name="Tarjeta azul",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=5,
+            owner=beto,
         )
         InstallmentPlan.objects.create(
             name="Laptop",
             merchant="Liverpool",
             total_amount_cents=600000,
             category=self.category,
+            account=oro,
+            start_date=date(2026, 3, 21),
+            end_date=date(2026, 5, 21),
+        )
+        for amount, when, account in (
+            (30000, date(2026, 4, 10), oro),
+            (50000, date(2026, 5, 1), oro),
+            (20000, date(2026, 4, 20), azul),
+            (40000, date(2026, 5, 8), azul),
+        ):
+            Transaction.objects.create(
+                transaction_type=Transaction.TransactionType.EXPENSE,
+                merchant="Super",
+                amount_cents=amount,
+                date=when,
+                account=account,
+                category=self.category,
+                created_by=self.user,
+            )
+
+        response = self.client.get("/api/credit-cards/interest-free-payment/?date=2026-05-10")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["total_cents"], 250000)
+        rows = {row["account_name"]: row for row in response.data["cards"]}
+        self.assertNotIn("interest_free_payment_cents", rows["Tarjeta oro"])
+        self.assertEqual(rows["Tarjeta oro"]["closed_cycle"]["purchase_cents"], 30000)
+        self.assertEqual(rows["Tarjeta oro"]["closed_cycle"]["installment_cents"], 200000)
+        self.assertEqual(rows["Tarjeta oro"]["closed_cycle"]["total_cents"], 230000)
+        self.assertEqual(rows["Tarjeta oro"]["open_cycle"]["purchase_cents"], 50000)
+        self.assertEqual(rows["Tarjeta oro"]["open_cycle"]["installment_cents"], 200000)
+        self.assertEqual(rows["Tarjeta oro"]["open_cycle"]["total_cents"], 250000)
+        self.assertEqual(rows["Tarjeta oro"]["owner"]["name"], "Anita")
+        self.assertEqual(rows["Tarjeta azul"]["closed_cycle"]["total_cents"], 20000)
+        self.assertEqual(rows["Tarjeta azul"]["open_cycle"]["total_cents"], 40000)
+        owners = {(bucket["member"] or {}).get("name"): bucket for bucket in response.data["owners"]}
+        self.assertEqual(owners["Anita"]["total_cents"], 230000)
+        self.assertEqual(owners["Beto"]["total_cents"], 20000)
+
+    def test_installment_projection_account_filter_endpoint_returns_cycles(self):
+        card = Account.objects.create(
+            name="Tarjeta dorada",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=20,
+        )
+        InstallmentPlan.objects.create(
+            name="Pantalla",
+            merchant="Liverpool",
+            total_amount_cents=900000,
+            category=self.category,
             account=card,
             start_date=date(2026, 4, 21),
             end_date=date(2026, 6, 21),
         )
-        Transaction.objects.create(
-            transaction_type=Transaction.TransactionType.EXPENSE,
-            merchant="Super",
-            amount_cents=100000,
-            date=date(2026, 4, 25),
-            account=card,
-            category=self.category,
-            created_by=self.user,
-        )
 
-        response = self.client.get("/api/credit-cards/interest-free-payment/?date=2026-04-25")
+        response = self.client.get(f"/api/installments/projection/?date=2026-04-25&months=3&account={card.id}")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["total_cents"], 300000)
-        self.assertEqual(response.data["cards"][0]["account_name"], "Tarjeta dorada")
-        self.assertEqual(response.data["cards"][0]["cycle_purchase_cents"], 100000)
-        self.assertEqual(response.data["cards"][0]["installment_cents"], 200000)
-        self.assertEqual(response.data["cards"][0]["interest_free_payment_cents"], 300000)
+        self.assertEqual(response.data["mode"], "cycle")
+        self.assertEqual(response.data["account"]["id"], card.id)
+        self.assertEqual(response.data["periods"][0]["key"], "2026-05-20")
+        self.assertEqual(response.data["periods"][0]["total_cents"], 300000)
+
+    def test_dismiss_card_installment_anchors_to_card_cycle(self):
+        card = Account.objects.create(
+            name="Tarjeta dorada",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=20,
+        )
+        plan = InstallmentPlan.objects.create(
+            name="Pantalla",
+            merchant="Liverpool",
+            total_amount_cents=900000,
+            category=self.category,
+            account=card,
+            start_date=date(2026, 4, 21),
+            end_date=date(2026, 6, 21),
+        )
+
+        response = self.client.post(
+            "/api/expected-charges/dismiss/",
+            {"source_type": "installment", "source_id": plan.id, "date": "2026-05-01"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        dismissal = ExpectedChargeDismissal.objects.get(source_type="installment", source_id=plan.id)
+        self.assertEqual(dismissal.period_start, date(2026, 4, 21))
+        charges = self.client.get("/api/expected-charges/?period=2026-05")
+        self.assertNotIn(plan.id, [charge["source_id"] for charge in charges.data["charges"]])
 
     def test_non_admin_cannot_change_settings_accounts_people_or_categories(self):
         User.objects.create_user(username="reader", password="testpass123")

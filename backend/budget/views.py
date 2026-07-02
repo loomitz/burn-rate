@@ -46,8 +46,10 @@ from .services import (
     auto_post_due_recurring_charges,
     build_off_budget_summary,
     build_budget_summary,
+    card_payments_summary,
     confirm_expected_charge,
-    credit_card_interest_free_payment_summary,
+    expected_charge_dismissal_period_start,
+    expected_charge_source_account,
     expected_charges_for_period,
     get_budget_period,
     installment_projection,
@@ -428,15 +430,17 @@ class InstallmentProjectionView(APIView):
     def get(self, request):
         value = request.query_params.get("date")
         months = int(request.query_params.get("months", 6))
+        account_param = request.query_params.get("account")
+        account_id = int(account_param) if account_param else None
         projection_date = date.fromisoformat(value) if value else None
-        return Response(installment_projection(projection_date, months_ahead=months))
+        return Response(installment_projection(projection_date, months_ahead=months, account_id=account_id))
 
 
 class CreditCardInterestFreePaymentView(APIView):
     def get(self, request):
         value = request.query_params.get("date")
         summary_date = date.fromisoformat(value) if value else None
-        return Response(credit_card_interest_free_payment_summary(summary_date))
+        return Response(card_payments_summary(summary_date))
 
 
 class ConfirmExpectedChargeView(APIView):
@@ -471,11 +475,12 @@ class DismissExpectedChargeView(APIView):
         source_type = request.data["source_type"]
         source_id = int(request.data["source_id"])
         charge_date = date.fromisoformat(request.data["date"])
-        period = get_budget_period(charge_date)
+        source_account = expected_charge_source_account(source_type, source_id)
+        period_start = expected_charge_dismissal_period_start(source_account, charge_date)
         ExpectedChargeDismissal.objects.get_or_create(
             source_type=source_type,
             source_id=source_id,
-            period_start=period.start,
+            period_start=period_start,
             defaults={"created_by": request.user},
         )
         return Response(status=status.HTTP_204_NO_CONTENT)

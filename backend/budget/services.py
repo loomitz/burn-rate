@@ -511,9 +511,33 @@ def overspend_history_for_categories(category_ids: list[int]) -> dict[int, dict]
     return history
 
 
+def expected_charge_dismissal_period_start(account: Account | None, charge_date: date) -> date:
+    """Ancla del descarte: inicio del ciclo de la tarjeta si el cargo está anclado a una
+    tarjeta de crédito; primer día del mes calendario en cualquier otro caso."""
+    if account is not None and account.account_type == Account.AccountType.CREDIT_CARD:
+        return card_cycle(account.cutoff_day, charge_date).start
+    return month_start(charge_date)
+
+
+def expected_charge_source_account(source_type: str, source_id: int) -> Account | None:
+    if source_type == "installment":
+        plan = InstallmentPlan.objects.filter(pk=source_id).select_related("account").first()
+        return plan.account if plan else None
+    if source_type == "recurring":
+        recurring = RecurringExpense.objects.filter(pk=source_id).select_related("account").first()
+        return recurring.account if recurring else None
+    return None
+
+
 def expected_charges_for_period(period: BudgetPeriod):
-    dismissals = set(
-        ExpectedChargeDismissal.objects.filter(period_start=period.start).values_list("source_type", "source_id")
+    # Los descartes de cargos anclados a tarjeta se clavan por inicio de ciclo de la tarjeta;
+    # el resto por inicio de mes. La ventana cubre ambas anclas, y se acepta también el ancla
+    # de mes para descartes históricos previos al re-anclaje por ciclo.
+    dismissal_lookup = set(
+        ExpectedChargeDismissal.objects.filter(
+            period_start__gte=add_months(period.start, -1),
+            period_start__lte=period.end,
+        ).values_list("source_type", "source_id", "period_start")
     )
     charges: list[ExpectedCharge] = []
 
@@ -523,8 +547,6 @@ def expected_charges_for_period(period: BudgetPeriod):
     ).filter(Q(end_date__isnull=True) | Q(end_date__gte=period.start))
 
     for recurring in recurring_queryset.select_related("category", "category__member", "account"):
-        if ("recurring", recurring.id) in dismissals:
-            continue
         already_confirmed = Transaction.objects.filter(
             recurring_expense=recurring,
             transaction_type=Transaction.TransactionType.EXPENSE,
@@ -536,6 +558,13 @@ def expected_charges_for_period(period: BudgetPeriod):
         charge_date = day_in_period(period, recurring.charge_day)
         if charge_date < recurring.start_date:
             charge_date = recurring.start_date
+        anchor = expected_charge_dismissal_period_start(recurring.account, charge_date)
+        if ("recurring", recurring.id, anchor) in dismissal_lookup or (
+            "recurring",
+            recurring.id,
+            period.start,
+        ) in dismissal_lookup:
+            continue
         charges.append(
             ExpectedCharge(
                 key=f"recurring:{recurring.id}:{period.start.isoformat()}",
@@ -552,27 +581,40 @@ def expected_charges_for_period(period: BudgetPeriod):
             )
         )
 
+    # end_date ampliado un mes hacia atrás: el último corte de un plan con tarjeta puede caer
+    # un mes calendario después de end_date; el rango de payment_number filtra con precisión.
     plans = InstallmentPlan.objects.filter(
         is_active=True,
         start_date__lte=period.end,
-        end_date__gte=period.start,
+        end_date__gte=add_months(period.start, -1),
     ).select_related("category", "category__member", "account")
 
     for plan in plans:
-        if ("installment", plan.id) in dismissals:
-            continue
-        already_confirmed = Transaction.objects.filter(
-            installment_plan=plan,
-            transaction_type=Transaction.TransactionType.EXPENSE,
-            date__gte=period.start,
-            date__lte=period.end,
-        ).exists()
-        if already_confirmed:
-            continue
         payment = installment_charge_for_period(plan, period)
         if payment is None:
             continue
         charge_date = max(period.start, plan.start_date)
+        anchor = expected_charge_dismissal_period_start(plan.account, charge_date)
+        if ("installment", plan.id, anchor) in dismissal_lookup or (
+            "installment",
+            plan.id,
+            period.start,
+        ) in dismissal_lookup:
+            continue
+        if plan.account is not None and plan.account.account_type == Account.AccountType.CREDIT_CARD:
+            # Idempotencia por ciclo: una mensualidad por estado de cuenta.
+            cycle = card_cycle(plan.account.cutoff_day, charge_date)
+            confirmed_start, confirmed_end = cycle.start, cycle.end
+        else:
+            confirmed_start, confirmed_end = period.start, period.end
+        already_confirmed = Transaction.objects.filter(
+            installment_plan=plan,
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            date__gte=confirmed_start,
+            date__lte=confirmed_end,
+        ).exists()
+        if already_confirmed:
+            continue
         charges.append(
             ExpectedCharge(
                 key=f"installment:{plan.id}:{period.start.isoformat()}",
@@ -596,13 +638,21 @@ def expected_charges_for_period(period: BudgetPeriod):
 
 
 def installment_payment_number_for_period(plan: InstallmentPlan, period: BudgetPeriod) -> int:
-    first_period = get_budget_period(plan.start_date)
-    month_offset = (period.end.year - first_period.end.year) * 12 + period.end.month - first_period.end.month
+    # Plan con tarjeta: una mensualidad por estado de cuenta, numerada por offset de ciclos
+    # desde el ciclo que contiene start_date. Como cutoff_day <= 28, el corte de cada ciclo
+    # cae en el mismo mes calendario que el fin de ese mes, así que la misma aritmética por
+    # year/month de period.end sirve tanto para meses calendario como para ciclos de tarjeta.
+    account = plan.account
+    if account is not None and account.account_type == Account.AccountType.CREDIT_CARD:
+        anchor_end = card_cycle(account.cutoff_day, plan.start_date).end
+    else:
+        anchor_end = month_period(plan.start_date).end
+    month_offset = (period.end.year - anchor_end.year) * 12 + period.end.month - anchor_end.month
     return plan.first_payment_number + month_offset
 
 
 def installment_charge_for_period(plan: InstallmentPlan, period: BudgetPeriod) -> dict | None:
-    if not plan.is_active or plan.start_date > period.end or plan.end_date < period.start:
+    if not plan.is_active:
         return None
 
     payment_number = installment_payment_number_for_period(plan, period)
@@ -621,27 +671,72 @@ def installment_charge_for_period(plan: InstallmentPlan, period: BudgetPeriod) -
     }
 
 
-def installment_projection(value: date | None = None, months_ahead: int = 6) -> dict:
-    periods = project_budget_periods(value, months_ahead)
-    plans = list(
-        InstallmentPlan.objects.filter(
-            is_active=True,
-            start_date__lte=periods[-1].end,
-            end_date__gte=periods[0].start,
-        ).select_related("category", "category__member", "account")
-    )
-    period_rows = []
-    totals_by_period: dict[str, int] = {}
+def _projection_plan_account_payload(plan: InstallmentPlan) -> dict | None:
+    if plan.account is None:
+        return None
+    return {
+        "id": plan.account.id,
+        "name": plan.account.name,
+        "account_type": plan.account.account_type,
+        "color": plan.account.color,
+    }
 
-    for period in periods:
-        period_key = period.end.isoformat()
+
+def _projection_plan_owner_payload(plan: InstallmentPlan) -> dict | None:
+    if plan.account is None or plan.account.owner is None:
+        return None
+    owner = plan.account.owner
+    return {"id": owner.id, "name": owner.name, "color": owner.color}
+
+
+def installment_projection(value: date | None = None, months_ahead: int = 6, account_id: int | None = None) -> dict:
+    """Proyección MSI. Modo mes (default): columnas por mes calendario, cada mensualidad de un
+    plan con tarjeta asignada al mes de su corte. Modo ciclo (?account= tarjeta de crédito):
+    columnas por los ciclos reales de esa tarjeta."""
+    value = value or app_localdate()
+    account = (
+        Account.objects.filter(pk=account_id).select_related("owner").first() if account_id is not None else None
+    )
+    cycle_mode = account is not None and account.account_type == Account.AccountType.CREDIT_CARD
+
+    if cycle_mode:
+        columns = [card_cycle_for_offset(account.cutoff_day, value, offset) for offset in range(months_ahead + 1)]
+        column_keys = [column.end.isoformat() for column in columns]
+    else:
+        columns = project_budget_periods(value, months_ahead)
+        column_keys = [f"{column.start.year}-{column.start.month:02d}" for column in columns]
+
+    plans_queryset = InstallmentPlan.objects.filter(
+        is_active=True,
+        start_date__lte=columns[-1].end,
+        end_date__gte=add_months(columns[0].start, -1),
+    ).select_related("category", "category__member", "account", "account__owner")
+    if account is not None:
+        plans_queryset = plans_queryset.filter(account_id=account.id)
+    plans = list(plans_queryset)
+
+    period_rows = []
+    totals_by_key: dict[str, int] = {}
+
+    for column, column_key in zip(columns, column_keys):
         total = 0
         plan_rows = []
+        cards_map: dict[int | None, dict] = {}
         for plan in plans:
-            payment = installment_charge_for_period(plan, period)
+            payment = installment_charge_for_period(plan, column)
             if payment is None:
                 continue
             total += payment["amount_cents"]
+            plan_account_id = None if plan.account is None else plan.account.id
+            card_bucket = cards_map.setdefault(
+                plan_account_id,
+                {
+                    "account_id": plan_account_id,
+                    "account_name": None if plan.account is None else plan.account.name,
+                    "total_cents": 0,
+                },
+            )
+            card_bucket["total_cents"] += payment["amount_cents"]
             member = plan.category.member
             plan_rows.append(
                 {
@@ -663,31 +758,33 @@ def installment_projection(value: date | None = None, months_ahead: int = 6) -> 
                         "icon": plan.category.icon,
                     },
                     "member": None if member is None else {"id": member.id, "name": member.name, "color": member.color},
-                    "account": None if plan.account is None else {"id": plan.account.id, "name": plan.account.name},
+                    "account": _projection_plan_account_payload(plan),
+                    "owner": _projection_plan_owner_payload(plan),
                 }
             )
-        totals_by_period[period_key] = total
+        totals_by_key[column_key] = total
         period_rows.append(
             {
-                "key": period_key,
-                "start": period.start,
-                "end": period.end,
-                "label": f"{period.start.isoformat()} / {period.end.isoformat()}",
+                "key": column_key,
+                "start": column.start,
+                "end": column.end,
+                "label": f"{column.start.isoformat()} / {column.end.isoformat()}",
                 "total_cents": total,
+                "cards": list(cards_map.values()),
                 "plans": plan_rows,
             }
         )
 
-    current_key = periods[0].end.isoformat()
+    current_key = column_keys[0]
     active_plan_rows = []
     for plan in plans:
-        current_payment = installment_charge_for_period(plan, periods[0])
+        current_payment = installment_charge_for_period(plan, columns[0])
         future_total = 0
         monthly_amounts = []
-        for period in periods:
-            payment = installment_charge_for_period(plan, period)
+        for column in columns:
+            payment = installment_charge_for_period(plan, column)
             amount = payment["amount_cents"] if payment else 0
-            monthly_amounts.append({"period_end": period.end, "amount_cents": amount})
+            monthly_amounts.append({"period_end": column.end, "amount_cents": amount})
             future_total += amount
         member = plan.category.member
         active_plan_rows.append(
@@ -712,70 +809,108 @@ def installment_projection(value: date | None = None, months_ahead: int = 6) -> 
                     "icon": plan.category.icon,
                 },
                 "member": None if member is None else {"id": member.id, "name": member.name, "color": member.color},
-                "account": None if plan.account is None else {"id": plan.account.id, "name": plan.account.name},
+                "account": _projection_plan_account_payload(plan),
+                "owner": _projection_plan_owner_payload(plan),
             }
         )
 
+    account_payload = None
+    if account is not None:
+        owner = account.owner
+        account_payload = {
+            "id": account.id,
+            "name": account.name,
+            "color": account.color,
+            "cutoff_day": account.cutoff_day,
+            "owner": None if owner is None else {"id": owner.id, "name": owner.name, "color": owner.color},
+        }
+
     return {
+        "mode": "cycle" if cycle_mode else "month",
+        "account": account_payload,
         "current_period_key": current_key,
-        "current_total_cents": totals_by_period[current_key],
+        "current_total_cents": totals_by_key[current_key],
         "periods": period_rows,
         "plans": active_plan_rows,
     }
 
 
-def credit_card_interest_free_payment_summary(value: date | None = None) -> dict:
+def _card_cycle_block(card: Account, cycle: BudgetPeriod) -> dict:
+    purchase_cents = (
+        Transaction.objects.filter(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            account_id=card.id,
+            installment_plan__isnull=True,
+            date__gte=cycle.start,
+            date__lte=cycle.end,
+        )
+        .exclude(category__budget_treatment=Category.BudgetTreatment.TRACKING_ONLY)
+        .aggregate(total=Sum("amount_cents"))["total"]
+        or 0
+    )
+    installment_cents = 0
+    plans = InstallmentPlan.objects.filter(
+        is_active=True,
+        account_id=card.id,
+        start_date__lte=cycle.end,
+        end_date__gte=add_months(cycle.start, -1),
+    ).exclude(category__budget_treatment=Category.BudgetTreatment.TRACKING_ONLY)
+    for plan in plans:
+        payment = installment_charge_for_period(plan, cycle)
+        if payment is None:
+            continue
+        installment_cents += payment["amount_cents"]
+    return {
+        "start": cycle.start,
+        "end": cycle.end,
+        "purchase_cents": purchase_cents,
+        "installment_cents": installment_cents,
+        "total_cents": purchase_cents + installment_cents,
+    }
+
+
+def card_payments_summary(value: date | None = None) -> dict:
+    """Estado de cuenta por tarjeta: ciclo cerrado (por pagar) y ciclo abierto (acumulando),
+    con total global de por pagar y agrupación por titular."""
     value = value or app_localdate()
-    cards = list(Account.objects.filter(account_type=Account.AccountType.CREDIT_CARD, is_active=True).order_by("name"))
+    cards = list(
+        Account.objects.filter(account_type=Account.AccountType.CREDIT_CARD, is_active=True)
+        .select_related("owner")
+        .order_by("name")
+    )
 
     rows = []
     total = 0
+    owners: dict[int | None, dict] = {}
     for card in cards:
-        cycle = card_cycle(card.cutoff_day, value)
-        cycle_purchase_cents = (
-            Transaction.objects.filter(
-                transaction_type=Transaction.TransactionType.EXPENSE,
-                account_id=card.id,
-                installment_plan__isnull=True,
-                date__gte=cycle.start,
-                date__lte=cycle.end,
-            )
-            .exclude(category__budget_treatment=Category.BudgetTreatment.TRACKING_ONLY)
-            .aggregate(total=Sum("amount_cents"))["total"]
-            or 0
+        closed = _card_cycle_block(card, last_closed_card_cycle(card.cutoff_day, value))
+        open_cycle = _card_cycle_block(card, card_cycle(card.cutoff_day, value))
+        total += closed["total_cents"]
+        owner = card.owner
+        owner_payload = None if owner is None else {"id": owner.id, "name": owner.name, "color": owner.color}
+        bucket = owners.setdefault(
+            None if owner is None else owner.id,
+            {"member": owner_payload, "total_cents": 0, "account_ids": []},
         )
-
-        installment_cents = 0
-        plans = InstallmentPlan.objects.filter(
-            is_active=True,
-            account_id=card.id,
-            start_date__lte=cycle.end,
-            end_date__gte=cycle.start,
-        ).exclude(category__budget_treatment=Category.BudgetTreatment.TRACKING_ONLY)
-        for plan in plans:
-            payment = installment_charge_for_period(plan, cycle)
-            if payment is None:
-                continue
-            installment_cents += payment["amount_cents"]
-
-        interest_free_payment_cents = cycle_purchase_cents + installment_cents
-        total += interest_free_payment_cents
+        bucket["total_cents"] += closed["total_cents"]
+        bucket["account_ids"].append(card.id)
         rows.append(
             {
                 "account_id": card.id,
                 "account_name": card.name,
                 "account_color": card.color,
-                "cycle_start": cycle.start,
-                "cycle_end": cycle.end,
-                "cycle_purchase_cents": cycle_purchase_cents,
-                "installment_cents": installment_cents,
-                "interest_free_payment_cents": interest_free_payment_cents,
+                "owner": owner_payload,
+                "closed_cycle": closed,
+                "open_cycle": open_cycle,
             }
         )
 
+    owners_list = sorted(owners.values(), key=lambda o: (o["member"] is None, (o["member"] or {}).get("name", "")))
     return {
         "total_cents": total,
+        "as_of": value,
         "cards": rows,
+        "owners": owners_list,
     }
 
 
@@ -1070,8 +1205,18 @@ def account_balance(account: Account) -> int:
     return account.initial_balance_cents + income + transfers_in - expenses - transfers_out
 
 
+def _confirmation_period(source_type: str, source_id: int, charge_date: date) -> BudgetPeriod:
+    # Un MSI con tarjeta confirmado con fecha dentro del ciclo puede caer en otro mes
+    # calendario que el del corte; se busca el cargo en el mes del corte de su ciclo.
+    if source_type == "installment":
+        plan = InstallmentPlan.objects.filter(pk=source_id).select_related("account").first()
+        if plan and plan.account and plan.account.account_type == Account.AccountType.CREDIT_CARD:
+            return month_period(card_cycle(plan.account.cutoff_day, charge_date).end)
+    return get_budget_period(charge_date)
+
+
 def confirm_expected_charge(source_type: str, source_id: int, charge_date: date, account: Account | None, user):
-    period = get_budget_period(charge_date)
+    period = _confirmation_period(source_type, source_id, charge_date)
     charge = next(
         (
             candidate
