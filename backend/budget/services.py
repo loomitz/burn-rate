@@ -21,10 +21,53 @@ from .models import (
 from .timezones import app_localdate
 
 
+SPEND_TYPES = [Transaction.TransactionType.EXPENSE, Transaction.TransactionType.EXPECTED_CHARGE]
+
+
 @dataclass(frozen=True)
 class BudgetPeriod:
     start: date
     end: date
+
+
+@dataclass(frozen=True)
+class LiveWindow:
+    kind: str  # "month" | "card"
+    start: date
+    end: date
+    spent_cents: int
+    account_id: int | None = None
+    account_name: str | None = None
+
+
+@dataclass(frozen=True)
+class LiveBudgetResult:
+    allocation_cents: int
+    month_spent_cents: int
+    card_spent_cents: int
+    expected_cents: int
+    monthly_flow_cents: int
+    windows: list[LiveWindow]
+    is_carryover: bool
+    carryover_balance_cents: int | None
+
+    @property
+    def live_spent_cents(self) -> int:
+        return self.month_spent_cents + self.card_spent_cents
+
+    @property
+    def real_available_cents(self) -> int:
+        if self.is_carryover:
+            return self.carryover_balance_cents or 0
+        return self.allocation_cents - self.live_spent_cents
+
+    @property
+    def available_cents(self) -> int:
+        return self.real_available_cents - self.expected_cents
+
+    @property
+    def spent_cents(self) -> int:
+        return self.monthly_flow_cents if self.is_carryover else self.live_spent_cents
 
 
 @dataclass(frozen=True)
@@ -250,22 +293,174 @@ def carryover_balance_for_period(category: Category, period: BudgetPeriod) -> in
     return category.carryover_initial_balance_cents + credited - spent
 
 
-def sync_monthly_overspend_record(category: Category, period: BudgetPeriod) -> None:
+def resolve_as_of(period: BudgetPeriod, today: date | None = None) -> date:
+    """Fecha de calculo de la ventana viva: hoy si el periodo es el mes actual; si no, fin de mes.
+
+    Mes pasado -> foto de cierre inmutable; mes futuro -> proyeccion de cierre.
+    """
+    today = today or app_localdate()
+    if period.start <= today <= period.end:
+        return today
+    return period.end
+
+
+def active_credit_cards() -> list[Account]:
+    # Incluye tarjetas inactivas: sus cargos vivos siguen consumiendo hasta su corte.
+    return list(Account.objects.filter(account_type=Account.AccountType.CREDIT_CARD).order_by("name"))
+
+
+def _spend_by_category(
+    category_ids,
+    start: date,
+    end: date,
+    *,
+    account_id: int | None = None,
+    exclude_credit_card: bool = False,
+) -> dict[int, int]:
+    queryset = Transaction.objects.filter(
+        transaction_type__in=SPEND_TYPES,
+        category_id__in=category_ids,
+        date__gte=start,
+        date__lte=end,
+    )
+    if account_id is not None:
+        queryset = queryset.filter(account_id=account_id)
+    if exclude_credit_card:
+        queryset = queryset.exclude(account__account_type=Account.AccountType.CREDIT_CARD)
+    rows = queryset.values("category_id").annotate(total=Sum("amount_cents"))
+    return {row["category_id"]: row["total"] or 0 for row in rows}
+
+
+def compute_live_budget(
+    *,
+    period: BudgetPeriod,
+    allocation_cents: int,
+    month_spent_cents: int,
+    card_spend_rows: list[tuple[Account, BudgetPeriod, int]],
+    expected_cents: int,
+    monthly_flow_cents: int,
+    carryover_balance_cents: int | None,
+) -> LiveBudgetResult:
+    """Unica sede de la formula de la ventana viva. Funcion pura, sin DB.
+
+    monthly_reset: available = allocation - gasto no-tarjeta del mes - gasto vivo por tarjeta - expected.
+    carryover: available = bolsa acumulada - expected (los cortes nunca recargan la bolsa).
+    """
+    if carryover_balance_cents is not None:
+        return LiveBudgetResult(
+            allocation_cents=allocation_cents,
+            month_spent_cents=0,
+            card_spent_cents=0,
+            expected_cents=expected_cents,
+            monthly_flow_cents=monthly_flow_cents,
+            windows=[],
+            is_carryover=True,
+            carryover_balance_cents=carryover_balance_cents,
+        )
+
+    windows = [LiveWindow(kind="month", start=period.start, end=period.end, spent_cents=month_spent_cents)]
+    card_spent = 0
+    for account, cycle, cents in card_spend_rows:
+        if cents <= 0:
+            continue
+        card_spent += cents
+        windows.append(
+            LiveWindow(
+                kind="card",
+                start=cycle.start,
+                end=cycle.end,
+                spent_cents=cents,
+                account_id=account.id,
+                account_name=account.name,
+            )
+        )
+    return LiveBudgetResult(
+        allocation_cents=allocation_cents,
+        month_spent_cents=month_spent_cents,
+        card_spent_cents=card_spent,
+        expected_cents=expected_cents,
+        monthly_flow_cents=monthly_flow_cents,
+        windows=windows,
+        is_carryover=False,
+        carryover_balance_cents=None,
+    )
+
+
+def live_budget_for_category(
+    category: Category,
+    period: BudgetPeriod,
+    as_of: date | None = None,
+    cards: list[Account] | None = None,
+) -> LiveBudgetResult:
+    as_of = as_of or resolve_as_of(period)
+    allocation = ensure_category_allocation(category, period).amount_cents
+    monthly_flow = _spend_by_category([category.id], period.start, period.end).get(category.id, 0)
+    expected = sum(
+        charge.amount_cents
+        for charge in expected_charges_for_period(period)
+        if charge.category.id == category.id
+    )
+
+    if category.budget_behavior == Category.BudgetBehavior.CARRYOVER:
+        return compute_live_budget(
+            period=period,
+            allocation_cents=allocation,
+            month_spent_cents=0,
+            card_spend_rows=[],
+            expected_cents=expected,
+            monthly_flow_cents=monthly_flow,
+            carryover_balance_cents=carryover_balance_for_period(category, period),
+        )
+
+    month_spent = _spend_by_category(
+        [category.id], period.start, as_of, exclude_credit_card=True
+    ).get(category.id, 0)
+    if cards is None:
+        cards = active_credit_cards()
+    card_spend_rows: list[tuple[Account, BudgetPeriod, int]] = []
+    for card in cards:
+        cycle = card_cycle(card.cutoff_day, as_of)
+        # date <= as_of ya recorta la foto de cierre (as_of <= cycle.end por construccion);
+        # no hace falta clamp adicional contra cycle.end.
+        spent = _spend_by_category([category.id], cycle.start, as_of, account_id=card.id).get(category.id, 0)
+        if spent > 0:
+            card_spend_rows.append((card, cycle, spent))
+    return compute_live_budget(
+        period=period,
+        allocation_cents=allocation,
+        month_spent_cents=month_spent,
+        card_spend_rows=card_spend_rows,
+        expected_cents=expected,
+        monthly_flow_cents=monthly_flow,
+        carryover_balance_cents=None,
+    )
+
+
+def sync_monthly_overspend_record(
+    category: Category,
+    period: BudgetPeriod,
+    cards: list[Account] | None = None,
+) -> None:
     if category.budget_behavior != Category.BudgetBehavior.MONTHLY_RESET:
         return
     tracking_period = get_budget_period(category.overspend_tracking_start_date)
     if period_key(period) < period_key(tracking_period) or period.end >= app_localdate():
         return
 
-    budget = ensure_category_allocation(category, period).amount_cents
-    spent = category_real_spend(category, period.start, period.end)
-    overspend = max(spent - budget, 0)
+    # Sobregiro = disponible vivo negativo al cierre del mes (misma formula de la ventana viva,
+    # anclada a fin de mes). El flujo mensual sobre presupuesto NO es sobregiro si hubo liberacion.
+    result = live_budget_for_category(category, period, as_of=period.end, cards=cards)
+    overspend = max(-result.available_cents, 0)
     if overspend:
         CategoryOverspendRecord.objects.update_or_create(
             category=category,
             period_start=period.start,
             period_end=period.end,
-            defaults={"budget_cents": budget, "spent_cents": spent, "overspend_cents": overspend},
+            defaults={
+                "budget_cents": result.allocation_cents,
+                "spent_cents": result.live_spent_cents,
+                "overspend_cents": overspend,
+            },
         )
     else:
         CategoryOverspendRecord.objects.filter(
@@ -283,6 +478,7 @@ def sync_closed_overspend_records(categories: list[Category], requested_period: 
     else:
         last_period = last_closed_period
 
+    cards = active_credit_cards()
     for category in categories:
         if category.budget_behavior != Category.BudgetBehavior.MONTHLY_RESET:
             continue
@@ -290,7 +486,7 @@ def sync_closed_overspend_records(categories: list[Category], requested_period: 
         if period_key(tracking_period) > period_key(last_period):
             continue
         for period in iter_budget_periods(tracking_period, last_period):
-            sync_monthly_overspend_record(category, period)
+            sync_monthly_overspend_record(category, period, cards=cards)
 
 
 def overspend_history_for_categories(category_ids: list[int]) -> dict[int, dict]:
@@ -589,6 +785,7 @@ def build_budget_summary(value: date | None = None, scope: str = "family", membe
     normalized_scope = "family" if scope == "global" else scope
     categories = list(categories_for_scope(normalized_scope, member_id).select_related("member"))
     sync_closed_overspend_records(categories, period)
+    as_of = resolve_as_of(period)
     category_ids = [category.id for category in categories]
     allocations = {
         allocation.category_id: allocation.amount_cents
@@ -599,17 +796,22 @@ def build_budget_summary(value: date | None = None, scope: str = "family", membe
         )
     }
 
-    spent_rows = (
-        Transaction.objects.filter(
-            transaction_type__in=[Transaction.TransactionType.EXPENSE, Transaction.TransactionType.EXPECTED_CHARGE],
-            category_id__in=category_ids,
-            date__gte=period.start,
-            date__lte=period.end,
-        )
-        .values("category_id")
-        .annotate(total=Sum("amount_cents"))
-    )
-    spent_by_category = {row["category_id"]: row["total"] or 0 for row in spent_rows}
+    # Flujo mensual: todo lo gastado en el mes calendario completo, sin importar ventanas.
+    # Puede ser menor que el consumo vivo cuando gasto de tarjeta del mes anterior cruza al mes.
+    monthly_flow_by_category = _spend_by_category(category_ids, period.start, period.end)
+    # Ventana de mes: gasto cash/debito/banco del mes hasta as_of.
+    month_spent_by_category = _spend_by_category(category_ids, period.start, as_of, exclude_credit_card=True)
+
+    # Ventana por tarjeta: gasto del ciclo abierto de cada tarjeta hasta as_of.
+    # date <= as_of ya recorta la foto de cierre (as_of <= cycle.end por construccion);
+    # no hace falta clamp adicional contra cycle.end.
+    cards = active_credit_cards()
+    card_spend_rows_by_category: dict[int, list[tuple[Account, BudgetPeriod, int]]] = {}
+    for card in cards:
+        cycle = card_cycle(card.cutoff_day, as_of)
+        for category_id, cents in _spend_by_category(category_ids, cycle.start, as_of, account_id=card.id).items():
+            if cents > 0:
+                card_spend_rows_by_category.setdefault(category_id, []).append((card, cycle, cents))
 
     pending_expected_by_category: dict[int, int] = {}
     for charge in expected_charges_for_period(period):
@@ -627,19 +829,27 @@ def build_budget_summary(value: date | None = None, scope: str = "family", membe
         "expected_cents": 0,
         "available_cents": 0,
         "real_available_cents": 0,
+        "monthly_flow_cents": 0,
     }
     breakdown: dict[str, dict] = {}
 
     for category in categories:
-        budget = allocations.get(category.id, category.monthly_budget_cents)
-        spent = spent_by_category.get(category.id, 0)
-        expected = pending_expected_by_category.get(category.id, 0)
+        is_carryover = category.budget_behavior == Category.BudgetBehavior.CARRYOVER
+        result = compute_live_budget(
+            period=period,
+            allocation_cents=allocations.get(category.id, category.monthly_budget_cents),
+            month_spent_cents=month_spent_by_category.get(category.id, 0),
+            card_spend_rows=card_spend_rows_by_category.get(category.id, []),
+            expected_cents=pending_expected_by_category.get(category.id, 0),
+            monthly_flow_cents=monthly_flow_by_category.get(category.id, 0),
+            carryover_balance_cents=carryover_balance_for_period(category, period) if is_carryover else None,
+        )
+        budget = result.allocation_cents
+        spent = result.spent_cents
+        expected = result.expected_cents
+        available = result.available_cents
+        real_available = result.real_available_cents
         consumed = spent + expected
-        if category.budget_behavior == Category.BudgetBehavior.CARRYOVER:
-            real_available = carryover_balance_for_period(category, period)
-        else:
-            real_available = budget - spent
-        available = real_available - expected
         percent_available = 0 if budget == 0 else round((available / budget) * 100, 2)
         member_payload = None
         if category.member:
@@ -672,9 +882,19 @@ def build_budget_summary(value: date | None = None, scope: str = "family", membe
                 "available_cents": available,
                 "real_available_cents": real_available,
                 "projected_available_cents": available,
-                "carryover_real_balance_cents": real_available
-                if category.budget_behavior == Category.BudgetBehavior.CARRYOVER
-                else None,
+                "monthly_flow_cents": result.monthly_flow_cents,
+                "live_windows": [
+                    {
+                        "kind": window.kind,
+                        "account_id": window.account_id,
+                        "account_name": window.account_name,
+                        "start": window.start,
+                        "end": window.end,
+                        "spent_cents": window.spent_cents,
+                    }
+                    for window in result.windows
+                ],
+                "carryover_real_balance_cents": result.carryover_balance_cents,
                 "carryover_start_date": category.carryover_start_date,
                 "percent_available": percent_available,
                 "is_overspent": available < 0,
@@ -686,6 +906,7 @@ def build_budget_summary(value: date | None = None, scope: str = "family", membe
         totals["expected_cents"] += expected
         totals["available_cents"] += available
         totals["real_available_cents"] += real_available
+        totals["monthly_flow_cents"] += result.monthly_flow_cents
 
         key = "family" if category.scope == Category.Scope.GLOBAL else f"member:{category.member_id}"
         label = "Familia" if category.scope == Category.Scope.GLOBAL else category.member.name
@@ -701,6 +922,7 @@ def build_budget_summary(value: date | None = None, scope: str = "family", membe
                 "expected_cents": 0,
                 "available_cents": 0,
                 "real_available_cents": 0,
+                "monthly_flow_cents": 0,
             },
         )
         bucket["budget_cents"] += budget
@@ -708,6 +930,7 @@ def build_budget_summary(value: date | None = None, scope: str = "family", membe
         bucket["expected_cents"] += expected
         bucket["available_cents"] += available
         bucket["real_available_cents"] += real_available
+        bucket["monthly_flow_cents"] += result.monthly_flow_cents
 
     return {
         "period": {"start": period.start, "end": period.end},

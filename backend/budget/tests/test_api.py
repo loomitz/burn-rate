@@ -1,4 +1,5 @@
 from datetime import date
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core import mail
@@ -260,6 +261,63 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(summary.data["scope"], "family")
         self.assertEqual(summary.data["totals"]["spent_cents"], 25000)
         self.assertEqual(summary.data["categories"][0]["icon"], "tag")
+
+    def test_live_window_canonical_scenario(self):
+        card_response = self.client.post(
+            "/api/accounts/",
+            {"name": "Tarjeta", "account_type": "credit_card", "cutoff_day": 20},
+            format="json",
+        )
+        self.assertEqual(card_response.status_code, 201)
+        card_id = card_response.data["id"]
+        category_response = self.client.post(
+            "/api/categories/",
+            {"name": "Comida", "scope": "global", "monthly_budget_cents": 1000000},
+            format="json",
+        )
+        self.assertEqual(category_response.status_code, 201)
+        category_id = category_response.data["id"]
+
+        def _expense(amount_cents, iso_date, account_id):
+            response = self.client.post(
+                "/api/transactions/",
+                {
+                    "transaction_type": "expense",
+                    "merchant": "Compra",
+                    "amount_cents": amount_cents,
+                    "date": iso_date,
+                    "account": account_id,
+                    "category": category_id,
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, 201)
+
+        def _row(query_iso, today):
+            with patch("budget.services.app_localdate", return_value=today):
+                summary = self.client.get(f"/api/budget/summary/?date={query_iso}&scope=family")
+            self.assertEqual(summary.status_code, 200)
+            return next(row for row in summary.data["categories"] if row["category_id"] == category_id)
+
+        # $5,000 con tarjeta antes del corte + $2,000 en efectivo -> disponible $3,000.
+        _expense(500000, "2026-07-10", card_id)
+        _expense(200000, "2026-07-12", self.account.id)
+        self.assertEqual(_row("2026-07-15", date(2026, 7, 15))["available_cents"], 300000)
+
+        # El 21 de julio (pasado el corte del 20) se libera lo de la tarjeta -> $8,000.
+        self.assertEqual(_row("2026-07-21", date(2026, 7, 21))["available_cents"], 800000)
+
+        # $4,000 con tarjeta post-corte -> disponible julio $4,000.
+        _expense(400000, "2026-07-25", card_id)
+        self.assertEqual(_row("2026-07-28", date(2026, 7, 28))["available_cents"], 400000)
+
+        # Agosto vivo antes del corte del 20: el ciclo abierto arranco el 21 jul -> $6,000.
+        august = _row("2026-08-05", date(2026, 8, 5))
+        self.assertEqual(august["available_cents"], 600000)
+        self.assertEqual(august["monthly_flow_cents"], 0)
+
+        # La foto de cierre de julio queda en $4,000.
+        self.assertEqual(_row("2026-07-31", date(2026, 8, 5))["available_cents"], 400000)
 
     def test_can_delete_expense_and_recalculate_budget_summary(self):
         transaction = Transaction.objects.create(

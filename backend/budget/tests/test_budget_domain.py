@@ -425,6 +425,174 @@ class BudgetSummaryTests(TestCase):
         self.assertEqual(cash.initial_balance_cents, 50000)
 
 
+class LiveWindowSummaryTests(TestCase):
+    """Ventana viva: disponible = allocation - gasto no-tarjeta del mes - gasto vivo por tarjeta - expected."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="admin", password="testpass123")
+        self.cash = Account.objects.create(name="Caja", account_type=Account.AccountType.CASH)
+        self.card = Account.objects.create(
+            name="Tarjeta",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=20,
+        )
+        self.food = Category.objects.create(
+            name="Comida",
+            scope=Category.Scope.GLOBAL,
+            monthly_budget_cents=1000000,
+            overspend_tracking_start_date=date(2026, 7, 1),
+        )
+
+    def expense(self, amount_cents, when, account, category=None):
+        return Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Gasto",
+            amount_cents=amount_cents,
+            date=when,
+            account=account,
+            category=category or self.food,
+            created_by=self.user,
+        )
+
+    def summary_on(self, query_date, today):
+        with patch("budget.services.app_localdate", return_value=today):
+            return build_budget_summary(query_date, scope="family")
+
+    def row_on(self, query_date, today, name="Comida"):
+        summary = self.summary_on(query_date, today)
+        return next(row for row in summary["categories"] if row["category_name"] == name)
+
+    def test_live_window_current_month_before_cut(self):
+        self.expense(500000, date(2026, 7, 10), self.card)
+        self.expense(200000, date(2026, 7, 12), self.cash)
+
+        row = self.row_on(date(2026, 7, 15), date(2026, 7, 15))
+
+        self.assertEqual(row["available_cents"], 300000)
+        self.assertEqual(row["spent_cents"], 700000)
+        self.assertEqual(row["real_available_cents"], 300000)
+        self.assertEqual(row["monthly_flow_cents"], 700000)
+        self.assertEqual(len(row["live_windows"]), 2)
+        windows = {window["kind"]: window for window in row["live_windows"]}
+        self.assertEqual(windows["month"]["spent_cents"], 200000)
+        self.assertEqual(windows["card"]["account_id"], self.card.id)
+        self.assertEqual(windows["card"]["account_name"], "Tarjeta")
+        self.assertEqual(windows["card"]["spent_cents"], 500000)
+        self.assertEqual(windows["card"]["start"], date(2026, 6, 21))
+        self.assertEqual(windows["card"]["end"], date(2026, 7, 20))
+
+    def test_liberation_exactly_on_cut_day(self):
+        self.expense(500000, date(2026, 7, 20), self.card)
+
+        on_cut_day = self.row_on(date(2026, 7, 20), date(2026, 7, 20))
+        day_after_cut = self.row_on(date(2026, 7, 20), date(2026, 7, 21))
+
+        self.assertEqual(on_cut_day["available_cents"], 500000)
+        self.assertEqual(day_after_cut["available_cents"], 1000000)
+        self.assertEqual([window["kind"] for window in day_after_cut["live_windows"]], ["month"])
+
+    def test_liberation_after_cut_keeps_month_spend(self):
+        self.expense(500000, date(2026, 7, 10), self.card)
+        self.expense(200000, date(2026, 7, 12), self.cash)
+
+        row = self.row_on(date(2026, 7, 21), date(2026, 7, 21))
+
+        self.assertEqual(row["available_cents"], 800000)
+        self.assertEqual(row["spent_cents"], 200000)
+        self.assertEqual(row["monthly_flow_cents"], 700000)
+        self.assertEqual([window["kind"] for window in row["live_windows"]], ["month"])
+
+    def test_post_cut_purchase_crosses_into_next_month(self):
+        self.expense(500000, date(2026, 7, 10), self.card)
+        self.expense(200000, date(2026, 7, 12), self.cash)
+        self.expense(400000, date(2026, 7, 25), self.card)
+
+        july = self.row_on(date(2026, 7, 28), date(2026, 7, 28))
+        august = self.row_on(date(2026, 8, 5), date(2026, 8, 5))
+
+        self.assertEqual(july["available_cents"], 400000)
+        self.assertEqual(august["available_cents"], 600000)
+        self.assertEqual(august["spent_cents"], 400000)
+        self.assertEqual(august["monthly_flow_cents"], 0)
+        card_window = next(window for window in august["live_windows"] if window["kind"] == "card")
+        self.assertEqual(card_window["spent_cents"], 400000)
+        self.assertEqual(card_window["start"], date(2026, 7, 21))
+        self.assertEqual(card_window["end"], date(2026, 8, 20))
+
+    def test_closing_snapshot_is_immutable(self):
+        self.expense(500000, date(2026, 7, 10), self.card)
+        self.expense(200000, date(2026, 7, 12), self.cash)
+        self.expense(400000, date(2026, 7, 25), self.card)
+
+        seen_from_august = self.row_on(date(2026, 7, 31), date(2026, 8, 10))
+        seen_from_september = self.row_on(date(2026, 7, 31), date(2026, 9, 3))
+
+        self.assertEqual(seen_from_august["available_cents"], 400000)
+        self.assertEqual(seen_from_september["available_cents"], 400000)
+
+    def test_february_cutoff_28_release(self):
+        card28 = Account.objects.create(
+            name="Tarjeta 28",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=28,
+        )
+        self.expense(300000, date(2026, 2, 15), card28)
+
+        february = self.row_on(date(2026, 2, 20), date(2026, 2, 20))
+        march = self.row_on(date(2026, 3, 5), date(2026, 3, 5))
+
+        self.assertEqual(february["available_cents"], 700000)
+        self.assertEqual(march["available_cents"], 1000000)
+        self.assertEqual([window["kind"] for window in march["live_windows"]], ["month"])
+
+    def test_carryover_not_recharged_at_cut(self):
+        travel = Category.objects.create(
+            name="Viajes",
+            scope=Category.Scope.GLOBAL,
+            budget_behavior=Category.BudgetBehavior.CARRYOVER,
+            carryover_initial_balance_cents=0,
+            carryover_start_date=date(2026, 7, 1),
+        )
+        CategoryBudgetChange.objects.create(
+            category=travel,
+            amount_cents=1000000,
+            effective_date=date(2026, 7, 1),
+            period_start=date(2026, 7, 1),
+            period_end=date(2026, 7, 31),
+        )
+        self.expense(300000, date(2026, 7, 10), self.card, category=travel)
+
+        before_cut = self.row_on(date(2026, 7, 15), date(2026, 7, 15), name="Viajes")
+        after_cut = self.row_on(date(2026, 7, 25), date(2026, 7, 25), name="Viajes")
+
+        self.assertEqual(before_cut["real_available_cents"], 700000)
+        self.assertEqual(before_cut["live_windows"], [])
+        self.assertEqual(after_cut["real_available_cents"], 700000)
+        self.assertEqual(after_cut["spent_cents"], 300000)
+
+    def test_overspend_record_uses_live_available_at_close(self):
+        self.expense(1200000, date(2026, 7, 12), self.cash)
+
+        self.summary_on(date(2026, 8, 5), date(2026, 8, 5))
+
+        record = CategoryOverspendRecord.objects.get(category=self.food, period_start=date(2026, 7, 1))
+        self.assertEqual(record.overspend_cents, 200000)
+        self.assertEqual(record.budget_cents, 1000000)
+        self.assertEqual(record.spent_cents, 1200000)
+
+    def test_liberated_card_spend_does_not_create_overspend_record(self):
+        self.expense(1200000, date(2026, 7, 5), self.card)
+
+        self.summary_on(date(2026, 8, 5), date(2026, 8, 5))
+        july_close = self.row_on(date(2026, 7, 31), date(2026, 8, 5))
+
+        self.assertFalse(
+            CategoryOverspendRecord.objects.filter(category=self.food, period_start=date(2026, 7, 1)).exists()
+        )
+        self.assertEqual(july_close["monthly_flow_cents"], 1200000)
+        self.assertEqual(july_close["available_cents"], 1000000)
+
+
 class ExpectedChargeTests(TestCase):
     def setUp(self):
         self.member = HouseholdMember.objects.create(name="Luis", color="#2563eb")
