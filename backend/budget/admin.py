@@ -57,8 +57,8 @@ class CategoryOverspendRecordAdmin(admin.ModelAdmin):
 
 @admin.register(Account)
 class AccountAdmin(admin.ModelAdmin):
-    list_display = ["name", "account_type", "initial_balance_cents", "is_active"]
-    list_filter = ["account_type", "is_active"]
+    list_display = ["name", "account_type", "cutoff_day", "owner", "initial_balance_cents", "is_active"]
+    list_filter = ["account_type", "owner", "is_active"]
 
 
 @admin.register(MerchantConcept)

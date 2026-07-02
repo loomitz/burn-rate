@@ -238,6 +238,18 @@ class Account(models.Model):
     account_type = models.CharField(max_length=24, choices=AccountType.choices)
     color = models.CharField(max_length=7, default="#475569")
     initial_balance_cents = models.IntegerField(default=0)
+    cutoff_day = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(28)],
+    )
+    owner = models.ForeignKey(
+        "HouseholdMember",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="owned_accounts",
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -247,6 +259,11 @@ class Account(models.Model):
     def clean(self) -> None:
         if self.account_type != self.AccountType.CASH and self.initial_balance_cents != 0:
             raise ValidationError({"initial_balance_cents": "Solo las cuentas de efectivo pueden tener saldo inicial."})
+        if self.account_type == self.AccountType.CREDIT_CARD:
+            if self.cutoff_day is None:
+                self.cutoff_day = 20
+        else:
+            self.cutoff_day = None
 
     def save(self, *args, **kwargs):
         self.full_clean()

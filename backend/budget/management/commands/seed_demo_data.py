@@ -41,6 +41,7 @@ class Command(BaseCommand):
                     "account_type": account_type,
                     "initial_balance_cents": initial_balance,
                     "color": color,
+                    "cutoff_day": 20 if account_type == Account.AccountType.CREDIT_CARD else None,
                     "is_active": True,
                 },
             )

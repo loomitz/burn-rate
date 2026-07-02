@@ -1005,6 +1005,90 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.data["initial_balance_cents"], 35000)
         self.assertFalse(response.data["is_active"])
 
+    def test_create_credit_card_account_with_cutoff_and_owner(self):
+        response = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Tarjeta oro",
+                "account_type": "credit_card",
+                "cutoff_day": 15,
+                "owner": self.member.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["cutoff_day"], 15)
+        self.assertEqual(response.data["owner"], self.member.id)
+        self.assertEqual(response.data["owner_name"], "Ana")
+
+    def test_credit_card_requires_cutoff_day(self):
+        response = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Tarjeta sin corte",
+                "account_type": "credit_card",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("cutoff_day", response.data)
+
+    def test_cutoff_day_out_of_range_rejected(self):
+        too_high = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Tarjeta alta",
+                "account_type": "credit_card",
+                "cutoff_day": 29,
+            },
+            format="json",
+        )
+        self.assertEqual(too_high.status_code, 400)
+        self.assertIn("cutoff_day", too_high.data)
+
+        too_low = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Tarjeta baja",
+                "account_type": "credit_card",
+                "cutoff_day": 0,
+            },
+            format="json",
+        )
+        self.assertEqual(too_low.status_code, 400)
+        self.assertIn("cutoff_day", too_low.data)
+
+    def test_non_credit_card_rejects_cutoff_day(self):
+        response = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Debito con corte",
+                "account_type": "debit_card",
+                "cutoff_day": 10,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("cutoff_day", response.data)
+
+    def test_credit_card_owner_is_optional(self):
+        response = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Tarjeta sin titular",
+                "account_type": "credit_card",
+                "cutoff_day": 12,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertIsNone(response.data["owner"])
+        self.assertIsNone(response.data["owner_name"])
+
 
 class AuthBootstrapApiTests(APITestCase):
     def test_onboarding_status_checks_database_and_initial_config(self):

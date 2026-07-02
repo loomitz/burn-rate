@@ -549,6 +549,7 @@ class BudgetAllocationSerializer(serializers.ModelSerializer):
 
 class AccountSerializer(serializers.ModelSerializer):
     current_balance_cents = serializers.SerializerMethodField()
+    owner_name = serializers.CharField(source="owner.name", read_only=True, allow_null=True)
 
     class Meta:
         model = Account
@@ -559,6 +560,9 @@ class AccountSerializer(serializers.ModelSerializer):
             "color",
             "initial_balance_cents",
             "current_balance_cents",
+            "cutoff_day",
+            "owner",
+            "owner_name",
             "is_active",
         ]
 
@@ -571,6 +575,20 @@ class AccountSerializer(serializers.ModelSerializer):
         if account_type != Account.AccountType.CASH and initial_balance != 0:
             raise serializers.ValidationError(
                 {"initial_balance_cents": "Solo las cuentas de efectivo pueden tener saldo inicial."}
+            )
+        cutoff_day = attrs.get("cutoff_day", getattr(self.instance, "cutoff_day", None))
+        if account_type == Account.AccountType.CREDIT_CARD:
+            if cutoff_day is None:
+                raise serializers.ValidationError(
+                    {"cutoff_day": "Las tarjetas de credito necesitan un dia de corte."}
+                )
+            if cutoff_day < 1 or cutoff_day > 28:
+                raise serializers.ValidationError(
+                    {"cutoff_day": "El dia de corte debe estar entre 1 y 28."}
+                )
+        elif cutoff_day is not None:
+            raise serializers.ValidationError(
+                {"cutoff_day": "Solo las tarjetas de credito pueden tener dia de corte."}
             )
         return attrs
 
