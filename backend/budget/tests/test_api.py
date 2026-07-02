@@ -294,7 +294,7 @@ class BudgetApiTests(APITestCase):
             transaction_type=Transaction.TransactionType.EXPENSE,
             merchant="Super anterior",
             amount_cents=20000,
-            date=date(2026, 4, 10),
+            date=date(2026, 3, 25),
             account=self.account,
             category=self.category,
             created_by=self.user,
@@ -841,7 +841,11 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.data["plans"][0]["remaining_payments"], 2)
 
     def test_credit_card_interest_free_payment_endpoint_returns_card_totals_for_cycle(self):
-        card = Account.objects.create(name="Tarjeta dorada", account_type=Account.AccountType.CREDIT_CARD)
+        card = Account.objects.create(
+            name="Tarjeta dorada",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=20,
+        )
         InstallmentPlan.objects.create(
             name="Laptop",
             merchant="Liverpool",
@@ -875,7 +879,7 @@ class BudgetApiTests(APITestCase):
         self.client.logout()
         self.client.login(username="reader", password="testpass123")
 
-        settings_response = self.client.put("/api/settings/", {"currency": "MXN", "cutoff_day": 15}, format="json")
+        settings_response = self.client.put("/api/settings/", {"currency": "MXN"}, format="json")
         account_response = self.client.post(
             "/api/accounts/",
             {"name": "Debito reader", "account_type": "debit_card"},

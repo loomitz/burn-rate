@@ -18,7 +18,7 @@ from .models import (
 
 @admin.register(AppSettings)
 class AppSettingsAdmin(admin.ModelAdmin):
-    list_display = ["currency", "cutoff_day", "time_zone"]
+    list_display = ["currency", "time_zone"]
 
 
 @admin.register(HouseholdMember)

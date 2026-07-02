@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+from calendar import monthrange
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 from django.db import transaction as db_transaction
 from django.db.models import Q, Sum
 
 from .models import (
     Account,
-    AppSettings,
     BudgetAllocation,
     Category,
     CategoryBudgetChange,
@@ -83,29 +83,23 @@ def charge_dates_for_recurring_expense(recurring: RecurringExpense, as_of: date,
         yield charge_date
 
 
-def get_budget_period(value: date | None = None, cutoff_day: int | None = None) -> BudgetPeriod:
-    value = value or app_localdate()
-    cutoff_day = cutoff_day or AppSettings.load().cutoff_day
-    if not 1 <= cutoff_day <= 28:
-        raise ValueError("cutoff_day must be between 1 and 28")
+def month_period(value: date) -> BudgetPeriod:
+    start = date(value.year, value.month, 1)
+    end = date(value.year, value.month, monthrange(value.year, value.month)[1])
+    return BudgetPeriod(start=start, end=end)
 
-    if value.day <= cutoff_day:
-        period_end = date(value.year, value.month, cutoff_day)
-        previous_month_cutoff = add_months(period_end, -1)
-        period_start = previous_month_cutoff.replace(day=cutoff_day + 1)
-    else:
-        period_start = date(value.year, value.month, cutoff_day + 1)
-        period_end = add_months(date(value.year, value.month, cutoff_day), 1)
-    return BudgetPeriod(start=period_start, end=period_end)
+
+def get_budget_period(value: date | None = None) -> BudgetPeriod:
+    return month_period(value or app_localdate())
 
 
 def project_budget_periods(value: date | None = None, months_ahead: int = 6) -> list[BudgetPeriod]:
     current_period = get_budget_period(value)
-    return [get_budget_period(add_months(current_period.end, offset)) for offset in range(months_ahead + 1)]
+    return [get_budget_period(add_months(current_period.start, offset)) for offset in range(months_ahead + 1)]
 
 
 def previous_budget_period(period: BudgetPeriod) -> BudgetPeriod:
-    return get_budget_period(add_months(period.end, -1))
+    return month_period(add_months(period.start, -1))
 
 
 def period_key(period: BudgetPeriod) -> tuple[date, date]:
@@ -116,7 +110,41 @@ def iter_budget_periods(start_period: BudgetPeriod, end_period: BudgetPeriod):
     period = start_period
     while period_key(period) <= period_key(end_period):
         yield period
-        period = get_budget_period(add_months(period.end, 1))
+        period = month_period(add_months(period.start, 1))
+
+
+def card_cycle(cutoff_day: int, value: date | None = None) -> BudgetPeriod:
+    """Ciclo de tarjeta que CONTIENE `value`; el dia del corte cierra el ciclo (inclusive)."""
+    value = value or app_localdate()
+    if not 1 <= cutoff_day <= 28:
+        raise ValueError("cutoff_day must be between 1 and 28")
+    this_cutoff = date(value.year, value.month, cutoff_day)
+    if value <= this_cutoff:
+        end = this_cutoff
+        start = add_months(this_cutoff, -1) + timedelta(days=1)
+    else:
+        start = this_cutoff + timedelta(days=1)
+        end = add_months(this_cutoff, 1)
+    return BudgetPeriod(start=start, end=end)
+
+
+def previous_card_cycle(cutoff_day: int, cycle: BudgetPeriod) -> BudgetPeriod:
+    return card_cycle(cutoff_day, cycle.start - timedelta(days=1))
+
+
+def last_closed_card_cycle(cutoff_day: int, as_of: date | None = None) -> BudgetPeriod:
+    """Ultimo ciclo cuyo corte ya cerro respecto de `as_of` (el previo al que contiene `as_of`).
+
+    El dia EXACTO del corte cuenta como ciclo aun abierto (cierra al final de ese dia).
+    """
+    as_of = as_of or app_localdate()
+    return previous_card_cycle(cutoff_day, card_cycle(cutoff_day, as_of))
+
+
+def card_cycle_for_offset(cutoff_day: int, value: date, offset: int) -> BudgetPeriod:
+    """Ciclo a `offset` ciclos del que contiene `value` (offset de ciclos == offset de meses)."""
+    base = card_cycle(cutoff_day, value)
+    return card_cycle(cutoff_day, add_months(base.end, offset))
 
 
 def budget_amount_for_period(category: Category, period: BudgetPeriod) -> int:
@@ -501,42 +529,39 @@ def installment_projection(value: date | None = None, months_ahead: int = 6) -> 
 
 
 def credit_card_interest_free_payment_summary(value: date | None = None) -> dict:
-    period = get_budget_period(value)
+    value = value or app_localdate()
     cards = list(Account.objects.filter(account_type=Account.AccountType.CREDIT_CARD, is_active=True).order_by("name"))
-    card_ids = [card.id for card in cards]
-
-    purchase_rows = (
-        Transaction.objects.filter(
-            transaction_type=Transaction.TransactionType.EXPENSE,
-            account_id__in=card_ids,
-            installment_plan__isnull=True,
-            date__gte=period.start,
-            date__lte=period.end,
-        )
-        .exclude(category__budget_treatment=Category.BudgetTreatment.TRACKING_ONLY)
-        .values("account_id")
-        .annotate(total=Sum("amount_cents"))
-    )
-    purchases_by_account = {row["account_id"]: row["total"] or 0 for row in purchase_rows}
-
-    installments_by_account: dict[int, int] = {}
-    plans = InstallmentPlan.objects.filter(
-        is_active=True,
-        account_id__in=card_ids,
-        start_date__lte=period.end,
-        end_date__gte=period.start,
-    ).exclude(category__budget_treatment=Category.BudgetTreatment.TRACKING_ONLY).select_related("account")
-    for plan in plans:
-        payment = installment_charge_for_period(plan, period)
-        if payment is None:
-            continue
-        installments_by_account[plan.account_id] = installments_by_account.get(plan.account_id, 0) + payment["amount_cents"]
 
     rows = []
     total = 0
     for card in cards:
-        cycle_purchase_cents = purchases_by_account.get(card.id, 0)
-        installment_cents = installments_by_account.get(card.id, 0)
+        cycle = card_cycle(card.cutoff_day, value)
+        cycle_purchase_cents = (
+            Transaction.objects.filter(
+                transaction_type=Transaction.TransactionType.EXPENSE,
+                account_id=card.id,
+                installment_plan__isnull=True,
+                date__gte=cycle.start,
+                date__lte=cycle.end,
+            )
+            .exclude(category__budget_treatment=Category.BudgetTreatment.TRACKING_ONLY)
+            .aggregate(total=Sum("amount_cents"))["total"]
+            or 0
+        )
+
+        installment_cents = 0
+        plans = InstallmentPlan.objects.filter(
+            is_active=True,
+            account_id=card.id,
+            start_date__lte=cycle.end,
+            end_date__gte=cycle.start,
+        ).exclude(category__budget_treatment=Category.BudgetTreatment.TRACKING_ONLY)
+        for plan in plans:
+            payment = installment_charge_for_period(plan, cycle)
+            if payment is None:
+                continue
+            installment_cents += payment["amount_cents"]
+
         interest_free_payment_cents = cycle_purchase_cents + installment_cents
         total += interest_free_payment_cents
         rows.append(
@@ -544,6 +569,8 @@ def credit_card_interest_free_payment_summary(value: date | None = None) -> dict
                 "account_id": card.id,
                 "account_name": card.name,
                 "account_color": card.color,
+                "cycle_start": cycle.start,
+                "cycle_end": cycle.end,
                 "cycle_purchase_cents": cycle_purchase_cents,
                 "installment_cents": installment_cents,
                 "interest_free_payment_cents": interest_free_payment_cents,
@@ -551,7 +578,6 @@ def credit_card_interest_free_payment_summary(value: date | None = None) -> dict
         )
 
     return {
-        "period": {"start": period.start, "end": period.end},
         "total_cents": total,
         "cards": rows,
     }

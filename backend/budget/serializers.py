@@ -96,7 +96,7 @@ def validate_user_password(password: str, *, email: str, full_name: str, usernam
 class AppSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = AppSettings
-        fields = ["currency", "cutoff_day", "time_zone"]
+        fields = ["currency", "time_zone"]
         extra_kwargs = {"time_zone": {"required": False}}
 
     def validate_time_zone(self, value):

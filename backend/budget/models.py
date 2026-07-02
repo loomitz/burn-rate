@@ -33,10 +33,6 @@ def merchant_concept_lookup_key(value: str) -> str:
 class AppSettings(models.Model):
     currency = models.CharField(max_length=3, default="MXN")
     time_zone = models.CharField(max_length=64, default=default_app_time_zone)
-    cutoff_day = models.PositiveSmallIntegerField(
-        default=20,
-        validators=[MinValueValidator(1), MaxValueValidator(28)],
-    )
 
     class Meta:
         verbose_name = "app settings"
@@ -59,7 +55,7 @@ class AppSettings(models.Model):
         return settings_obj
 
     def __str__(self) -> str:
-        return f"{self.currency}, corte {self.cutoff_day}, {self.time_zone}"
+        return f"{self.currency}, {self.time_zone}"
 
 
 class HouseholdMember(models.Model):
