@@ -2849,6 +2849,148 @@ h2 {
   font-size: var(--font-size-sm);
 }
 
+.card-owner-groups {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.card-owner-group {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.card-owner-group > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-xs);
+}
+
+.card-owner-group > header b {
+  color: var(--ink);
+  font-size: var(--font-size-sm);
+  font-weight: 900;
+}
+
+.card-owner-group > header strong {
+  color: var(--commitments-accent);
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.card-row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-start;
+}
+
+.credit-card-payment-row .card-cycle-block {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  margin: 0;
+  border-radius: 8px;
+  padding: var(--space-xs);
+  background: color-mix(in srgb, var(--commitments-soft) 40%, var(--surface));
+}
+
+.credit-card-payment-row .card-cycle-block.open {
+  background: color-mix(in srgb, var(--surface) 90%, var(--commitments-soft));
+}
+
+.credit-card-payment-row .card-cycle-block > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-xs);
+}
+
+.card-cycle-block .card-cycle-title dt {
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.msi-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-chip {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.filter-chip.active {
+  color: var(--commitments-accent);
+  border-color: color-mix(in srgb, var(--commitments-accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--commitments-accent) 10%, var(--surface));
+}
+
+.filter-chip.owner.active {
+  color: var(--chip-color, var(--commitments-accent));
+  border-color: color-mix(in srgb, var(--chip-color, var(--commitments-accent)) 45%, var(--line));
+  background: color-mix(in srgb, var(--chip-color, var(--commitments-accent)) 12%, var(--surface));
+}
+
+.filter-hint {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.live-windows {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.live-windows h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--font-size-sm);
+  font-weight: 900;
+}
+
+.live-windows article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--surface);
+}
+
+.live-windows article > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.live-windows article b {
+  color: var(--ink);
+  font-size: var(--font-size-sm);
+  font-weight: 900;
+}
+
+.live-windows article small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.live-windows article strong {
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 .inline-confirm {
   padding: var(--space-xs);
   border: 1px solid color-mix(in srgb, #9a2f1e 22%, var(--line));
@@ -3519,7 +3661,7 @@ h2 {
 
 .cutoff-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-sm);
   align-items: end;
 }

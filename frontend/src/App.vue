@@ -9,6 +9,8 @@ import {
   type BudgetCategorySummary,
   type ExpectedCharge,
   type HouseholdMember,
+  type InstallmentProjection,
+  type InstallmentProjectionPeriod,
   type InstallmentProjectionPlan,
   type Invitation,
   type RecurringExpense,
@@ -143,6 +145,10 @@ const memberFormOpen = ref(false)
 const categoryFormOpen = ref(false)
 const editingCommitment = ref<{ type: CommitmentEditKind; id: number } | null>(null)
 const deleteConfirmCommitment = ref<{ type: CommitmentEditKind; id: number } | null>(null)
+const msiCardFilter = ref<number[]>([])
+const msiOwnerFilter = ref<number[]>([])
+const focusedProjection = ref<InstallmentProjection | null>(null)
+const focusedProjectionLoading = ref(false)
 const claimForm = reactive({ full_name: '', display_name: '', email: '', password: '', confirmPassword: '' })
 const loginForm = reactive({ email: '', password: '' })
 const acceptInviteForm = reactive({ full_name: '', display_name: '', password: '', confirmPassword: '' })
@@ -158,6 +164,8 @@ const accountForm = reactive({
   initial_balance: '',
   color: '#7c6250',
   is_active: true,
+  cutoff_day: '' as string | number,
+  owner: '' as string | number,
 })
 const memberForm = reactive({
   name: '',
@@ -190,7 +198,7 @@ const recurringForm = reactive({
   account: '',
   start_date: selectedDate.value,
   end_date: '',
-  charge_day: 21,
+  charge_day: 1,
   auto_charge: false,
 })
 const installmentForm = reactive({
@@ -211,7 +219,7 @@ const commitmentEditForm = reactive({
   charge_day: 1,
   auto_charge: false,
 })
-const settingsForm = reactive({ cutoff_day: 20, time_zone: settings.value.time_zone })
+const settingsForm = reactive({ time_zone: settings.value.time_zone })
 const notice = reactive<{ type: NoticeType; message: string }>({ type: 'info', message: '' })
 const actionBusy = ref('')
 let noticeTimer: ReturnType<typeof window.setTimeout> | undefined
@@ -581,18 +589,18 @@ const onboardingChecklist = computed(() => {
 
 const visibleCategories = computed(() => activeCategories.value)
 const trackingOnlyCategories = computed(() => categories.value.filter((category) => category.budget_treatment === 'tracking_only'))
-const activeBudgetPeriod = computed(() => budgetPeriodForDate(selectedDate.value, settings.value.cutoff_day))
-const currentBudgetPeriod = computed(() => budgetPeriodForDate(appToday.value, settings.value.cutoff_day))
+const activeBudgetPeriod = computed(() => monthPeriodForDate(selectedDate.value))
+const currentBudgetPeriod = computed(() => monthPeriodForDate(appToday.value))
 const budgetCycleOptions = computed<BudgetCycleOption[]>(() => {
-  const period = currentBudgetPeriod.value
+  const base = parseIsoDate(currentBudgetPeriod.value.start)
   return Array.from({ length: 13 }, (_, index) => {
     const offset = index - 12
-    const start = formatIsoDate(addMonths(parseIsoDate(period.start), offset))
-    const end = formatIsoDate(addMonths(parseIsoDate(period.end), offset))
-    const prefix = offset === 0 ? 'Ciclo actual' : `${Math.abs(offset)} antes`
+    const monthStart = formatIsoDate(addCalendarMonths(base, offset))
+    const { start, end } = monthPeriodForDate(monthStart)
+    const prefix = offset === 0 ? 'Mes actual' : `${Math.abs(offset)} antes`
     return {
       value: start,
-      label: `${prefix} · ${formatPeriodLabel(start, end)}`,
+      label: `${prefix} · ${formatMonthLabel(start)}`,
       start,
       end,
       offset,
@@ -604,8 +612,8 @@ const activeBudgetCycleOption = computed(() =>
   budgetCycleOptions.value[budgetCycleOptions.value.length - 1],
 )
 const budgetCycleMenuOptions = computed(() => [...budgetCycleOptions.value].reverse())
-const periodRange = computed(() => `${activeBudgetPeriod.value.start} / ${activeBudgetPeriod.value.end}`)
-const activePeriodLabel = computed(() => formatPeriodLabel(activeBudgetPeriod.value.start, activeBudgetPeriod.value.end))
+const periodRange = computed(() => formatMonthLabel(activeBudgetPeriod.value.start))
+const activePeriodLabel = computed(() => formatMonthLabel(activeBudgetPeriod.value.start))
 const canShiftToPreviousCycle = computed(() => activeBudgetPeriod.value.start > (budgetCycleOptions.value[0]?.start ?? activeBudgetPeriod.value.start))
 const canShiftToNextCycle = computed(() => activeBudgetPeriod.value.start < currentBudgetPeriod.value.start)
 const overspent = computed(() => summary.value?.categories.filter((category) => category.is_overspent) ?? [])
@@ -757,22 +765,51 @@ const recurringCommitmentRows = computed(() =>
     charge: recurringExpectedCharges.value.find((charge) => charge.source_id === expense.id),
   })),
 )
-const projectedInstallmentPeriods = computed(() => installmentProjection.value?.periods ?? [])
+const msiFocusedCardId = computed(() => (msiCardFilter.value.length === 1 ? msiCardFilter.value[0] : null))
+const msiCardChips = computed(() => {
+  const map = new Map<number, { id: number; name: string }>()
+  for (const period of installmentProjection.value?.periods ?? [])
+    for (const card of period.cards)
+      if (card.account_id != null) map.set(card.account_id, { id: card.account_id, name: card.account_name ?? 'Cuenta' })
+  return [...map.values()]
+})
+const msiOwnerChips = computed(() => {
+  const map = new Map<number, { id: number; name: string; color: string }>()
+  for (const plan of installmentProjection.value?.plans ?? []) if (plan.owner) map.set(plan.owner.id, plan.owner)
+  return [...map.values()]
+})
+const activeProjection = computed(() => focusedProjection.value ?? installmentProjection.value)
+const projectionPeriodsView = computed<InstallmentProjectionPeriod[]>(() => {
+  if (focusedProjection.value) return focusedProjection.value.periods
+  const periods = installmentProjection.value?.periods ?? []
+  const cardSet = new Set(msiCardFilter.value)
+  const ownerSet = new Set(msiOwnerFilter.value)
+  if (!cardSet.size && !ownerSet.size) return periods
+  return periods.map((period) => {
+    const plans = period.plans.filter(
+      (plan) =>
+        (!cardSet.size || (plan.account && cardSet.has(plan.account.id))) &&
+        (!ownerSet.size || (plan.owner && ownerSet.has(plan.owner.id))),
+    )
+    return { ...period, plans, total_cents: plans.reduce((total, plan) => total + (plan.amount_cents ?? 0), 0) }
+  })
+})
 const projectedInstallmentPlans = computed(() =>
   (installmentProjection.value?.plans ?? []).filter((plan) => plan.projected_total_cents || plan.current_amount_cents),
 )
 const installmentPlanLookup = computed(() => new Map(installmentPlans.value.map((plan) => [plan.id, plan])))
 const installmentCalculatedEndDate = computed(() => installmentEndDateFor(installmentForm.start_date, installmentForm.months_count))
-const currentInstallmentTotal = computed(() => installmentProjection.value?.current_total_cents ?? 0)
+const currentInstallmentTotal = computed(() => activeProjection.value?.current_total_cents ?? 0)
 const registeredInstallmentTotal = computed(() =>
   projectedInstallmentPlans.value.reduce((total, plan) => total + plan.total_amount_cents, 0),
 )
-const creditCardPaymentCards = computed(() => creditCardPaymentSummary.value?.cards ?? [])
-const creditCardInterestFreeTotal = computed(() => creditCardPaymentSummary.value?.total_cents ?? 0)
+const cardPaymentCards = computed(() => creditCardPaymentSummary.value?.cards ?? [])
+const cardPaymentDueTotal = computed(() => creditCardPaymentSummary.value?.total_cents ?? 0)
+const cardPaymentOwners = computed(() => creditCardPaymentSummary.value?.owners ?? [])
 const offBudgetTotal = computed(() => offBudgetSummary.value?.totals.total_cents ?? 0)
 const currentCommitmentTotal = computed(() => recurringExpectedTotal.value + currentInstallmentTotal.value)
 const maxProjectedPeriodTotal = computed(() =>
-  Math.max(1, ...projectedInstallmentPeriods.value.map((period) => period.total_cents)),
+  Math.max(1, ...projectionPeriodsView.value.map((period) => period.total_cents)),
 )
 const totalAccountBalance = computed(() =>
   activeAccounts.value.reduce((total, account) => total + account.current_balance_cents, 0),
@@ -938,12 +975,31 @@ watch(selectedDate, async (nextDate, previousDate) => {
   selectedCategoryId.value = null
   expenseFeedCategoryId.value = ''
   expenseFeedPaymentMethod.value = ''
+  msiCardFilter.value = []
+  msiOwnerFilter.value = []
+  focusedProjection.value = null
   syncDefaultFormDates(nextDate, previousDate)
   if (!user.value) return
   try {
     await refreshSelectedPeriod()
   } catch {
     showNotice('No pudimos actualizar el periodo. Intenta de nuevo.', 'error')
+  }
+})
+
+watch([msiFocusedCardId, selectedDate], async ([cardId]) => {
+  if (cardId == null) {
+    focusedProjection.value = null
+    return
+  }
+  focusedProjectionLoading.value = true
+  try {
+    focusedProjection.value = await store.fetchInstallmentProjection(selectedDate.value, cardId)
+  } catch {
+    focusedProjection.value = null
+    showNotice('No pudimos cargar la proyección de esa tarjeta.', 'error')
+  } finally {
+    focusedProjectionLoading.value = false
   }
 })
 
@@ -1157,23 +1213,16 @@ function installmentEndDateFor(startDate: string, monthsCount: string) {
   return formatIsoDate(addCalendarMonths(parseIsoDate(startDate), months - 1))
 }
 
-function budgetPeriodForDate(value: string, cutoffDay: number) {
+function monthPeriodForDate(value: string) {
   const dateValue = parseIsoDate(value)
-  const safeCutoff = Math.min(28, Math.max(1, cutoffDay || 20))
-  if (dateValue.getDate() <= safeCutoff) {
-    const end = new Date(dateValue.getFullYear(), dateValue.getMonth(), safeCutoff)
-    const previousEnd = addMonths(end, -1)
-    const start = new Date(previousEnd.getFullYear(), previousEnd.getMonth(), safeCutoff + 1)
-    return { start: formatIsoDate(start), end: formatIsoDate(end) }
-  }
-  const start = new Date(dateValue.getFullYear(), dateValue.getMonth(), safeCutoff + 1)
-  const end = addMonths(new Date(dateValue.getFullYear(), dateValue.getMonth(), safeCutoff), 1)
+  const start = new Date(dateValue.getFullYear(), dateValue.getMonth(), 1)
+  const end = new Date(dateValue.getFullYear(), dateValue.getMonth() + 1, 0)
   return { start: formatIsoDate(start), end: formatIsoDate(end) }
 }
 
-function formatPeriodLabel(start: string, end: string) {
-  const formatter = new Intl.DateTimeFormat('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
-  return `${formatter.format(parseIsoDate(start))} - ${formatter.format(parseIsoDate(end))}`
+function formatMonthLabel(iso: string) {
+  const label = new Intl.DateTimeFormat('es-MX', { month: 'long', year: 'numeric' }).format(parseIsoDate(iso))
+  return label.charAt(0).toUpperCase() + label.slice(1)
 }
 
 function scrollToTop() {
@@ -1197,7 +1246,6 @@ function clearNotice() {
 }
 
 function syncSettingsForm() {
-  settingsForm.cutoff_day = settings.value.cutoff_day
   settingsForm.time_zone = settings.value.time_zone
 }
 
@@ -1579,6 +1627,12 @@ async function submitAccount() {
     showNotice('Falta nombre de cuenta. Escríbelo para guardar.', 'error')
     return
   }
+  const isCredit = accountForm.account_type === 'credit_card'
+  const cutoffDay = isCredit ? Math.min(28, Math.max(1, Number(accountForm.cutoff_day) || 0)) : null
+  if (isCredit && !cutoffDay) {
+    showNotice('Las tarjetas de crédito necesitan un día de corte (1–28).', 'error')
+    return
+  }
   await runAction('account', editingAccountId.value ? 'Cuenta actualizada.' : 'Cuenta guardada para la casa.', async () => {
     const payload = {
       name,
@@ -1586,6 +1640,8 @@ async function submitAccount() {
       initial_balance_cents: accountForm.account_type === 'cash' ? centsFromInput(accountForm.initial_balance || '0') : 0,
       color: accountForm.color,
       is_active: accountForm.is_active,
+      cutoff_day: cutoffDay,
+      owner: accountForm.owner ? Number(accountForm.owner) : null,
     }
     if (editingAccountId.value) {
       await store.updateAccount(editingAccountId.value, payload)
@@ -1604,6 +1660,8 @@ function editAccount(account: Account) {
   accountForm.initial_balance = String(account.initial_balance_cents / 100)
   accountForm.color = account.color || '#7c6250'
   accountForm.is_active = account.is_active
+  accountForm.cutoff_day = account.cutoff_day ?? ''
+  accountForm.owner = account.owner ?? ''
 }
 
 function resetAccountForm() {
@@ -1614,6 +1672,8 @@ function resetAccountForm() {
   accountForm.initial_balance = ''
   accountForm.color = '#7c6250'
   accountForm.is_active = true
+  accountForm.cutoff_day = ''
+  accountForm.owner = ''
 }
 
 function startAccountForm() {
@@ -2105,14 +2165,13 @@ async function deleteInstallmentPlan(plan: { id: number }) {
 }
 
 async function saveSettings() {
-  const cutoffDay = Math.min(28, Math.max(1, Number(settingsForm.cutoff_day) || 1))
   const timeZone = normalizeText(settingsForm.time_zone) || settings.value.time_zone
   if (!isValidTimeZone(timeZone)) {
     showNotice('La zona horaria no es válida. Usa un identificador como America/Mexico_City.', 'error')
     return
   }
-  await runAction('settings', 'Calendario actualizado.', async () => {
-    await store.saveSettings({ ...settings.value, cutoff_day: cutoffDay, time_zone: timeZone })
+  await runAction('settings', 'Zona horaria actualizada.', async () => {
+    await store.saveSettings({ ...settings.value, time_zone: timeZone })
     syncSettingsForm()
     await refreshSelectedPeriod()
   })
@@ -2158,12 +2217,12 @@ function goToExpenseCaptureForCategory(categoryId: number) {
 }
 
 function cycleRelativeLabel(cycle: BudgetCycleOption) {
-  if (cycle.offset === 0) return 'Ciclo actual'
-  return cycle.offset === -1 ? 'Ciclo anterior' : `${Math.abs(cycle.offset)} ciclos antes`
+  if (cycle.offset === 0) return 'Mes actual'
+  return cycle.offset === -1 ? 'Mes anterior' : `${Math.abs(cycle.offset)} meses antes`
 }
 
 function selectBudgetCycle(value: string) {
-  selectedDate.value = value
+  selectedDate.value = value === currentBudgetPeriod.value.start ? appToday.value : value
   cycleMenuOpen.value = false
 }
 
@@ -2178,8 +2237,8 @@ function shiftBudgetCycle(offset: number) {
   if (offset < 0 && !canShiftToPreviousCycle.value) return
   if (offset > 0 && !canShiftToNextCycle.value) return
   const currentStart = parseIsoDate(activeBudgetPeriod.value.start)
-  const nextStart = formatIsoDate(addMonths(currentStart, offset))
-  selectedDate.value = nextStart > currentBudgetPeriod.value.start ? currentBudgetPeriod.value.start : nextStart
+  const nextStart = formatIsoDate(addCalendarMonths(currentStart, offset))
+  selectedDate.value = nextStart >= currentBudgetPeriod.value.start ? appToday.value : nextStart
   cycleMenuOpen.value = false
 }
 
@@ -2333,8 +2392,21 @@ function transactionIsTrackingOnly(transaction: Transaction) {
   return Boolean(transaction.category && categoryLookup.value.get(transaction.category)?.budget_treatment === 'tracking_only')
 }
 
-function projectionPeriodLabel(index: number) {
+function projectionColumnLabel(period: InstallmentProjectionPeriod, index: number) {
+  if (focusedProjection.value) return formatMonthLabel(period.end)
   return index === 0 ? 'Act.' : `+${index}`
+}
+
+function toggleMsiCard(id: number) {
+  const index = msiCardFilter.value.indexOf(id)
+  if (index === -1) msiCardFilter.value.push(id)
+  else msiCardFilter.value.splice(index, 1)
+}
+
+function toggleMsiOwner(id: number) {
+  const index = msiOwnerFilter.value.indexOf(id)
+  if (index === -1) msiOwnerFilter.value.push(id)
+  else msiOwnerFilter.value.splice(index, 1)
 }
 
 function projectionPaymentCountLabel(count: number) {
@@ -2635,6 +2707,10 @@ function categoryIconComponent(icon?: string | null) {
             <span>Esperado</span>
             <b>{{ money(selectedCategory.expected_cents, settings.currency) }}</b>
           </article>
+          <article>
+            <span>Flujo mensual</span>
+            <b>{{ money(selectedCategory.monthly_flow_cents, settings.currency) }}</b>
+          </article>
           <article v-if="selectedCategory.budget_behavior === 'monthly_reset'">
             <span>Excedentes</span>
             <b>{{ selectedCategory.overspend_count }}</b>
@@ -2656,6 +2732,17 @@ function categoryIconComponent(icon?: string | null) {
           ></span>
           <span v-if="selectedCategory.is_overspent" class="meter-overflow"></span>
         </div>
+      </section>
+
+      <section v-if="selectedCategory.live_windows?.length" class="live-windows">
+        <h3>Consumo vivo por ventana</h3>
+        <article v-for="win in selectedCategory.live_windows" :key="`${win.kind}-${win.account_id ?? 'mes'}`">
+          <div>
+            <b>{{ win.kind === 'card' ? (win.account_name ?? 'Tarjeta') : 'Del mes' }}</b>
+            <small>{{ win.start }} → {{ win.end }}</small>
+          </div>
+          <strong>{{ money(win.spent_cents, settings.currency) }}</strong>
+        </article>
       </section>
 
       <div class="section-title-row">
@@ -2736,7 +2823,7 @@ function categoryIconComponent(icon?: string | null) {
               >
                 <span>
                   <small>{{ cycleRelativeLabel(cycle) }}</small>
-                  <strong>{{ formatPeriodLabel(cycle.start, cycle.end) }}</strong>
+                  <strong>{{ formatMonthLabel(cycle.start) }}</strong>
                 </span>
                 <b v-if="cycle.value === activeBudgetPeriod.start">Activo</b>
               </button>
@@ -3543,35 +3630,53 @@ function categoryIconComponent(icon?: string | null) {
           </article>
         </div>
 
-        <section v-if="creditCardPaymentSummary" class="credit-card-payment-panel" aria-label="Pago para no generar intereses">
+        <section v-if="creditCardPaymentSummary" class="credit-card-payment-panel" aria-label="Estado de cuenta por tarjeta">
           <div class="credit-card-payment-header">
             <div>
-              <span>Pago para no generar intereses</span>
-              <small>Compras registradas + compras a meses del ciclo</small>
+              <span>Por pagar (ciclos cerrados)</span>
+              <small>Suma de estados de cuenta ya cortados</small>
             </div>
-            <strong>{{ money(creditCardInterestFreeTotal, settings.currency) }}</strong>
+            <strong>{{ money(cardPaymentDueTotal, settings.currency) }}</strong>
           </div>
-          <div v-if="creditCardPaymentCards.length" class="credit-card-payment-list">
+
+          <div v-if="cardPaymentOwners.length" class="card-owner-groups">
             <article
-              v-for="card in creditCardPaymentCards"
-              :key="card.account_id"
-              class="credit-card-payment-row"
-              :style="{ '--account-color': card.account_color }"
+              v-for="(owner, ownerIndex) in cardPaymentOwners"
+              :key="owner.member?.id ?? `sin-titular-${ownerIndex}`"
+              class="card-owner-group"
             >
-              <div>
-                <b>{{ card.account_name }}</b>
-                <span>{{ money(card.interest_free_payment_cents, settings.currency) }}</span>
-              </div>
-              <dl>
-                <div>
-                  <dt>Compras del ciclo</dt>
-                  <dd>{{ money(card.cycle_purchase_cents, settings.currency) }}</dd>
+              <header>
+                <b>{{ owner.member?.name ?? 'Sin titular' }}</b>
+                <strong>{{ money(owner.total_cents, settings.currency) }}</strong>
+              </header>
+              <article
+                v-for="card in cardPaymentCards.filter((item) => owner.account_ids.includes(item.account_id))"
+                :key="card.account_id"
+                class="credit-card-payment-row"
+                :style="{ '--account-color': card.account_color }"
+              >
+                <div class="card-row-head">
+                  <b>{{ card.account_name }}</b>
                 </div>
-                <div>
-                  <dt>A meses del ciclo</dt>
-                  <dd>{{ money(card.installment_cents, settings.currency) }}</dd>
-                </div>
-              </dl>
+                <dl class="card-cycle-block closed">
+                  <div class="card-cycle-title">
+                    <dt>Por pagar</dt>
+                    <dd>{{ money(card.closed_cycle.total_cents, settings.currency) }}</dd>
+                  </div>
+                  <div><dt>Corte</dt><dd>{{ card.closed_cycle.start }} → {{ card.closed_cycle.end }}</dd></div>
+                  <div><dt>Compras</dt><dd>{{ money(card.closed_cycle.purchase_cents, settings.currency) }}</dd></div>
+                  <div><dt>Mensualidad MSI</dt><dd>{{ money(card.closed_cycle.installment_cents, settings.currency) }}</dd></div>
+                </dl>
+                <dl class="card-cycle-block open">
+                  <div class="card-cycle-title">
+                    <dt>Acumulando</dt>
+                    <dd>{{ money(card.open_cycle.total_cents, settings.currency) }}</dd>
+                  </div>
+                  <div><dt>Corte</dt><dd>{{ card.open_cycle.start }} → {{ card.open_cycle.end }}</dd></div>
+                  <div><dt>Compras</dt><dd>{{ money(card.open_cycle.purchase_cents, settings.currency) }}</dd></div>
+                  <div><dt>Mensualidad MSI</dt><dd>{{ money(card.open_cycle.installment_cents, settings.currency) }}</dd></div>
+                </dl>
+              </article>
             </article>
           </div>
           <p v-else class="empty-line">No hay tarjetas de crédito activas.</p>
@@ -3824,17 +3929,41 @@ function categoryIconComponent(icon?: string | null) {
             </div>
             <strong>{{ money(registeredInstallmentTotal, settings.currency) }}</strong>
           </div>
+          <div v-if="msiCardChips.length || msiOwnerChips.length" class="msi-filters" role="group" aria-label="Filtrar proyección">
+            <button
+              v-for="chip in msiCardChips"
+              :key="`card-${chip.id}`"
+              type="button"
+              class="filter-chip"
+              :class="{ active: msiCardFilter.includes(chip.id) }"
+              @click="toggleMsiCard(chip.id)"
+            >
+              {{ chip.name }}
+            </button>
+            <button
+              v-for="chip in msiOwnerChips"
+              :key="`owner-${chip.id}`"
+              type="button"
+              class="filter-chip owner"
+              :class="{ active: msiOwnerFilter.includes(chip.id) }"
+              :style="{ '--chip-color': chip.color }"
+              @click="toggleMsiOwner(chip.id)"
+            >
+              {{ chip.name }}
+            </button>
+            <span v-if="msiFocusedCardId != null" class="filter-hint">Columnas por ciclos reales de la tarjeta</span>
+          </div>
           <div class="projection-timeline">
             <article
-              v-for="(period, index) in projectedInstallmentPeriods"
+              v-for="(period, index) in projectionPeriodsView"
               :key="period.key"
               :class="{ empty: !period.total_cents, settled: projectionSettledPlans(period).length }"
             >
               <div class="projection-period-main">
-                <span>{{ projectionPeriodLabel(index) }}</span>
+                <span>{{ projectionColumnLabel(period, index) }}</span>
                 <strong>{{ money(period.total_cents, settings.currency) }}</strong>
               </div>
-              <div class="projection-period-bar" :aria-label="`${money(period.total_cents, settings.currency)} en ${projectionPeriodLabel(index)}`">
+              <div class="projection-period-bar" :aria-label="`${money(period.total_cents, settings.currency)} en ${projectionColumnLabel(period, index)}`">
                 <i :style="{ width: projectionBarWidth(period.total_cents) }"></i>
               </div>
               <div class="projection-period-meta">
@@ -3985,7 +4114,6 @@ function categoryIconComponent(icon?: string | null) {
             <p>Configura solo lo que necesitas para que el presupuesto familiar calcule bien.</p>
           </div>
           <div class="cutoff-row">
-            <label>Día de corte<input v-model.number="settingsForm.cutoff_day" type="number" min="1" max="28" /></label>
             <label>
               Zona horaria
               <input v-model="settingsForm.time_zone" list="time-zone-options" autocomplete="off" required />
@@ -3994,10 +4122,10 @@ function categoryIconComponent(icon?: string | null) {
               <option v-for="timeZone in timeZoneOptions" :key="timeZone" :value="timeZone" />
             </datalist>
             <button class="primary blue-primary" type="submit" :disabled="actionBusy === 'settings'">
-              {{ actionBusy === 'settings' ? 'Guardando...' : 'Guardar calendario' }}
+              {{ actionBusy === 'settings' ? 'Guardando...' : 'Guardar zona horaria' }}
             </button>
           </div>
-          <small>Hoy en la app: {{ appToday }} · el periodo usa días del 1 al 28 para evitar meses raros.</small>
+          <small>Hoy en la app: {{ appToday }} · el presupuesto corre por mes calendario. El corte de cada tarjeta se configura en la cuenta.</small>
         </form>
 
         <div class="setup-tabs" aria-label="Secciones de ajustes">
@@ -4026,7 +4154,12 @@ function categoryIconComponent(icon?: string | null) {
                 <span :style="{ background: account.color }"></span>
                 <div>
                   <b>{{ account.name }}</b>
-                  <small>{{ accountTypeLabel(account.account_type) }} · {{ account.is_active ? 'activa' : 'inactiva' }}</small>
+                  <small>
+                    {{ accountTypeLabel(account.account_type) }}
+                    <template v-if="account.cutoff_day"> · corte {{ account.cutoff_day }}</template>
+                    <template v-if="account.owner_name"> · {{ account.owner_name }}</template>
+                    · {{ account.is_active ? 'activa' : 'inactiva' }}
+                  </small>
                 </div>
                 <strong>{{ money(account.current_balance_cents, settings.currency) }}</strong>
                 <button class="secondary" type="button" @click="editAccount(account)">Editar</button>
@@ -4048,6 +4181,19 @@ function categoryIconComponent(icon?: string | null) {
                 <button type="button" :class="{ active: accountForm.account_type === 'debit_card' }" @click="accountForm.account_type = 'debit_card'">Tarjeta débito</button>
                 <button type="button" :class="{ active: accountForm.account_type === 'credit_card' }" @click="accountForm.account_type = 'credit_card'">Tarjeta crédito</button>
               </div>
+              <label v-if="accountForm.account_type === 'credit_card'">
+                Día de corte
+                <input v-model.number="accountForm.cutoff_day" type="number" min="1" max="28" required />
+              </label>
+              <label>
+                Titular
+                <select v-model="accountForm.owner">
+                  <option value="">Sin titular</option>
+                  <option v-for="member in members.filter((item) => item.is_active)" :key="member.id" :value="String(member.id)">
+                    {{ member.name }}
+                  </option>
+                </select>
+              </label>
               <label v-if="accountForm.account_type === 'cash'">
                 Saldo inicial visible para efectivo
                 <input v-model="accountForm.initial_balance" inputmode="decimal" placeholder="$ 2,000.00" />

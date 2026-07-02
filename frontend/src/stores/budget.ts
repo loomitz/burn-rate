@@ -102,7 +102,6 @@ export interface InvitationAcceptPayload {
 
 export interface Settings {
   currency: string
-  cutoff_day: number
   time_zone: string
 }
 
@@ -151,6 +150,9 @@ export interface Account {
   color: string
   initial_balance_cents: number
   current_balance_cents: number
+  cutoff_day: number | null
+  owner: number | null
+  owner_name: string | null
   is_active: boolean
 }
 
@@ -252,7 +254,8 @@ export interface InstallmentProjectionPlan {
   monthly_amounts?: Array<{ period_end: string; amount_cents: number }>
   category: { id: number; name: string; scope: string; budget_treatment?: BudgetTreatment; color: string; icon: string }
   member: { id: number; name: string; color: string } | null
-  account: { id: number; name: string } | null
+  account: { id: number; name: string; account_type?: string; color?: string } | null
+  owner: { id: number; name: string; color: string } | null
 }
 
 export interface InstallmentProjectionPeriod {
@@ -261,29 +264,47 @@ export interface InstallmentProjectionPeriod {
   end: string
   label: string
   total_cents: number
+  cards: Array<{ account_id: number | null; account_name: string | null; total_cents: number }>
   plans: InstallmentProjectionPlan[]
 }
 
 export interface InstallmentProjection {
+  mode: 'month' | 'cycle'
+  account: { id: number; name: string; color: string; cutoff_day: number; owner: { id: number; name: string; color: string } | null } | null
   current_period_key: string
   current_total_cents: number
   periods: InstallmentProjectionPeriod[]
   plans: InstallmentProjectionPlan[]
 }
 
+export interface CardCycleBlock {
+  start: string
+  end: string
+  purchase_cents: number
+  installment_cents: number
+  total_cents: number
+}
+
 export interface CreditCardPaymentSummaryCard {
   account_id: number
   account_name: string
   account_color: string
-  cycle_purchase_cents: number
-  installment_cents: number
-  interest_free_payment_cents: number
+  owner: { id: number; name: string; color: string } | null
+  closed_cycle: CardCycleBlock
+  open_cycle: CardCycleBlock
+}
+
+export interface CreditCardPaymentOwner {
+  member: { id: number; name: string; color: string } | null
+  total_cents: number
+  account_ids: number[]
 }
 
 export interface CreditCardPaymentSummary {
-  period: { start: string; end: string }
   total_cents: number
+  as_of: string
   cards: CreditCardPaymentSummaryCard[]
+  owners: CreditCardPaymentOwner[]
 }
 
 export interface BudgetCategorySummary {
@@ -301,6 +322,15 @@ export interface BudgetCategorySummary {
   available_cents: number
   real_available_cents: number
   projected_available_cents: number
+  monthly_flow_cents: number
+  live_windows: Array<{
+    kind: 'month' | 'card'
+    account_id: number | null
+    account_name: string | null
+    start: string
+    end: string
+    spent_cents: number
+  }>
   carryover_real_balance_cents: number | null
   carryover_start_date: string | null
   percent_available: number
@@ -323,6 +353,7 @@ export interface BudgetSummary {
     expected_cents: number
     available_cents: number
     real_available_cents?: number
+    monthly_flow_cents?: number
   }
   breakdown: Array<{
     key: string
@@ -333,6 +364,7 @@ export interface BudgetSummary {
     expected_cents: number
     available_cents: number
     real_available_cents?: number
+    monthly_flow_cents?: number
   }>
   categories: BudgetCategorySummary[]
 }
@@ -364,7 +396,7 @@ export interface OffBudgetSummary {
 type AuthResponse = { user?: User | null } | null
 type InvitationListResponse = Invitation[] | { invitations?: Invitation[]; results?: Invitation[] }
 
-const DEFAULT_SETTINGS: Settings = { currency: 'MXN', cutoff_day: 20, time_zone: 'America/Mexico_City' }
+const DEFAULT_SETTINGS: Settings = { currency: 'MXN', time_zone: 'America/Mexico_City' }
 const AUTH_REFRESH_THROTTLE_MS = 2 * 60 * 1000
 
 export function dateInTimeZone(timeZone: string, value = new Date()) {
@@ -662,10 +694,12 @@ export const useBudgetStore = defineStore('budget', () => {
     expectedCharges.value = data.charges
   }
 
-  async function fetchInstallmentProjection(date: string) {
-    installmentProjection.value = await apiRequest<InstallmentProjection>(
-      `/api/installments/projection/?date=${date}&months=6`,
-    )
+  async function fetchInstallmentProjection(date: string, accountId?: number) {
+    const params = new URLSearchParams({ date, months: '6' })
+    if (accountId !== undefined) params.set('account', String(accountId))
+    const data = await apiRequest<InstallmentProjection>(`/api/installments/projection/?${params}`)
+    if (accountId === undefined) installmentProjection.value = data
+    return data
   }
 
   async function saveSettings(payload: Settings) {

@@ -18,8 +18,8 @@ function emptyOffBudgetSummary() {
   }
 }
 
-function settingsResponse(overrides: Partial<{ currency: string; cutoff_day: number; time_zone: string }> = {}) {
-  return jsonResponse({ currency: 'MXN', cutoff_day: 20, time_zone: 'America/Mexico_City', ...overrides })
+function settingsResponse(overrides: Partial<{ currency: string; time_zone: string }> = {}) {
+  return jsonResponse({ currency: 'MXN', time_zone: 'America/Mexico_City', ...overrides })
 }
 
 describe('budget store auth flow', () => {
@@ -54,7 +54,7 @@ describe('budget store auth flow', () => {
     vi.stubGlobal('fetch', fetchMock)
   })
 
-  function mockFetchAllResponses(settingsOverrides: Partial<{ currency: string; cutoff_day: number; time_zone: string }> = {}) {
+  function mockFetchAllResponses(settingsOverrides: Partial<{ currency: string; time_zone: string }> = {}) {
     fetchMock.mockResolvedValueOnce(settingsResponse(settingsOverrides))
     fetchMock.mockResolvedValueOnce(jsonResponse({ created_count: 0, transactions: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
@@ -73,7 +73,9 @@ describe('budget store auth flow', () => {
       }),
     )
     fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
-    fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ mode: 'month', account: null, current_period_key: '2026-04', current_total_cents: 0, periods: [], plans: [] }),
+    )
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         period: { start: '2026-04-21', end: '2026-05-20' },
@@ -97,18 +99,19 @@ describe('budget store auth flow', () => {
     )
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
-        period: { start: '2026-04-21', end: '2026-05-20' },
-        total_cents: 300000,
+        total_cents: 230000,
+        as_of: '2026-04-25',
         cards: [
           {
             account_id: 3,
             account_name: 'Tarjeta dorada',
             account_color: '#475569',
-            cycle_purchase_cents: 100000,
-            installment_cents: 200000,
-            interest_free_payment_cents: 300000,
+            owner: { id: 1, name: 'Ana', color: '#b35320' },
+            closed_cycle: { start: '2026-03-21', end: '2026-04-20', purchase_cents: 30000, installment_cents: 200000, total_cents: 230000 },
+            open_cycle: { start: '2026-04-21', end: '2026-05-20', purchase_cents: 50000, installment_cents: 200000, total_cents: 250000 },
           },
         ],
+        owners: [{ member: { id: 1, name: 'Ana', color: '#b35320' }, total_cents: 230000, account_ids: [3] }],
       }),
     )
   }
@@ -265,10 +268,9 @@ describe('budget store auth flow', () => {
       }),
     )
     fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
-    fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ mode: 'month', account: null, current_period_key: '2026-04', current_total_cents: 0, periods: [], plans: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse(emptyOffBudgetSummary()))
-    fetchMock.mockResolvedValueOnce(jsonResponse({ period: { start: '2026-04-21', end: '2026-05-20' }, total_cents: 0, cards: [] }))
-    fetchMock.mockResolvedValueOnce(jsonResponse({ period: { start: '2026-04-21', end: '2026-05-20' }, total_cents: 0, cards: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ total_cents: 0, as_of: '2026-04-25', cards: [], owners: [] }))
 
     const store = useBudgetStore()
 
@@ -281,7 +283,7 @@ describe('budget store auth flow', () => {
     })
   })
 
-  it('loads the credit card interest-free payment summary with household data', async () => {
+  it('loads the card payments summary with household data', async () => {
     mockFetchAllResponses()
 
     const store = useBudgetStore()
@@ -292,8 +294,50 @@ describe('budget store auth flow', () => {
     expect(fetchMock.mock.calls.map((call) => call[0])).toContain(
       '/api/credit-cards/interest-free-payment/?date=2026-04-25',
     )
-    expect(store.creditCardPaymentSummary?.total_cents).toBe(300000)
-    expect(store.creditCardPaymentSummary?.cards[0].interest_free_payment_cents).toBe(300000)
+    expect(store.creditCardPaymentSummary?.total_cents).toBe(230000)
+    expect(store.creditCardPaymentSummary?.cards[0].closed_cycle.total_cents).toBe(230000)
+    expect(store.creditCardPaymentSummary?.cards[0].open_cycle.total_cents).toBe(250000)
+    expect(store.creditCardPaymentSummary?.owners[0].member?.name).toBe('Ana')
+    expect(store.creditCardPaymentSummary?.cards[0]).not.toHaveProperty('interest_free_payment_cents')
+  })
+
+  it('fetches a card-focused installment projection with the account query param', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        mode: 'cycle',
+        account: { id: 3, name: 'Tarjeta dorada', color: '#475569', cutoff_day: 20, owner: null },
+        current_period_key: '2026-05-20',
+        current_total_cents: 300000,
+        periods: [
+          {
+            key: '2026-05-20',
+            start: '2026-04-21',
+            end: '2026-05-20',
+            label: '2026-04-21 / 2026-05-20',
+            total_cents: 300000,
+            cards: [{ account_id: 3, account_name: 'Tarjeta dorada', total_cents: 300000 }],
+            plans: [],
+          },
+        ],
+        plans: [],
+      }),
+    )
+    const store = useBudgetStore()
+    const projection = await store.fetchInstallmentProjection('2026-04-25', 3)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/installments/projection/?date=2026-04-25&months=6&account=3')
+    expect(projection.mode).toBe('cycle')
+    expect(projection.account?.cutoff_day).toBe(20)
+    expect(store.installmentProjection).toBeNull()
+  })
+
+  it('fetches the month-mode projection and stores it when no account is given', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ mode: 'month', account: null, current_period_key: '2026-04', current_total_cents: 0, periods: [], plans: [] }),
+    )
+    const store = useBudgetStore()
+    await store.fetchInstallmentProjection('2026-04-25')
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/installments/projection/?date=2026-04-25&months=6')
+    expect(store.installmentProjection?.mode).toBe('month')
   })
 
   it('loads the off-budget summary with household data', async () => {
@@ -384,9 +428,9 @@ describe('budget store auth flow', () => {
       }),
     )
     fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
-    fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ mode: 'month', account: null, current_period_key: '2026-04', current_total_cents: 0, periods: [], plans: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse(emptyOffBudgetSummary()))
-    fetchMock.mockResolvedValueOnce(jsonResponse({ period: { start: '2026-04-21', end: '2026-05-20' }, total_cents: 0, cards: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ total_cents: 0, as_of: '2026-04-25', cards: [], owners: [] }))
 
     const store = useBudgetStore()
 
@@ -529,9 +573,9 @@ describe('budget store auth flow', () => {
       }),
     )
     fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
-    fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ mode: 'month', account: null, current_period_key: '2026-04', current_total_cents: 0, periods: [], plans: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse(emptyOffBudgetSummary()))
-    fetchMock.mockResolvedValueOnce(jsonResponse({ period: { start: '2026-04-21', end: '2026-05-20' }, total_cents: 0, cards: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ total_cents: 0, as_of: '2026-04-25', cards: [], owners: [] }))
 
     const store = useBudgetStore()
 
@@ -575,9 +619,9 @@ describe('budget store auth flow', () => {
       }),
     )
     fetchMock.mockResolvedValueOnce(jsonResponse({ charges: [] }))
-    fetchMock.mockResolvedValueOnce(jsonResponse({ periods: [], plans: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ mode: 'month', account: null, current_period_key: '2026-04', current_total_cents: 0, periods: [], plans: [] }))
     fetchMock.mockResolvedValueOnce(jsonResponse(emptyOffBudgetSummary()))
-    fetchMock.mockResolvedValueOnce(jsonResponse({ period: { start: '2026-04-21', end: '2026-05-20' }, total_cents: 0, cards: [] }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ total_cents: 0, as_of: '2026-04-25', cards: [], owners: [] }))
 
     const store = useBudgetStore()
 
