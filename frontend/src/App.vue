@@ -19,6 +19,13 @@ import {
 } from './stores/budget'
 import { apiErrorMessage, centsFromInput, money } from './stores/api'
 import { categoryIcons, getCategoryIcon } from './categoryIcons'
+import {
+  cardPaymentOwnerGroupsFrom,
+  computeProjectionPeriodsView,
+  focusedMsiCardId,
+  msiCardChipsFrom,
+  msiOwnerChipsFrom,
+} from './creditCardViews'
 import burnRateLogoDark from './assets/brand/burn-rate-logo-dark.svg'
 import burnRateLogoLight from './assets/brand/burn-rate-logo-light.svg'
 
@@ -765,35 +772,18 @@ const recurringCommitmentRows = computed(() =>
     charge: recurringExpectedCharges.value.find((charge) => charge.source_id === expense.id),
   })),
 )
-const msiFocusedCardId = computed(() => (msiCardFilter.value.length === 1 ? msiCardFilter.value[0] : null))
-const msiCardChips = computed(() => {
-  const map = new Map<number, { id: number; name: string }>()
-  for (const period of installmentProjection.value?.periods ?? [])
-    for (const card of period.cards)
-      if (card.account_id != null) map.set(card.account_id, { id: card.account_id, name: card.account_name ?? 'Cuenta' })
-  return [...map.values()]
-})
-const msiOwnerChips = computed(() => {
-  const map = new Map<number, { id: number; name: string; color: string }>()
-  for (const plan of installmentProjection.value?.plans ?? []) if (plan.owner) map.set(plan.owner.id, plan.owner)
-  return [...map.values()]
-})
+const msiFocusedCardId = computed(() => focusedMsiCardId(msiCardFilter.value))
+const msiCardChips = computed(() => msiCardChipsFrom(installmentProjection.value))
+const msiOwnerChips = computed(() => msiOwnerChipsFrom(installmentProjection.value))
 const activeProjection = computed(() => focusedProjection.value ?? installmentProjection.value)
-const projectionPeriodsView = computed<InstallmentProjectionPeriod[]>(() => {
-  if (focusedProjection.value) return focusedProjection.value.periods
-  const periods = installmentProjection.value?.periods ?? []
-  const cardSet = new Set(msiCardFilter.value)
-  const ownerSet = new Set(msiOwnerFilter.value)
-  if (!cardSet.size && !ownerSet.size) return periods
-  return periods.map((period) => {
-    const plans = period.plans.filter(
-      (plan) =>
-        (!cardSet.size || (plan.account && cardSet.has(plan.account.id))) &&
-        (!ownerSet.size || (plan.owner && ownerSet.has(plan.owner.id))),
-    )
-    return { ...period, plans, total_cents: plans.reduce((total, plan) => total + (plan.amount_cents ?? 0), 0) }
-  })
-})
+const projectionPeriodsView = computed<InstallmentProjectionPeriod[]>(() =>
+  computeProjectionPeriodsView(
+    installmentProjection.value,
+    focusedProjection.value,
+    msiCardFilter.value,
+    msiOwnerFilter.value,
+  ),
+)
 const projectedInstallmentPlans = computed(() =>
   (installmentProjection.value?.plans ?? []).filter((plan) => plan.projected_total_cents || plan.current_amount_cents),
 )
@@ -803,9 +793,8 @@ const currentInstallmentTotal = computed(() => activeProjection.value?.current_t
 const registeredInstallmentTotal = computed(() =>
   projectedInstallmentPlans.value.reduce((total, plan) => total + plan.total_amount_cents, 0),
 )
-const cardPaymentCards = computed(() => creditCardPaymentSummary.value?.cards ?? [])
 const cardPaymentDueTotal = computed(() => creditCardPaymentSummary.value?.total_cents ?? 0)
-const cardPaymentOwners = computed(() => creditCardPaymentSummary.value?.owners ?? [])
+const cardPaymentOwnerGroups = computed(() => cardPaymentOwnerGroupsFrom(creditCardPaymentSummary.value))
 const offBudgetTotal = computed(() => offBudgetSummary.value?.totals.total_cents ?? 0)
 const currentCommitmentTotal = computed(() => recurringExpectedTotal.value + currentInstallmentTotal.value)
 const maxProjectedPeriodTotal = computed(() =>
@@ -3639,18 +3628,18 @@ function categoryIconComponent(icon?: string | null) {
             <strong>{{ money(cardPaymentDueTotal, settings.currency) }}</strong>
           </div>
 
-          <div v-if="cardPaymentOwners.length" class="card-owner-groups">
+          <div v-if="cardPaymentOwnerGroups.length" class="card-owner-groups">
             <article
-              v-for="(owner, ownerIndex) in cardPaymentOwners"
-              :key="owner.member?.id ?? `sin-titular-${ownerIndex}`"
+              v-for="(group, ownerIndex) in cardPaymentOwnerGroups"
+              :key="group.owner.member?.id ?? `sin-titular-${ownerIndex}`"
               class="card-owner-group"
             >
               <header>
-                <b>{{ owner.member?.name ?? 'Sin titular' }}</b>
-                <strong>{{ money(owner.total_cents, settings.currency) }}</strong>
+                <b>{{ group.owner.member?.name ?? 'Sin titular' }}</b>
+                <strong>{{ money(group.owner.total_cents, settings.currency) }}</strong>
               </header>
               <article
-                v-for="card in cardPaymentCards.filter((item) => owner.account_ids.includes(item.account_id))"
+                v-for="card in group.cards"
                 :key="card.account_id"
                 class="credit-card-payment-row"
                 :style="{ '--account-color': card.account_color }"
