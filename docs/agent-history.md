@@ -1,5 +1,33 @@
 # Agent History
 
+## 2026-07-01 - Implementación issue #2: mes calendario, cortes por tarjeta y ventana viva
+
+Objetivo: implementar por completo el issue #2 (run desatendido multi-agente) sobre la rama `feat/issue-2-calendar-card-cycles`, en cinco fases con tests primero y revisión adversarial final. Los commits quedan locales, sin push ni PR, para verificación del usuario.
+
+Archivos tocados:
+
+- `backend/budget/models.py`: `Account.cutoff_day` (solo tarjetas de crédito, 1–28) y `Account.owner` (miembro del hogar, solo metadato); eliminado `AppSettings.cutoff_day`.
+- Migraciones `0017` (campos + backfill de corte 20 desde el valor global), `0018` (remueve `cutoff_day` global) y `0019` (recálculo histórico: re-ancla `CategoryBudgetChange` y descartes a meses calendario, purga asignaciones y sobregiros para regeneración lazy).
+- `backend/budget/services.py`: `get_budget_period` pasa a mes calendario; nuevos `card_cycle`, `previous_card_cycle`, `last_closed_card_cycle`, `card_cycle_for_offset`; `build_budget_summary` reescrito al modelo de ventana viva (liberación al corte, foto de cierre para meses no actuales, carryover excluido, `monthly_flow_cents` y `live_windows`); sobregiro = disponible vivo negativo con registro al cierre; MSI numeradas por offset de ciclos de su tarjeta (sin tarjeta: mes calendario); `card_payments_summary` con ciclo cerrado (por pagar) y abierto (acumulando) por tarjeta, total global y titulares; `installment_projection` con modos mes/ciclo (`?account=`); descartes anclados por ciclo de tarjeta.
+- `backend/budget/views.py`, `serializers.py`, `admin.py`, `seed_demo_data.py`: superficies de los cambios anteriores.
+- `frontend/src/stores/budget.ts` y `App.vue`: el cliente elimina su algoritmo de corte y navega meses calendario; Ajustes sin corte global; formulario de cuenta con corte y titular; panel de Pagos nuevo (por pagar/acumulando/titulares); vista MSI con filtros por tarjeta(s) y titular y columnas por ciclo real al enfocar una tarjeta; detalle de categoría con flujo mensual y reparto del consumo vivo; día de cargo default 21 → 1.
+- `docs/domain.md`, `docs/api.md`, `README.md`: documentación al modelo y contratos nuevos.
+
+Decisiones ante ambigüedad (fuente: entrevista 2026-07-01 / ADR-0002 / conservadoras):
+
+- Foto de cierre = recálculo determinístico as-of último día del mes (sin snapshot en DB); `CategoryOverspendRecord` sigue materializado para la historia de sobregiros.
+- Tarjetas existentes migran con el valor global anterior de corte (20); corte obligatorio en la API para tarjetas nuevas, con auto-relleno 20 en creaciones ORM.
+- Descartes históricos se re-anclan al día 1 del mes calendario de su periodo viejo (el hogar corregirá bordes a mano, según ADR).
+- El ciclo abierto en Pagos incluye su mensualidad MSI proyectada para anticipar el próximo estado de cuenta.
+- Nota de transición: planes MSI con tarjeta y fecha de inicio posterior al corte muestran su mensualidad un mes calendario después que antes (ahora cuadra con el estado de cuenta del banco).
+
+Verificaciones locales:
+
+- Backend: `USE_SQLITE_FOR_TESTS=true uv run pytest` pasó con 127 tests (87 antes del run); `manage.py check` limpio; `makemigrations --check --dry-run` sin pendientes. Incluye el escenario canónico por API (Comida $10,000: tarjeta $5,000 + efectivo $2,000 → disponible $3,000; liberación al corte → $8,000; $4,000 post-corte → $4,000; agosto vivo → $6,000; foto de julio inmutable en $4,000).
+- Frontend: `pnpm test` pasó con 29 tests (27 antes); `pnpm build` (vue-tsc estricto) pasó.
+- Revisión adversarial (agente independiente): confirmó liberación exacta el día del corte (cortes 1, 20 y 28), ciclos contiguos en febrero bisiesto y no bisiesto, cruce de mes, carryover intacto al corte, MSI sin tarjeta y foto de cierre inmutable (26 asserts ejecutados). Encontró y se corrigió un crash con corte 28 en años no bisiestos (`add_months` sobre ciclo que arranca el 29 de marzo) y se blindó el dedupe de descartes de la migración 0019.
+- Migraciones 0017–0019 aplicadas sobre la base de desarrollo real (respaldo previo en `pre-issue-2-backup.sql`); `scripts/dev-services.sh restart` levantó db/Django/Vite; `curl` a `/healthz/` y `:5173` respondió 200 y los servicios de dominio sirven la forma nueva sobre los datos reales.
+
 ## 2026-07-01 - Sesión de dominio: mes calendario, cortes por tarjeta y ventana viva
 
 Objetivo: definir con el usuario, mediante entrevista de diseño, el nuevo modelo presupuestal para múltiples tarjetas de crédito con distinto titular y distinto día de corte. Sesión de documentación; sin cambios de código.
