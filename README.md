@@ -184,7 +184,7 @@ docker compose up -d
 3. En una base limpia y lista, la pantalla inicial detecta que no hay usuarios y muestra la bienvenida.
 4. El primer usuario registra email, nombre completo, nombre visible y password.
 5. Ese usuario queda como `staff` y `superuser`, se crea su miembro de casa y la sesión inicia automáticamente.
-6. En `Ajustes` se configuran cuentas, personas, categorías y día de corte.
+6. En `Ajustes` se configuran cuentas, personas, categorías y zona horaria. El presupuesto corre por mes calendario; cada tarjeta de crédito define su propio día de corte (1–28) y un titular opcional al crearla o editarla.
 7. Desde `Ajustes > Invitar`, el admin puede invitar a una segunda persona.
 8. La invitación captura solo email y si la persona será admin.
 9. Si hay SMTP y `BURN_RATE_PUBLIC_URL`, se envía email. Si no, el admin copia el link y lo manda por el canal que prefiera.
