@@ -246,9 +246,14 @@ def record_category_budget_change(
         period_start=effective_period.start,
         period_end=effective_period.end,
     )
-    BudgetAllocation.objects.filter(category=category, period_start__gte=effective_period.start).update(
-        amount_cents=amount_cents
-    )
+    # Recalcula cada allocation afectada respetando la historia completa de cambios:
+    # un cambio programado a futuro sigue gobernando sus periodos aunque este cambio
+    # tenga efecto anterior. Pocas allocations por categoria; el loop es suficiente.
+    for allocation in BudgetAllocation.objects.filter(category=category, period_start__gte=effective_period.start):
+        amount = budget_amount_for_period(category, BudgetPeriod(start=allocation.period_start, end=allocation.period_end))
+        if allocation.amount_cents != amount:
+            allocation.amount_cents = amount
+            allocation.save(update_fields=["amount_cents"])
     return change
 
 
@@ -656,7 +661,9 @@ def installment_charge_for_period(plan: InstallmentPlan, period: BudgetPeriod) -
         return None
 
     payment_number = installment_payment_number_for_period(plan, period)
-    if payment_number < 1 or payment_number > plan.installments_count:
+    # Los pagos anteriores a first_payment_number ocurrieron antes de start_date (plan
+    # heredado) y por definicion no se rastrean: no generan mensualidad fantasma.
+    if payment_number < plan.first_payment_number or payment_number > plan.installments_count:
         return None
 
     amount = plan.payment_amount_cents(payment_number)
@@ -839,9 +846,11 @@ def installment_projection(value: date | None = None, months_ahead: int = 6, acc
 
 
 def _card_cycle_block(card: Account, cycle: BudgetPeriod) -> dict:
+    # SPEND_TYPES: los expected_charge en tarjeta consumen la ventana viva, asi que
+    # Pagos debe cobrarlos al corte igual que la ventana los libera.
     purchase_cents = (
         Transaction.objects.filter(
-            transaction_type=Transaction.TransactionType.EXPENSE,
+            transaction_type__in=SPEND_TYPES,
             account_id=card.id,
             installment_plan__isnull=True,
             date__gte=cycle.start,
