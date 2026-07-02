@@ -27,15 +27,17 @@ def recalc(apps, schema_editor):
     CategoryOverspendRecord.objects.all().delete()
 
     # D2: re-anclar dismissals al dia 1 del mes calendario; dedupe contra el unique
-    # (source_type, source_id, period_start) conservando el mas viejo.
-    seen = set()
-    for dismissal in ExpectedChargeDismissal.objects.all().order_by("id").iterator():
+    # (source_type, source_id, period_start) conservando el mas viejo. Dos pasadas para
+    # que un re-anclaje nunca choque con una fila que ya ocupa la clave destino.
+    keepers = {}
+    for dismissal in ExpectedChargeDismissal.objects.all().order_by("id"):
         start, _ = _month_bounds(dismissal.period_start)
         key = (dismissal.source_type, dismissal.source_id, start)
-        if key in seen:
+        if key in keepers:
             dismissal.delete()
-            continue
-        seen.add(key)
+        else:
+            keepers[key] = dismissal
+    for (_, _, start), dismissal in keepers.items():
         if dismissal.period_start != start:
             dismissal.period_start = start
             dismissal.save(update_fields=["period_start"])

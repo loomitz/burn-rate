@@ -709,7 +709,10 @@ def installment_projection(value: date | None = None, months_ahead: int = 6, acc
     plans_queryset = InstallmentPlan.objects.filter(
         is_active=True,
         start_date__lte=columns[-1].end,
-        end_date__gte=add_months(columns[0].start, -1),
+        # Cota amplia segura: primer día del mes anterior al inicio de la primera columna.
+        # columns[0].start puede ser día 29 (corte 28 tras febrero) y add_months directo
+        # sobre esa fecha revienta en años no bisiestos; la precisión la da payment_number.
+        end_date__gte=add_months(month_start(columns[0].start), -1),
     ).select_related("category", "category__member", "account", "account__owner")
     if account is not None:
         plans_queryset = plans_queryset.filter(account_id=account.id)
@@ -853,7 +856,8 @@ def _card_cycle_block(card: Account, cycle: BudgetPeriod) -> dict:
         is_active=True,
         account_id=card.id,
         start_date__lte=cycle.end,
-        end_date__gte=add_months(cycle.start, -1),
+        # Cota amplia segura (cycle.start puede ser día 29 con corte 28 tras febrero).
+        end_date__gte=add_months(month_start(cycle.start), -1),
     ).exclude(category__budget_treatment=Category.BudgetTreatment.TRACKING_ONLY)
     for plan in plans:
         payment = installment_charge_for_period(plan, cycle)

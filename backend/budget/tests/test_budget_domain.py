@@ -1113,3 +1113,50 @@ class CardPaymentsSummaryTests(TestCase):
         self.assertEqual(owners["Ana"]["account_ids"], [self.oro.id])
         self.assertEqual(owners["Beto"]["total_cents"], 20000)
         self.assertEqual(owners["Beto"]["account_ids"], [self.azul.id])
+
+    def test_cutoff_28_card_survives_non_leap_february_boundary(self):
+        card28 = Account.objects.create(
+            name="Corte 28", account_type=Account.AccountType.CREDIT_CARD, cutoff_day=28
+        )
+        InstallmentPlan.objects.create(
+            name="Refri",
+            merchant="Liverpool",
+            total_amount_cents=600000,
+            category=self.category,
+            account=card28,
+            start_date=date(2026, 2, 10),
+            end_date=date(2026, 4, 10),
+        )
+        self.expense(15000, date(2026, 4, 10), card28)
+
+        open_view = card_payments_summary(date(2026, 4, 10))
+        closed_view = card_payments_summary(date(2026, 5, 10))
+
+        row_open = next(row for row in open_view["cards"] if row["account_id"] == card28.id)
+        self.assertEqual(row_open["open_cycle"]["start"], date(2026, 3, 29))
+        self.assertEqual(row_open["open_cycle"]["end"], date(2026, 4, 28))
+        self.assertEqual(row_open["open_cycle"]["purchase_cents"], 15000)
+        row_closed = next(row for row in closed_view["cards"] if row["account_id"] == card28.id)
+        self.assertEqual(row_closed["closed_cycle"]["start"], date(2026, 3, 29))
+        self.assertEqual(row_closed["closed_cycle"]["end"], date(2026, 4, 28))
+
+    def test_cutoff_28_cycle_projection_survives_non_leap_february_boundary(self):
+        card28 = Account.objects.create(
+            name="Corte 28", account_type=Account.AccountType.CREDIT_CARD, cutoff_day=28
+        )
+        InstallmentPlan.objects.create(
+            name="Refri",
+            merchant="Liverpool",
+            total_amount_cents=600000,
+            category=self.category,
+            account=card28,
+            start_date=date(2026, 2, 10),
+            end_date=date(2026, 4, 10),
+        )
+
+        projection = installment_projection(date(2026, 4, 10), months_ahead=3, account_id=card28.id)
+
+        self.assertEqual(projection["mode"], "cycle")
+        self.assertEqual(projection["periods"][0]["start"], date(2026, 3, 29))
+        self.assertEqual(projection["periods"][0]["end"], date(2026, 4, 28))
+        self.assertEqual(projection["periods"][0]["total_cents"], 200000)
