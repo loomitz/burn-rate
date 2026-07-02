@@ -1,5 +1,35 @@
 # Agent History
 
+## 2026-07-02 - Re-run de verificación issue #2: cobertura, revisión adversarial y cierre de huecos
+
+Objetivo: re-ejecución del prompt del run desatendido del issue #2 sobre la implementación ya commiteada, como pase integral de verificación: auditoría de cobertura contra el PRD, segunda revisión adversarial del dominio y corrección de lo confirmado. Commits locales, sin push ni PR.
+
+Archivos tocados:
+
+- `frontend/src/creditCardViews.ts` (nuevo): lógica pura extraída de `App.vue` para los filtros de la vista MSI (chips por tarjeta/titular, enfoque por ciclo) y la agrupación del panel de Pagos por titular; `App.vue` solo delega, sin cambio de comportamiento.
+- `frontend/src/creditCardViews.test.ts` (nuevo): 15 tests que cierran el hueco de la Testing Decision de frontend (filtros MSI y presentación de Pagos).
+- `backend/budget/services.py`: tres correcciones de la revisión adversarial (ver abajo).
+- `backend/budget/tests/test_budget_domain.py`: 5 tests de regresión de las correcciones.
+
+Auditoría de cobertura (agente independiente): 26/26 user stories y 13/13 Implementation Decisions verificadas con evidencia de código y test; escenario canónico pasando en la costura API; gate documental completo (`domain.md`, `api.md`, README sin corte global); Out of Scope respetado. Único hueco real: la costura de tests frontend de filtros MSI/Pagos, cerrado en este run.
+
+Revisión adversarial (agente independiente, 46 tests adversariales; 42 hipótesis resistieron, incluido barrido de 30,688 ciclos 2026–2028, liberación día a día con cortes 1/20/28, febrero bisiesto y no bisiesto, foto de cierre inmutable desde 5 "hoys" y conciliación Pagos↔ventana viva). Refutaciones confirmadas y corregidas:
+
+- MSI fantasma: plan con tarjeta capturado después del corte con `first_payment_number > 1` inyectaba la mensualidad `first−1` en el mes de captura; `installment_charge_for_period` ahora rechaza pagos anteriores a `first_payment_number`.
+- Un cambio de presupuesto con fecha efectiva anterior aplastaba cambios ya programados a futuro; las allocations afectadas ahora se recalculan respetando la historia de `CategoryBudgetChange`.
+- Las transacciones `expected_charge` en tarjeta consumían la ventana viva pero el ciclo cerrado de Pagos no las cobraba; `_card_cycle_block` usa `SPEND_TYPES` para que lo cobrado iguale lo liberado.
+
+Decisiones:
+
+- Tarjeta inactiva fuera del panel de Pagos pero consumiendo su ventana hasta el corte: se mantiene tal cual — es decisión deliberada del run anterior, documentada en `docs/domain.md`.
+- El flujo mensual se muestra en el detalle de categoría y no en el grid del Plan: lectura razonable de la story 9; sin cambio.
+
+Verificaciones locales:
+
+- Backend: `USE_SQLITE_FOR_TESTS=true uv run pytest` pasó con 132 tests (127 al inicio del re-run); `manage.py check` limpio; `makemigrations --check --dry-run` sin pendientes.
+- Frontend: `pnpm test` pasó con 44 tests (29 al inicio); `pnpm build` (vue-tsc estricto) pasó.
+- `scripts/dev-services.sh restart` levantó db/Django/Vite; `/healthz/` y `:5173` respondieron 200; smoke sobre la DB real: summary con mes calendario + `live_windows`/`monthly_flow_cents`, Pagos por tarjeta con total y titulares, proyección MSI en modo mes.
+
 ## 2026-07-01 - Implementación issue #2: mes calendario, cortes por tarjeta y ventana viva
 
 Objetivo: implementar por completo el issue #2 (run desatendido multi-agente) sobre la rama `feat/issue-2-calendar-card-cycles`, en cinco fases con tests primero y revisión adversarial final. Los commits quedan locales, sin push ni PR, para verificación del usuario.
