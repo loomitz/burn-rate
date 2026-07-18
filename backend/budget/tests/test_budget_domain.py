@@ -25,6 +25,7 @@ from budget.services import (
     build_budget_summary,
     card_cycle,
     card_cycle_for_offset,
+    card_payment_dates,
     card_payments_summary,
     confirm_expected_charge,
     expected_charges_for_period,
@@ -138,6 +139,24 @@ class CardCycleTests(TestCase):
 
         self.assertEqual(cycle.start, date(2026, 5, 21))
         self.assertEqual(cycle.end, date(2026, 6, 20))
+
+    def test_payment_dates_use_the_first_due_day_after_cutoff_and_keep_three_day_margin(self):
+        dates = card_payment_dates(card_cycle(20, date(2026, 4, 20)), 10)
+
+        self.assertEqual(dates.payment_due_date, date(2026, 5, 10))
+        self.assertEqual(dates.safe_payment_date, date(2026, 5, 7))
+
+    def test_payment_dates_can_fall_in_the_same_month_as_cutoff(self):
+        dates = card_payment_dates(card_cycle(5, date(2026, 4, 5)), 25)
+
+        self.assertEqual(dates.payment_due_date, date(2026, 4, 25))
+        self.assertEqual(dates.safe_payment_date, date(2026, 4, 22))
+
+    def test_payment_due_day_is_clamped_to_short_months_before_subtracting_margin(self):
+        dates = card_payment_dates(card_cycle(20, date(2026, 2, 20)), 31)
+
+        self.assertEqual(dates.payment_due_date, date(2026, 2, 28))
+        self.assertEqual(dates.safe_payment_date, date(2026, 2, 25))
 
 
 class BudgetSummaryTests(TestCase):
@@ -1122,10 +1141,18 @@ class CardPaymentsSummaryTests(TestCase):
         self.ana = HouseholdMember.objects.create(name="Ana", color="#2563eb")
         self.beto = HouseholdMember.objects.create(name="Beto", color="#dc2626")
         self.oro = Account.objects.create(
-            name="Oro", account_type=Account.AccountType.CREDIT_CARD, cutoff_day=20, owner=self.ana
+            name="Oro",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=20,
+            payment_due_day=10,
+            owner=self.ana,
         )
         self.azul = Account.objects.create(
-            name="Azul", account_type=Account.AccountType.CREDIT_CARD, cutoff_day=5, owner=self.beto
+            name="Azul",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=5,
+            payment_due_day=25,
+            owner=self.beto,
         )
         self.category = Category.objects.create(
             name="Compras", scope=Category.Scope.GLOBAL, monthly_budget_cents=500000
@@ -1197,17 +1224,23 @@ class CardPaymentsSummaryTests(TestCase):
         self.assertEqual(oro["closed_cycle"]["purchase_cents"], 30000)
         self.assertEqual(oro["closed_cycle"]["installment_cents"], 200000)
         self.assertEqual(oro["closed_cycle"]["total_cents"], 230000)
+        self.assertEqual(oro["closed_cycle"]["payment_due_date"], date(2026, 5, 10))
+        self.assertEqual(oro["closed_cycle"]["safe_payment_date"], date(2026, 5, 7))
         self.assertEqual(oro["open_cycle"]["start"], date(2026, 4, 21))
         self.assertEqual(oro["open_cycle"]["end"], date(2026, 5, 20))
         self.assertEqual(oro["open_cycle"]["purchase_cents"], 50000)
         self.assertEqual(oro["open_cycle"]["installment_cents"], 200000)
         self.assertEqual(oro["open_cycle"]["total_cents"], 250000)
+        self.assertEqual(oro["open_cycle"]["payment_due_date"], date(2026, 6, 10))
+        self.assertEqual(oro["open_cycle"]["safe_payment_date"], date(2026, 6, 7))
         self.assertEqual(oro["owner"]["name"], "Ana")
         azul = rows["Azul"]
         self.assertEqual(azul["closed_cycle"]["start"], date(2026, 4, 6))
         self.assertEqual(azul["closed_cycle"]["end"], date(2026, 5, 5))
         self.assertEqual(azul["closed_cycle"]["purchase_cents"], 20000)
         self.assertEqual(azul["closed_cycle"]["total_cents"], 20000)
+        self.assertEqual(azul["closed_cycle"]["payment_due_date"], date(2026, 5, 25))
+        self.assertEqual(azul["closed_cycle"]["safe_payment_date"], date(2026, 5, 22))
         self.assertEqual(azul["open_cycle"]["purchase_cents"], 40000)
         self.assertEqual(azul["open_cycle"]["total_cents"], 40000)
         owners = {(bucket["member"] or {}).get("name"): bucket for bucket in summary["owners"]}

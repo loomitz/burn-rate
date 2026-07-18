@@ -27,6 +27,7 @@ La instalación objetivo de esta versión es sencilla: un contenedor `app` que s
 - Sesiones autorrenovables por actividad, regreso a pestaña visible y refresco periódico.
 - Categorías mensuales que registran excedentes por ciclo y categorías acumulables con saldo global.
 - Compras a meses con fecha del primer pago, cantidad de meses y redondeo del pago requerido al siguiente peso.
+- Ciclos por tarjeta con día de corte, fecha límite bancaria y pago preventivo 3 días antes.
 - Contenedor único de aplicación con migraciones automáticas al arrancar.
 - PostgreSQL privado dentro de Docker Compose por defecto.
 - Endpoint `/healthz/` para healthcheck del contenedor.
@@ -89,12 +90,12 @@ La base de datos no publica puertos al host por defecto. Solo se expone la aplic
 
 Si vas a instalar desde Docker Hub sin clonar este repositorio, crea un archivo `docker-compose.yml` con este template:
 
-La imagen `loomitz/burnrate:v0.1.23` está publicada para `linux/amd64` y `linux/arm64`.
+La imagen `loomitz/burnrate:v0.1.25` está publicada para `linux/amd64` y `linux/arm64`.
 
 ```yaml
 services:
   app:
-    image: loomitz/burnrate:v0.1.23
+    image: loomitz/burnrate:v0.1.25
     environment:
       DB_NAME: ${DB_NAME:-burn_rate}
       DB_USER: ${DB_USER:-burn_rate}
@@ -184,7 +185,7 @@ docker compose up -d
 3. En una base limpia y lista, la pantalla inicial detecta que no hay usuarios y muestra la bienvenida.
 4. El primer usuario registra email, nombre completo, nombre visible y password.
 5. Ese usuario queda como `staff` y `superuser`, se crea su miembro de casa y la sesión inicia automáticamente.
-6. En `Ajustes` se configuran cuentas, personas, categorías y zona horaria. El presupuesto corre por mes calendario; cada tarjeta de crédito define su propio día de corte (1–28) y un titular opcional al crearla o editarla.
+6. En `Ajustes` se configuran cuentas, personas, categorías y zona horaria. El presupuesto corre por mes calendario; cada tarjeta de crédito define su día de corte (1–28), día límite de pago (1–31) y un titular opcional. Burn Rate agenda el pago 3 días antes del límite bancario.
 7. Desde `Ajustes > Invitar`, el admin puede invitar a una segunda persona.
 8. La invitación captura solo email y si la persona será admin.
 9. Si hay SMTP y `BURN_RATE_PUBLIC_URL`, se envía email. Si no, el admin copia el link y lo manda por el canal que prefiera.
@@ -213,7 +214,7 @@ Si estas variables no están completas, el flujo sigue funcionando y muestra el 
 
 | Variable | Uso |
 | --- | --- |
-| `BURN_RATE_IMAGE` | Imagen usada por el `docker-compose.yml` del repo. Por defecto `loomitz/burnrate:v0.1.23`. |
+| `BURN_RATE_IMAGE` | Imagen usada por el `docker-compose.yml` del repo. Por defecto `loomitz/burnrate:v0.1.25`. |
 | `APP_BIND` | Interfaz del host donde Docker publica la app. Por defecto `127.0.0.1`. |
 | `APP_PORT` | Puerto del host para acceder a Burn Rate. Por defecto `8000`. |
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Credenciales de PostgreSQL. |

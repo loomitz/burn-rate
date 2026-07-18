@@ -151,6 +151,7 @@ export interface Account {
   initial_balance_cents: number
   current_balance_cents: number
   cutoff_day: number | null
+  payment_due_day: number | null
   owner: number | null
   owner_name: string | null
   is_active: boolean
@@ -270,7 +271,7 @@ export interface InstallmentProjectionPeriod {
 
 export interface InstallmentProjection {
   mode: 'month' | 'cycle'
-  account: { id: number; name: string; color: string; cutoff_day: number; owner: { id: number; name: string; color: string } | null } | null
+  account: { id: number; name: string; color: string; cutoff_day: number; payment_due_day: number | null; owner: { id: number; name: string; color: string } | null } | null
   current_period_key: string
   current_total_cents: number
   periods: InstallmentProjectionPeriod[]
@@ -280,6 +281,8 @@ export interface InstallmentProjection {
 export interface CardCycleBlock {
   start: string
   end: string
+  payment_due_date: string | null
+  safe_payment_date: string | null
   purchase_cents: number
   installment_cents: number
   total_cents: number

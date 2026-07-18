@@ -30,7 +30,7 @@ The first UI is optimized for phones:
 - Quick expense capture and a separate recent movements tab inside `Gastos`.
 - Budget cards with available balance, overspend state, and a full-screen click-through expense detail for the active category.
 - `MSI` groups recurring subscription actions, automatic MSI progress, six-period payment projection, liquidation markers, and new commitment creation with a starting payment number for already-running purchases.
-- `Ajustes` is shown to every authenticated user. Admin-only setup controls appear first for cutoff day, accounts, household people, and category setup; the theme preference panel sits just above the large logout action at the bottom of the screen.
+- `Ajustes` is shown to every authenticated user. Admin-only setup controls cover accounts (including each credit card's corte and payment deadline), household people, and category setup; the theme preference panel sits just above the large logout action at the bottom of the screen.
 
 The frontend applies resolved visual theme state at the document root with `data-theme`. The saved theme preference can be `auto`, `light`, or `dark`; `auto` follows `prefers-color-scheme`. The selected preference is persisted in browser `localStorage` under `burn-rate-theme`. Theme styling is centralized in `frontend/src/style.css` through CSS custom properties so the same Vue screens work in both dark and light mode.
 

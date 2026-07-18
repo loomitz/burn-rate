@@ -20,12 +20,12 @@ import {
 import { apiErrorMessage, centsFromInput, money } from './stores/api'
 import { categoryIcons, getCategoryIcon } from './categoryIcons'
 import {
-  cardPaymentOwnerGroupsFrom,
   computeProjectionPeriodsView,
   focusedMsiCardId,
   msiCardChipsFrom,
   msiOwnerChipsFrom,
 } from './creditCardViews'
+import CreditCardsSummary from './components/CreditCardsSummary.vue'
 import burnRateLogoDark from './assets/brand/burn-rate-logo-dark.svg'
 import burnRateLogoLight from './assets/brand/burn-rate-logo-light.svg'
 
@@ -58,9 +58,10 @@ const {
   firstRunClaimRequired,
 } = storeToRefs(store)
 
-type View = 'budget' | 'expenses' | 'commitments' | 'benefits' | 'settings'
+type View = 'budget' | 'expenses' | 'commitments' | 'cards' | 'settings'
 type ExpensesTab = 'capture' | 'feed'
 type CommitmentTab = 'subscriptions' | 'msi'
+type CardsTab = 'summary' | 'benefits'
 type CommitmentKind = 'subscription' | 'msi'
 type CommitmentEditKind = 'recurring' | 'installment'
 type SettingsPanel = 'accounts' | 'people' | 'categories' | 'invitations'
@@ -115,6 +116,7 @@ const AUTH_ACTIVITY_REFRESH_MS = 2 * 60 * 1000
 const view = ref<View>('budget')
 const expensesTab = ref<ExpensesTab>('capture')
 const commitmentTab = ref<CommitmentTab>('subscriptions')
+const cardsTab = ref<CardsTab>('summary')
 const commitmentKind = ref<CommitmentKind>('subscription')
 const settingsPanel = ref<SettingsPanel>('accounts')
 const theme = ref<ThemePreference>(storedThemePreference())
@@ -172,6 +174,7 @@ const accountForm = reactive({
   color: '#7c6250',
   is_active: true,
   cutoff_day: '' as string | number,
+  payment_due_day: '' as string | number,
   owner: '' as string | number,
 })
 const memberForm = reactive({
@@ -240,18 +243,26 @@ const navItems = [
   { id: 'budget', label: 'Presupuesto', icon: 'M3.5 11.5 12 4l8.5 7.5M5.5 10.5V20h13v-9.5M9 20v-6h6v6M9.2 12.2l1.7 1.7 3.7-3.9' },
   { id: 'expenses', label: 'Gastos', icon: 'M4 7h16v10H4zM7 10h5M7 14h3M15 14a2 2 0 100-4 2 2 0 000 4z' },
   { id: 'commitments', label: 'Pagos', icon: 'M4 7a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2zM4 9h16M7 15h4M15 15h2' },
-  { id: 'benefits', label: 'Beneficios', icon: 'M12 3l2.6 5.3 5.9.9-4.2 4.1 1 5.8L12 16.3 6.7 19.1l1-5.8-4.2-4.1 5.9-.9L12 3z' },
+  { id: 'cards', label: 'Tarjetas', icon: 'M4 6h16v12H4zM4 10h16M7 15h4M16 14h1.5' },
   { id: 'settings', label: 'Ajustes', icon: 'M12 15a3 3 0 100-6 3 3 0 000 6ZM19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 008.92 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.24.54.78.9 1.37 1H21a2 2 0 110 4h-.23a1.65 1.65 0 00-1.37 1Z' },
 ] as const
 
-const benefitsLastChecked = '31 mayo 2026'
+const benefitsLastChecked = '18 julio 2026'
 const benefitRecommendations: BenefitRecommendation[] = [
+  {
+    id: 'supermarkets',
+    spend: 'Súper fuera de Costco',
+    product: 'Klar Platino',
+    reason: 'Klar publica 6% de cashback en supermercados participantes como Sam’s Club, Walmart, Chedraui, HEB y La Comer.',
+    note: 'Costco es la excepción: ahí la regla de la casa es usar Banamex Costco aunque dé menos cashback.',
+    accent: '#5f776d',
+  },
   {
     id: 'costco-gas',
     spend: 'Costco y gasolina Costco',
     product: 'Banamex Costco',
-    reason: 'Es la mejor señal directa: 5% en gasolina Costco, 3% en Costco y ahorro por precio de efectivo en sucursal.',
-    note: 'El reembolso es anual; gasolina tiene tope mensual antes de bajar a 3%.',
+    reason: 'Regla de la casa: úsala en Costco aunque su 3% publicado sea menor que el 6% de Klar Platino; en gasolina Costco da 5%.',
+    note: 'Esta preferencia por Banamex Costco es deliberada. En gasolina, el 5% tiene tope mensual antes de bajar a 3%.',
     accent: '#9d5f16',
   },
   {
@@ -275,7 +286,7 @@ const benefitRecommendations: BenefitRecommendation[] = [
     spend: 'Restaurantes y antojos',
     product: 'Santander LikeU crédito',
     reason: 'LikeU crédito da 5% de cashback en restaurantes participantes; supera el 2% anual de Banamex Costco.',
-    note: 'Paga directo en restaurante o app oficial; plataformas intermediarias no aplican.',
+    note: 'Paga directo; si es Grupo Carolo, Arango o Mandala, revisa el 20% del Dining Program de Klar Platino.',
     accent: '#c43131',
   },
   {
@@ -287,8 +298,40 @@ const benefitRecommendations: BenefitRecommendation[] = [
     accent: '#c43131',
   },
   {
+    id: 'subscriptions',
+    spend: 'Streaming y suscripciones',
+    product: 'Klar Platino',
+    reason: 'Publica 6% de cashback en servicios participantes como Netflix, Disney+, Max, Paramount Plus y Spotify.',
+    note: 'Confirma que el cargo llegue directo del comercio participante y revisa el tope mensual de cashback.',
+    accent: '#5f776d',
+  },
+  {
+    id: 'mobility-delivery',
+    spend: 'Uber, Didi y comida a domicilio',
+    product: 'Klar Platino',
+    reason: 'Da 3% de cashback en movilidad y servicios de entrega participantes como Uber, Didi, Rappi y Uber Eats.',
+    note: 'La categoría y el comercio deben aparecer como participantes en las condiciones de Klar.',
+    accent: '#5f776d',
+  },
+  {
+    id: 'klar-travel',
+    spend: 'Viajes en comercios participantes',
+    product: 'Klar Platino',
+    reason: 'Da 3% en aerolíneas y plataformas publicadas por Klar, además de cinco accesos LoungeKey y beneficios Mastercard Platino.',
+    note: 'Para compras grandes compara contra los 3 MSI automáticos y promociones activadas de Amex.',
+    accent: '#5f776d',
+  },
+  {
+    id: 'cinema-vip',
+    spend: 'Cinépolis VIP',
+    product: 'Klar Platino',
+    reason: 'La promoción oficial ofrece 2x1 en boletos VIP al pagar con Klar Platino y aplicar el código vigente.',
+    note: 'Tiene límite de canjes, no se acumula con otras promociones y está publicada hasta el 31 de julio de 2027.',
+    accent: '#5f776d',
+  },
+  {
     id: 'travel-large',
-    spend: 'Viajes y compras grandes',
+    spend: 'Compras grandes y viajes fuera de Klar',
     product: 'Amex Platinum Credit Card',
     reason: 'Conviene por 3 MSI automáticos, Priority Pass, PriceTravel, protecciones y promociones activables.',
     note: 'Confirma aceptación Amex y activa beneficios antes de comprar.',
@@ -299,11 +342,73 @@ const benefitRecommendations: BenefitRecommendation[] = [
     spend: 'Compras generales sin categoría',
     product: 'BBVA Dorada (Oro) o Banamex Costco',
     reason: 'BBVA acumula 11% en Puntos BBVA en compras a una exhibición; Banamex deja 1% anual en el resto.',
-    note: 'Si es supermercado participante, LikeU crédito también puede dar 1% cashback.',
+    note: 'Antes confirma que el gasto no caiga en el cashback de Klar o LikeU ni en una categoría especial de Banamex.',
     accent: '#2f65d7',
   },
 ]
 const benefitProducts: BenefitProduct[] = [
+  {
+    id: 'klar-platino',
+    name: 'Klar Platino',
+    issuer: 'Klar + Mastercard',
+    type: 'Tarjeta de crédito',
+    accent: '#5f776d',
+    bestFor: 'Supermercados fuera de Costco, suscripciones, viajes, movilidad, delivery y beneficios de viaje Mastercard.',
+    quickRule: 'Ponla primero en supermercados participantes excepto Costco y en suscripciones; en viajes, movilidad y delivery úsala cuando su 3% supere otra promoción activa.',
+    bestUses: ['Súper fuera de Costco', 'Suscripciones', 'Viajes', 'Movilidad y delivery', 'Salas VIP', 'Cinépolis VIP'],
+    benefits: [
+      {
+        label: 'Supermercados',
+        value: '6%',
+        detail: 'Klar incluye Costco, pero la regla de la casa es usar Banamex Costco ahí. Para el resto: Walmart, Chedraui, HEB, Soriana, La Comer, Sam’s Club y City Market.',
+      },
+      {
+        label: 'Suscripciones',
+        value: '6%',
+        detail: 'Cashback en servicios participantes como Disney+, Netflix, Max, Paramount Plus y Spotify.',
+      },
+      {
+        label: 'Viajes',
+        value: '3%',
+        detail: 'Cashback en aerolíneas y plataformas participantes como Aeroméxico, Viva, Volaris, Booking, Expedia y Airbnb.',
+      },
+      {
+        label: 'Telecom, movilidad y delivery',
+        value: '3%',
+        detail: 'Aplica en comercios participantes como Telcel, Telmex, Izzi, Uber, Didi, Rappi y Uber Eats.',
+      },
+      {
+        label: 'Salas VIP',
+        value: '5 accesos',
+        detail: 'Cinco accesos LoungeKey; Klar publica un cobro de $35 USD por persona para visitas adicionales.',
+      },
+      {
+        label: 'Cinépolis VIP',
+        value: '2x1',
+        detail: 'Código 6HDE8FU35JF46M8I en app o web de Cinépolis; sujeto a canjes disponibles y vigencia publicada.',
+      },
+      {
+        label: 'Mastercard Platino',
+        value: '20%',
+        detail: 'Dining Program en grupos participantes, concierge, Elite Valet, Priceless Cities y protecciones de precio, garantía y compras.',
+      },
+    ],
+    watchOut: 'El cashback tiene tope de $3,000 MXN al mes. La anualidad es de $1,500 MXN más IVA; Klar publica exención con $60,000 MXN de gasto en los primeros tres meses del primer año y $200,000 MXN en el año previo a partir del segundo.',
+    sources: [
+      {
+        label: 'Klar Platino: beneficios y condiciones',
+        url: 'https://www.klar.mx/platino',
+      },
+      {
+        label: 'Costos y CAT Klar Platino',
+        url: 'https://www.klar.mx/cat',
+      },
+      {
+        label: '2x1 Cinépolis con Klar',
+        url: 'https://www.klar.mx/post/beneficios-de-klar-platino-2x1-en-cinepolis-y-mas-con-mastercard',
+      },
+    ],
+  },
   {
     id: 'banamex-costco',
     name: 'Banamex Costco',
@@ -311,7 +416,7 @@ const benefitProducts: BenefitProduct[] = [
     type: 'Tarjeta de crédito',
     accent: '#9d5f16',
     bestFor: 'Costco, gasolina Costco, educación, restaurantes, streaming, TV e internet.',
-    quickRule: 'Úsala cuando el gasto cae en sus categorías de reembolso. Evita agregadores si quieres conservar la categoría.',
+    quickRule: 'Úsala siempre en Costco y gasolina Costco, aunque Klar publique más cashback para compras de tienda. Evita agregadores para conservar la categoría.',
     bestUses: ['Costco', 'Gasolina Costco', 'Educación', 'Restaurantes', 'Streaming e internet'],
     benefits: [
       {
@@ -327,7 +432,7 @@ const benefitProducts: BenefitProduct[] = [
       {
         label: 'Costco',
         value: '3%',
-        detail: 'Tiendas Costco México, Costco Estados Unidos y costco.com.mx.',
+        detail: 'Tiendas Costco México, Costco Estados Unidos y costco.com.mx. Es la tarjeta preferida de la casa aunque Klar publique 6%.',
       },
       {
         label: 'Casa digital',
@@ -793,8 +898,6 @@ const currentInstallmentTotal = computed(() => activeProjection.value?.current_t
 const registeredInstallmentTotal = computed(() =>
   projectedInstallmentPlans.value.reduce((total, plan) => total + plan.total_amount_cents, 0),
 )
-const cardPaymentDueTotal = computed(() => creditCardPaymentSummary.value?.total_cents ?? 0)
-const cardPaymentOwnerGroups = computed(() => cardPaymentOwnerGroupsFrom(creditCardPaymentSummary.value))
 const offBudgetTotal = computed(() => offBudgetSummary.value?.totals.total_cents ?? 0)
 const currentCommitmentTotal = computed(() => recurringExpectedTotal.value + currentInstallmentTotal.value)
 const maxProjectedPeriodTotal = computed(() =>
@@ -1618,8 +1721,13 @@ async function submitAccount() {
   }
   const isCredit = accountForm.account_type === 'credit_card'
   const cutoffDay = isCredit ? Math.min(28, Math.max(1, Number(accountForm.cutoff_day) || 0)) : null
+  const paymentDueDay = isCredit ? Math.min(31, Math.max(1, Number(accountForm.payment_due_day) || 0)) : null
   if (isCredit && !cutoffDay) {
     showNotice('Las tarjetas de crédito necesitan un día de corte (1–28).', 'error')
+    return
+  }
+  if (isCredit && !paymentDueDay) {
+    showNotice('Las tarjetas de crédito necesitan un día límite de pago (1–31).', 'error')
     return
   }
   await runAction('account', editingAccountId.value ? 'Cuenta actualizada.' : 'Cuenta guardada para la casa.', async () => {
@@ -1630,6 +1738,7 @@ async function submitAccount() {
       color: accountForm.color,
       is_active: accountForm.is_active,
       cutoff_day: cutoffDay,
+      payment_due_day: paymentDueDay,
       owner: accountForm.owner ? Number(accountForm.owner) : null,
     }
     if (editingAccountId.value) {
@@ -1650,6 +1759,7 @@ function editAccount(account: Account) {
   accountForm.color = account.color || '#7c6250'
   accountForm.is_active = account.is_active
   accountForm.cutoff_day = account.cutoff_day ?? ''
+  accountForm.payment_due_day = account.payment_due_day ?? ''
   accountForm.owner = account.owner ?? ''
 }
 
@@ -1662,6 +1772,7 @@ function resetAccountForm() {
   accountForm.color = '#7c6250'
   accountForm.is_active = true
   accountForm.cutoff_day = ''
+  accountForm.payment_due_day = ''
   accountForm.owner = ''
 }
 
@@ -3598,10 +3709,10 @@ function categoryIconComponent(icon?: string | null) {
         <header class="mobile-header commitments-header">
           <div>
             <span>Burn Rate</span>
-            <h1>Pagos del mes</h1>
+            <h1>Pagos planeados</h1>
             <small class="commitment-inline-summary">
               <b>{{ money(currentCommitmentTotal, settings.currency) }}</b>
-              <em>{{ activeRecurringExpenses.length }} mensuales · {{ projectedInstallmentPlans.length }} a meses</em>
+              <em>por venir este mes · {{ activeRecurringExpenses.length }} mensuales · {{ projectedInstallmentPlans.length }} a meses</em>
             </small>
           </div>
         </header>
@@ -3618,58 +3729,6 @@ function categoryIconComponent(icon?: string | null) {
             <small>{{ projectedInstallmentPlans.length }} compras a meses activas</small>
           </article>
         </div>
-
-        <section v-if="creditCardPaymentSummary" class="credit-card-payment-panel" aria-label="Estado de cuenta por tarjeta">
-          <div class="credit-card-payment-header">
-            <div>
-              <span>Por pagar (ciclos cerrados)</span>
-              <small>Suma de estados de cuenta ya cortados</small>
-            </div>
-            <strong>{{ money(cardPaymentDueTotal, settings.currency) }}</strong>
-          </div>
-
-          <div v-if="cardPaymentOwnerGroups.length" class="card-owner-groups">
-            <article
-              v-for="(group, ownerIndex) in cardPaymentOwnerGroups"
-              :key="group.owner.member?.id ?? `sin-titular-${ownerIndex}`"
-              class="card-owner-group"
-            >
-              <header>
-                <b>{{ group.owner.member?.name ?? 'Sin titular' }}</b>
-                <strong>{{ money(group.owner.total_cents, settings.currency) }}</strong>
-              </header>
-              <article
-                v-for="card in group.cards"
-                :key="card.account_id"
-                class="credit-card-payment-row"
-                :style="{ '--account-color': card.account_color }"
-              >
-                <div class="card-row-head">
-                  <b>{{ card.account_name }}</b>
-                </div>
-                <dl class="card-cycle-block closed">
-                  <div class="card-cycle-title">
-                    <dt>Por pagar</dt>
-                    <dd>{{ money(card.closed_cycle.total_cents, settings.currency) }}</dd>
-                  </div>
-                  <div><dt>Corte</dt><dd>{{ card.closed_cycle.start }} → {{ card.closed_cycle.end }}</dd></div>
-                  <div><dt>Compras</dt><dd>{{ money(card.closed_cycle.purchase_cents, settings.currency) }}</dd></div>
-                  <div><dt>Mensualidad MSI</dt><dd>{{ money(card.closed_cycle.installment_cents, settings.currency) }}</dd></div>
-                </dl>
-                <dl class="card-cycle-block open">
-                  <div class="card-cycle-title">
-                    <dt>Acumulando</dt>
-                    <dd>{{ money(card.open_cycle.total_cents, settings.currency) }}</dd>
-                  </div>
-                  <div><dt>Corte</dt><dd>{{ card.open_cycle.start }} → {{ card.open_cycle.end }}</dd></div>
-                  <div><dt>Compras</dt><dd>{{ money(card.open_cycle.purchase_cents, settings.currency) }}</dd></div>
-                  <div><dt>Mensualidad MSI</dt><dd>{{ money(card.open_cycle.installment_cents, settings.currency) }}</dd></div>
-                </dl>
-              </article>
-            </article>
-          </div>
-          <p v-else class="empty-line">No hay tarjetas de crédito activas.</p>
-        </section>
 
         <div class="segmented">
           <button :class="{ active: commitmentTab === 'subscriptions' }" type="button" @click="commitmentTab = 'subscriptions'">Mensuales</button>
@@ -3965,12 +4024,27 @@ function categoryIconComponent(icon?: string | null) {
       </template>
     </section>
 
+    <CreditCardsSummary
+      v-if="view === 'cards' && cardsTab === 'summary'"
+      :summary="creditCardPaymentSummary"
+      :currency="settings.currency"
+      :inert="iconGalleryOpen || undefined"
+      :aria-hidden="iconGalleryOpen ? 'true' : undefined"
+      @open-benefits="cardsTab = 'benefits'"
+      @open-settings="selectView('settings')"
+    />
+
     <section
-      v-if="view === 'benefits'"
+      v-if="view === 'cards' && cardsTab === 'benefits'"
       class="screen benefits-screen"
       :inert="iconGalleryOpen || undefined"
       :aria-hidden="iconGalleryOpen ? 'true' : undefined"
     >
+      <div class="segmented cards-view-tabs" role="tablist" aria-label="Secciones de tarjetas">
+        <button type="button" role="tab" aria-selected="false" @click="cardsTab = 'summary'">Resumen</button>
+        <button class="active" type="button" role="tab" aria-selected="true">Beneficios</button>
+      </div>
+
       <header class="mobile-header benefits-header">
         <div>
           <span>Burn Rate</span>
@@ -4146,6 +4220,8 @@ function categoryIconComponent(icon?: string | null) {
                   <small>
                     {{ accountTypeLabel(account.account_type) }}
                     <template v-if="account.cutoff_day"> · corte {{ account.cutoff_day }}</template>
+                    <template v-if="account.payment_due_day"> · límite {{ account.payment_due_day }}</template>
+                    <template v-else-if="account.account_type === 'credit_card'"> · límite pendiente</template>
                     <template v-if="account.owner_name"> · {{ account.owner_name }}</template>
                     · {{ account.is_active ? 'activa' : 'inactiva' }}
                   </small>
@@ -4173,6 +4249,11 @@ function categoryIconComponent(icon?: string | null) {
               <label v-if="accountForm.account_type === 'credit_card'">
                 Día de corte
                 <input v-model.number="accountForm.cutoff_day" type="number" min="1" max="28" required />
+              </label>
+              <label v-if="accountForm.account_type === 'credit_card'">
+                Día límite de pago
+                <input v-model.number="accountForm.payment_due_day" type="number" min="1" max="31" required />
+                <small class="field-hint">Burn Rate marcará el pago 3 días antes para conservar margen.</small>
               </label>
               <label>
                 Titular

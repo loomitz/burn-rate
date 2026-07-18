@@ -561,6 +561,7 @@ class AccountSerializer(serializers.ModelSerializer):
             "initial_balance_cents",
             "current_balance_cents",
             "cutoff_day",
+            "payment_due_day",
             "owner",
             "owner_name",
             "is_active",
@@ -577,6 +578,7 @@ class AccountSerializer(serializers.ModelSerializer):
                 {"initial_balance_cents": "Solo las cuentas de efectivo pueden tener saldo inicial."}
             )
         cutoff_day = attrs.get("cutoff_day", getattr(self.instance, "cutoff_day", None))
+        payment_due_day = attrs.get("payment_due_day", getattr(self.instance, "payment_due_day", None))
         if account_type == Account.AccountType.CREDIT_CARD:
             if cutoff_day is None:
                 raise serializers.ValidationError(
@@ -586,9 +588,22 @@ class AccountSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"cutoff_day": "El dia de corte debe estar entre 1 y 28."}
                 )
+            is_legacy_credit_card = self.instance is not None and self.instance.account_type == Account.AccountType.CREDIT_CARD
+            if payment_due_day is None and not is_legacy_credit_card:
+                raise serializers.ValidationError(
+                    {"payment_due_day": "Las tarjetas de credito necesitan un dia limite de pago."}
+                )
+            if payment_due_day is not None and (payment_due_day < 1 or payment_due_day > 31):
+                raise serializers.ValidationError(
+                    {"payment_due_day": "El dia limite de pago debe estar entre 1 y 31."}
+                )
         elif cutoff_day is not None:
             raise serializers.ValidationError(
                 {"cutoff_day": "Solo las tarjetas de credito pueden tener dia de corte."}
+            )
+        if account_type != Account.AccountType.CREDIT_CARD and payment_due_day is not None:
+            raise serializers.ValidationError(
+                {"payment_due_day": "Solo las tarjetas de credito pueden tener dia limite de pago."}
             )
         return attrs
 

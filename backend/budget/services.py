@@ -22,12 +22,19 @@ from .timezones import app_localdate
 
 
 SPEND_TYPES = [Transaction.TransactionType.EXPENSE, Transaction.TransactionType.EXPECTED_CHARGE]
+PAYMENT_SAFETY_DAYS = 3
 
 
 @dataclass(frozen=True)
 class BudgetPeriod:
     start: date
     end: date
+
+
+@dataclass(frozen=True)
+class CardPaymentDates:
+    payment_due_date: date
+    safe_payment_date: date
 
 
 @dataclass(frozen=True)
@@ -188,6 +195,24 @@ def card_cycle_for_offset(cutoff_day: int, value: date, offset: int) -> BudgetPe
     """Ciclo a `offset` ciclos del que contiene `value` (offset de ciclos == offset de meses)."""
     base = card_cycle(cutoff_day, value)
     return card_cycle(cutoff_day, add_months(base.end, offset))
+
+
+def card_payment_dates(cycle: BudgetPeriod, payment_due_day: int) -> CardPaymentDates:
+    """Resolve el primer limite posterior al corte y el pago preventivo tres dias antes."""
+    if not 1 <= payment_due_day <= 31:
+        raise ValueError("payment_due_day must be between 1 and 31")
+
+    due_day = min(payment_due_day, monthrange(cycle.end.year, cycle.end.month)[1])
+    payment_due_date = date(cycle.end.year, cycle.end.month, due_day)
+    if payment_due_date <= cycle.end:
+        next_month = add_months(cycle.end.replace(day=1), 1)
+        due_day = min(payment_due_day, monthrange(next_month.year, next_month.month)[1])
+        payment_due_date = date(next_month.year, next_month.month, due_day)
+
+    return CardPaymentDates(
+        payment_due_date=payment_due_date,
+        safe_payment_date=payment_due_date - timedelta(days=PAYMENT_SAFETY_DAYS),
+    )
 
 
 def budget_amount_for_period(category: Category, period: BudgetPeriod) -> int:
@@ -832,6 +857,7 @@ def installment_projection(value: date | None = None, months_ahead: int = 6, acc
             "name": account.name,
             "color": account.color,
             "cutoff_day": account.cutoff_day,
+            "payment_due_day": account.payment_due_day,
             "owner": None if owner is None else {"id": owner.id, "name": owner.name, "color": owner.color},
         }
 
@@ -873,9 +899,12 @@ def _card_cycle_block(card: Account, cycle: BudgetPeriod) -> dict:
         if payment is None:
             continue
         installment_cents += payment["amount_cents"]
+    payment_dates = card_payment_dates(cycle, card.payment_due_day) if card.payment_due_day is not None else None
     return {
         "start": cycle.start,
         "end": cycle.end,
+        "payment_due_date": None if payment_dates is None else payment_dates.payment_due_date,
+        "safe_payment_date": None if payment_dates is None else payment_dates.safe_payment_date,
         "purchase_cents": purchase_cents,
         "installment_cents": installment_cents,
         "total_cents": purchase_cents + installment_cents,

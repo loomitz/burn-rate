@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  cardPaymentDistributionFrom,
   cardPaymentOwnerGroupsFrom,
+  cardPortfolioStatsFrom,
   computeProjectionPeriodsView,
   focusedMsiCardId,
   msiCardChipsFrom,
@@ -82,7 +84,7 @@ function monthProjection(): InstallmentProjection {
 function cycleProjection(): InstallmentProjection {
   return {
     mode: 'cycle',
-    account: { id: 3, name: 'Tarjeta oro', color: '#eab308', cutoff_day: 20, owner: ana },
+    account: { id: 3, name: 'Tarjeta oro', color: '#eab308', cutoff_day: 20, payment_due_day: 10, owner: ana },
     current_period_key: '2026-05-20',
     current_total_cents: 300000,
     periods: [
@@ -119,16 +121,16 @@ function paymentSummary(): CreditCardPaymentSummary {
         account_name: 'Tarjeta oro',
         account_color: '#eab308',
         owner: ana,
-        closed_cycle: { start: '2026-03-21', end: '2026-04-20', purchase_cents: 30000, installment_cents: 200000, total_cents: 230000 },
-        open_cycle: { start: '2026-04-21', end: '2026-05-20', purchase_cents: 50000, installment_cents: 200000, total_cents: 250000 },
+        closed_cycle: { start: '2026-03-21', end: '2026-04-20', payment_due_date: '2026-05-10', safe_payment_date: '2026-05-07', purchase_cents: 30000, installment_cents: 200000, total_cents: 230000 },
+        open_cycle: { start: '2026-04-21', end: '2026-05-20', payment_due_date: '2026-06-10', safe_payment_date: '2026-06-07', purchase_cents: 50000, installment_cents: 200000, total_cents: 250000 },
       },
       {
         account_id: 4,
         account_name: 'Tarjeta azul',
         account_color: '#475569',
         owner: null,
-        closed_cycle: { start: '2026-04-06', end: '2026-05-05', purchase_cents: 20000, installment_cents: 0, total_cents: 20000 },
-        open_cycle: { start: '2026-05-06', end: '2026-06-05', purchase_cents: 40000, installment_cents: 0, total_cents: 40000 },
+        closed_cycle: { start: '2026-04-06', end: '2026-05-05', payment_due_date: null, safe_payment_date: null, purchase_cents: 20000, installment_cents: 0, total_cents: 20000 },
+        open_cycle: { start: '2026-05-06', end: '2026-06-05', payment_due_date: null, safe_payment_date: null, purchase_cents: 40000, installment_cents: 0, total_cents: 40000 },
       },
     ],
     owners: [
@@ -226,7 +228,16 @@ describe('MSI projection filters', () => {
   })
 })
 
-describe('Credit card payment panel', () => {
+describe('Credit card cycle data', () => {
+  it('keeps the bank deadline and the three-day-safe payment date on each configured cycle', () => {
+    const [oro] = paymentSummary().cards
+
+    expect(oro.closed_cycle.payment_due_date).toBe('2026-05-10')
+    expect(oro.closed_cycle.safe_payment_date).toBe('2026-05-07')
+    expect(oro.open_cycle.payment_due_date).toBe('2026-06-10')
+    expect(oro.open_cycle.safe_payment_date).toBe('2026-06-07')
+  })
+
   it('resolves each card closed cycle "por pagar" as purchases plus MSI installment', () => {
     const [oro, azul] = paymentSummary().cards
 
@@ -284,5 +295,87 @@ describe('Credit card payment panel', () => {
 
   it('returns no groups when there is no summary', () => {
     expect(cardPaymentOwnerGroupsFrom(null)).toEqual([])
+  })
+})
+
+describe('Credit card portfolio summary', () => {
+  it('aggregates closed and open cycles without changing the API source data', () => {
+    const summary = paymentSummary()
+    const snapshot = structuredClone(summary)
+
+    expect(cardPortfolioStatsFrom(summary)).toEqual({
+      card_count: 2,
+      due_total_cents: 250000,
+      accumulating_total_cents: 290000,
+      due_purchase_cents: 50000,
+      due_installment_cents: 200000,
+      accumulating_purchase_cents: 90000,
+      accumulating_installment_cents: 200000,
+      max_cycle_total_cents: 250000,
+      next_payment: {
+        account_id: 3,
+        account_name: 'Tarjeta oro',
+        account_color: '#eab308',
+        cycle: 'closed',
+        total_cents: 230000,
+        safe_payment_date: '2026-05-07',
+        payment_due_date: '2026-05-10',
+      },
+    })
+    expect(summary).toEqual(snapshot)
+  })
+
+  it('builds a closed-cycle distribution with finite percentages', () => {
+    expect(cardPaymentDistributionFrom(paymentSummary())).toEqual([
+      {
+        account_id: 3,
+        account_name: 'Tarjeta oro',
+        account_color: '#eab308',
+        total_cents: 230000,
+        percent: 92,
+      },
+      {
+        account_id: 4,
+        account_name: 'Tarjeta azul',
+        account_color: '#475569',
+        total_cents: 20000,
+        percent: 8,
+      },
+    ])
+  })
+
+  it('keeps unknown payment dates unset and skips zero-value chart slices', () => {
+    const summary = paymentSummary()
+    summary.cards[0].closed_cycle.total_cents = 0
+    summary.cards[0].closed_cycle.purchase_cents = 0
+    summary.cards[0].closed_cycle.installment_cents = 0
+    summary.cards[0].closed_cycle.safe_payment_date = null
+    summary.cards[0].closed_cycle.payment_due_date = null
+    summary.cards[1].closed_cycle.total_cents = 0
+    summary.cards[1].closed_cycle.purchase_cents = 0
+    summary.total_cents = 0
+
+    const stats = cardPortfolioStatsFrom(summary)
+    const distribution = cardPaymentDistributionFrom(summary)
+
+    expect(stats.due_total_cents).toBe(0)
+    expect(stats.next_payment?.cycle).toBe('open')
+    expect(stats.next_payment?.safe_payment_date).toBe('2026-06-07')
+    expect(distribution).toEqual([])
+  })
+
+  it('returns a stable zero state when there is no summary', () => {
+    expect(cardPortfolioStatsFrom(null)).toEqual({
+      card_count: 0,
+      due_total_cents: 0,
+      accumulating_total_cents: 0,
+      due_purchase_cents: 0,
+      due_installment_cents: 0,
+      accumulating_purchase_cents: 0,
+      accumulating_installment_cents: 0,
+      max_cycle_total_cents: 0,
+      next_payment: null,
+    })
+    expect(cardPaymentDistributionFrom(null)).toEqual([])
   })
 })

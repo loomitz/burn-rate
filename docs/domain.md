@@ -22,6 +22,10 @@ With a corte on day `20`:
 
 A card's statement (estado de cuenta) is its closed cycle: the cycle's purchases plus that cycle's MSI mensualidades. It is what must be paid to avoid interest.
 
+Each card also has a bank payment due day (`payment_due_day`, `1`–`31`). For every closed or open cycle, Burn Rate resolves the first occurrence of that day strictly after the corte. If that day does not exist in the target month, it uses the month's last day. The operational payment date is always three calendar days before the bank deadline; both dates remain visible so the safety margin is explicit.
+
+Existing cards created before this field was introduced keep `payment_due_day=null` until an admin configures the real bank deadline; the migration never invents a date.
+
 ## Live Window and Release
 
 A category's budget is consumed by its live window (ventana viva): the set of open spending windows at any moment — the current calendar month for cash/debit/bank spending, plus each credit card's open cycle.
@@ -97,7 +101,7 @@ Allowed account types:
 - `debit_card`
 - `credit_card`
 
-Credit cards require a `cutoff_day` (their corte, `1`–`28`). Any account can have an optional owner (titular): the household member the card or account belongs to. The owner is grouping and filtering metadata only — it never decides which budget an expense consumes; the category does.
+Credit cards require a `cutoff_day` (their corte, `1`–`28`) and new cards require a `payment_due_day` (the bank deadline, `1`–`31`). Existing migrated cards can temporarily return a null payment deadline until configured. Any account can have an optional owner (titular): the household member the card or account belongs to. The owner is grouping and filtering metadata only — it never decides which budget an expense consumes; the category does.
 
 Each active credit card has a derived per-card payments summary with two blocks: the closed cycle (the statement to pay to avoid interest) and the open cycle (what is accumulating toward the next corte). Each block sums the cycle's real purchases paid with that card, excluding transactions linked to installment plans and tracking-only transactions, plus that cycle's MSI mensualidades for active budgeted plans assigned to the same card. Statements can be totaled across cards and grouped by owner. Inactive credit cards are excluded from the payments summary, but their live cycle spending still consumes category budgets until their corte.
 

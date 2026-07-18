@@ -107,8 +107,8 @@ describe('budget store auth flow', () => {
             account_name: 'Tarjeta dorada',
             account_color: '#475569',
             owner: { id: 1, name: 'Ana', color: '#b35320' },
-            closed_cycle: { start: '2026-03-21', end: '2026-04-20', purchase_cents: 30000, installment_cents: 200000, total_cents: 230000 },
-            open_cycle: { start: '2026-04-21', end: '2026-05-20', purchase_cents: 50000, installment_cents: 200000, total_cents: 250000 },
+            closed_cycle: { start: '2026-03-21', end: '2026-04-20', payment_due_date: '2026-05-10', safe_payment_date: '2026-05-07', purchase_cents: 30000, installment_cents: 200000, total_cents: 230000 },
+            open_cycle: { start: '2026-04-21', end: '2026-05-20', payment_due_date: '2026-06-10', safe_payment_date: '2026-06-07', purchase_cents: 50000, installment_cents: 200000, total_cents: 250000 },
           },
         ],
         owners: [{ member: { id: 1, name: 'Ana', color: '#b35320' }, total_cents: 230000, account_ids: [3] }],
@@ -296,6 +296,8 @@ describe('budget store auth flow', () => {
     )
     expect(store.creditCardPaymentSummary?.total_cents).toBe(230000)
     expect(store.creditCardPaymentSummary?.cards[0].closed_cycle.total_cents).toBe(230000)
+    expect(store.creditCardPaymentSummary?.cards[0].closed_cycle.payment_due_date).toBe('2026-05-10')
+    expect(store.creditCardPaymentSummary?.cards[0].closed_cycle.safe_payment_date).toBe('2026-05-07')
     expect(store.creditCardPaymentSummary?.cards[0].open_cycle.total_cents).toBe(250000)
     expect(store.creditCardPaymentSummary?.owners[0].member?.name).toBe('Ana')
     expect(store.creditCardPaymentSummary?.cards[0]).not.toHaveProperty('interest_free_payment_cents')

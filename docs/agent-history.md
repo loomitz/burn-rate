@@ -1,5 +1,62 @@
 # Agent History
 
+## 2026-07-18 - Resumen de tarjetas y publicación Docker Hub v0.1.25
+
+Objetivo: publicar la nueva vista separada de resumen de tarjetas, con gráficos y estado operativo por tarjeta, como una imagen estable multi-arquitectura.
+
+Cambios:
+
+- La vista `Tarjetas > Resumen` concentra distribución del saldo, comparación entre ciclos cortados y abiertos, composición del adeudo y próximas fechas de pago.
+- Actualizado Django de `5.2.14` a `5.2.16`; el lock quedó regenerado para eliminar las ocho vulnerabilidades corregibles reportadas por Docker Scout.
+- Agregado `*.sql` a `.dockerignore` para impedir que respaldos locales entren al contexto enviado a BuildKit.
+- Actualizadas `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para usar `loomitz/burnrate:v0.1.25` como versión estable.
+- Publicadas `v0.1.25` y `latest` para `linux/amd64` y `linux/arm64`, con SBOM y procedencia OCI.
+- Ambas etiquetas apuntan al índice `sha256:2d951a3263f0c6b6d77553874eb6dd1f2a65321c647def95d65ebd4c6fe3b402`; los manifiestos son `sha256:3b075cc22fecb4189ea91991dce65fb2507b188e0b3039042270a15c88180dec` (AMD64) y `sha256:8d129c26c305fcd3fd6b27637a74b7374ab0383f5bff35ba9765400695aa4e77` (ARM64).
+
+Verificaciones:
+
+- Backend: 138 tests pasaron con Django 5.2.16; `manage.py check` quedó limpio y `makemigrations --check --dry-run` no encontró migraciones pendientes.
+- Frontend: 53 tests pasaron y el build de producción terminó correctamente.
+- El smoke local contra PostgreSQL temporal aplicó `budget.0020_account_payment_due_day`, dejó onboarding listo, marcó el contenedor healthy y respondió correctamente en `/healthz/`, `/`, y el asset JavaScript compilado.
+- Las imágenes AMD64 y ARM64 se descargaron con `--pull=always` desde Docker Hub; ambas pasaron `manage.py check` e incluyeron la migración y el frontend compilado.
+- Docker Scout consumió los SBOM publicados y no detectó paquetes con vulnerabilidades corregibles en ninguna arquitectura.
+
+## 2026-07-18 - Publicación Docker Hub v0.1.24
+
+Objetivo: publicar el estado actual de Burn Rate con el presupuesto por mes calendario, ciclos por tarjeta, fecha límite bancaria, pago preventivo y la actualización de Beneficios.
+
+Cambios:
+
+- Actualizadas `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para usar `loomitz/burnrate:v0.1.24` como versión estable.
+- Publicadas en Docker Hub las etiquetas `v0.1.24` y `latest` para `linux/amd64` y `linux/arm64`.
+- Ambas etiquetas apuntan al índice OCI `sha256:1368845ef43035da0effc36c12feaf6cd6bbd469424bf774ea48a41e0b8180b7`; los manifiestos de plataforma son `sha256:e2a72ddf1b3ecac1830f2909520f0282e8b8ffa06b79a34785672f028d0d8d8b` (AMD64) y `sha256:e9bdc30a06fc7536b2e7e1fd47e355eec3d7d65b1e95b1a51328fefabf830ea2` (ARM64).
+
+Verificaciones:
+
+- Backend: 138 tests pasaron; `manage.py check` quedó limpio y `makemigrations --check --dry-run` no encontró migraciones pendientes.
+- Frontend: 45 tests pasaron y el build de producción terminó correctamente.
+- El build local ARM64 pasó `manage.py check` e incluyó la migración `0020_account_payment_due_day.py` y los artefactos compilados del frontend.
+- Las imágenes publicadas se descargaron de Docker Hub con `--pull=always`; tanto ARM64 como AMD64 pasaron `manage.py check`.
+- Docker Scout no encontró vulnerabilidades críticas ni altas. Reportó 6 medias y 2 bajas en Django 5.2.14, todas con corrección disponible en Django 5.2.16; la actualización de dependencia queda pendiente y no se mezcló con esta publicación.
+
+## 2026-07-18 - Fecha límite por tarjeta y pago preventivo
+
+Objetivo: permitir configurar, además del día de corte, el día límite bancario de cada tarjeta y operar siempre con una fecha segura tres días calendario anterior.
+
+Cambios:
+
+- `Account.payment_due_day` (`1`–`31`) y migración aditiva `0020`; las tarjetas existentes conservan `null` para no inventar su fecha real y las tarjetas nuevas la requieren por API/UI.
+- `card_payment_dates` resuelve el primer límite posterior al corte, ajusta días `29`–`31` al último día de meses cortos y resta un margen fijo de tres días.
+- El resumen de Pagos expone `payment_due_date` y `safe_payment_date` para los ciclos cerrado y abierto; la interfaz muestra ambas y prioriza visualmente la fecha preventiva.
+- Ajustes permite crear/editar el día límite y explica el margen; el seed demo usa corte `20` y límite `10`.
+- Contratos de tipos y documentación actualizados para el modelo nuevo.
+
+Verificaciones locales:
+
+- Backend: `USE_SQLITE_FOR_TESTS=true uv run pytest` pasó con 138 tests; `manage.py check` limpio; `makemigrations --check --dry-run` sin pendientes.
+- Frontend: `pnpm test` pasó con 45 tests; `pnpm build` pasó con `vue-tsc` y Vite.
+- La migración `budget.0020_account_payment_due_day` se aplicó correctamente en la base local; `/healthz/` y `http://localhost:5173/` respondieron, y el smoke de corte `2026-07-20` con límite `10` resolvió límite `2026-08-10` y pago seguro `2026-08-07`.
+
 ## 2026-07-02 - Re-run de verificación issue #2: cobertura, revisión adversarial y cierre de huecos
 
 Objetivo: re-ejecución del prompt del run desatendido del issue #2 sobre la implementación ya commiteada, como pase integral de verificación: auditoría de cobertura contra el PRD, segunda revisión adversarial del dominio y corrección de lo confirmado. Commits locales, sin push ni PR.

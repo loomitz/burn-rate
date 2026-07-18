@@ -48,6 +48,12 @@ One installment of a months-without-interest plan. Anchored to its card's cycle:
 A card's closed cycle: its purchases plus that cycle's MSI mensualidades. What must be paid to avoid interest.
 _Avoid_: por pagar (as a model term; UI label only)
 
+**Payment deadline (fecha límite de pago)**:
+The bank's recurring due day for one credit card. Burn Rate resolves the first occurrence after each corte; days `29`–`31` clamp to the last valid day of a shorter month.
+
+**Safe payment date (fecha segura de pago)**:
+The date Burn Rate marks for payment: exactly three calendar days before the bank's payment deadline, preserving a fixed safety margin.
+
 ### People and accounts
 
 **Owner (titular)** *(target)*:

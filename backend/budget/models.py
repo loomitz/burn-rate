@@ -239,6 +239,11 @@ class Account(models.Model):
         blank=True,
         validators=[MinValueValidator(1), MaxValueValidator(28)],
     )
+    payment_due_day = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(31)],
+    )
     owner = models.ForeignKey(
         "HouseholdMember",
         on_delete=models.SET_NULL,
@@ -260,6 +265,7 @@ class Account(models.Model):
                 self.cutoff_day = 20
         else:
             self.cutoff_day = None
+            self.payment_due_day = None
 
     def save(self, *args, **kwargs):
         self.full_clean()

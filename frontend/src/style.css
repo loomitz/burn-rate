@@ -552,9 +552,9 @@ h2 {
   --section-soft: var(--commitments-soft);
 }
 
-.app-shell.view-benefits {
-  --section-accent: var(--benefits-accent);
-  --section-soft: var(--benefits-soft);
+.app-shell.view-cards {
+  --section-accent: var(--commitments-accent);
+  --section-soft: var(--commitments-soft);
 }
 
 .app-shell.view-settings {
@@ -669,6 +669,13 @@ h2 {
   color: var(--ink-soft);
   font-size: var(--font-size-label);
   font-weight: 700;
+}
+
+.form-stack .field-hint {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  line-height: 1.4;
 }
 
 .form-stack .form-field > label {
@@ -2025,6 +2032,11 @@ h2 {
   background: var(--commitments-soft);
 }
 
+.app-shell.view-cards .cards-view-tabs {
+  border-color: color-mix(in srgb, var(--commitments-accent) 18%, var(--menu-border));
+  background: var(--commitments-soft);
+}
+
 .app-shell.view-settings .segmented,
 .app-shell.view-settings .setup-tabs {
   border-color: color-mix(in srgb, var(--settings-accent) 18%, var(--menu-border));
@@ -2752,162 +2764,6 @@ h2 {
   font-size: 18px;
   font-weight: 900;
   white-space: nowrap;
-}
-
-.credit-card-payment-panel {
-  display: grid;
-  gap: var(--space-sm);
-  border: 1px solid color-mix(in srgb, var(--commitments-accent) 16%, var(--line));
-  border-radius: var(--radius-sm);
-  padding: var(--space-sm);
-  background: color-mix(in srgb, var(--surface) 82%, var(--commitments-soft));
-}
-
-.credit-card-payment-header,
-.credit-card-payment-row,
-.credit-card-payment-row dl {
-  display: grid;
-  gap: var(--space-xs);
-}
-
-.credit-card-payment-header {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-}
-
-.credit-card-payment-header > div {
-  display: grid;
-  gap: 2px;
-}
-
-.credit-card-payment-header span,
-.credit-card-payment-row b {
-  color: var(--ink);
-  font-size: var(--font-size-sm);
-  font-weight: 900;
-}
-
-.credit-card-payment-header small,
-.credit-card-payment-row dt {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.credit-card-payment-header strong,
-.credit-card-payment-row span,
-.credit-card-payment-row dd {
-  color: var(--commitments-accent);
-  font-weight: 900;
-  white-space: nowrap;
-}
-
-.credit-card-payment-list {
-  display: grid;
-  gap: var(--space-xs);
-}
-
-.credit-card-payment-row {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--account-color, var(--commitments-accent)) 18%, var(--line));
-  border-radius: 8px;
-  padding: var(--space-xs) var(--space-sm);
-  background: color-mix(in srgb, var(--account-color, var(--commitments-accent)) 5%, var(--surface));
-}
-
-.credit-card-payment-row::before {
-  content: '';
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: 0;
-  width: 4px;
-  border-radius: 0 999px 999px 0;
-  background: var(--account-color, var(--commitments-accent));
-}
-
-.credit-card-payment-row > div {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-xs);
-}
-
-.credit-card-payment-row dl {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 0;
-}
-
-.credit-card-payment-row dt,
-.credit-card-payment-row dd {
-  margin: 0;
-}
-
-.credit-card-payment-row dd {
-  font-size: var(--font-size-sm);
-}
-
-.card-owner-groups {
-  display: grid;
-  gap: var(--space-sm);
-}
-
-.card-owner-group {
-  display: grid;
-  gap: var(--space-xs);
-}
-
-.card-owner-group > header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-xs);
-}
-
-.card-owner-group > header b {
-  color: var(--ink);
-  font-size: var(--font-size-sm);
-  font-weight: 900;
-}
-
-.card-owner-group > header strong {
-  color: var(--commitments-accent);
-  font-weight: 900;
-  white-space: nowrap;
-}
-
-.card-row-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-start;
-}
-
-.credit-card-payment-row .card-cycle-block {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 2px;
-  margin: 0;
-  border-radius: 8px;
-  padding: var(--space-xs);
-  background: color-mix(in srgb, var(--commitments-soft) 40%, var(--surface));
-}
-
-.credit-card-payment-row .card-cycle-block.open {
-  background: color-mix(in srgb, var(--surface) 90%, var(--commitments-soft));
-}
-
-.credit-card-payment-row .card-cycle-block > div {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-xs);
-}
-
-.card-cycle-block .card-cycle-title dt {
-  color: var(--ink);
-  font-weight: 900;
 }
 
 .msi-filters {
@@ -4393,9 +4249,9 @@ input[type='color'] {
   box-shadow: none;
 }
 
-.bottom-nav .nav-benefits.active {
-  color: var(--benefits-accent);
-  background: var(--benefits-soft);
+.bottom-nav .nav-cards.active {
+  color: var(--commitments-accent);
+  background: var(--commitments-soft);
   box-shadow: none;
 }
 
@@ -4872,6 +4728,16 @@ input[type='color'] {
 }
 
 @media (max-width: 420px) {
+  .bottom-nav {
+    gap: 4px;
+    padding: 6px;
+  }
+
+  .bottom-nav button {
+    padding-inline: 2px;
+    font-size: 0.625rem;
+  }
+
   .login-panel {
     grid-template-rows: minmax(260px, 0.8fr) auto;
     gap: var(--space-sm);

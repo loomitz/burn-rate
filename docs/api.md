@@ -104,7 +104,7 @@ Payload:
 { "currency": "MXN", "time_zone": "America/Mexico_City" }
 ```
 
-There is no `cutoff_day` in settings anymore: the budget period is always the calendar month, and each credit card carries its own cutoff day on `/api/accounts/`. `time_zone` is optional on write and must be a valid IANA time zone; it defines the app-local "today" used to resolve budget months and card cycles.
+There is no `cutoff_day` in settings anymore: the budget period is always the calendar month, and each credit card carries its own cutoff and payment due day on `/api/accounts/`. `time_zone` is optional on write and must be a valid IANA time zone; it defines the app-local "today" used to resolve budget months and card cycles.
 
 ## CRUD
 
@@ -179,7 +179,7 @@ Tracking-only categories can be used by expenses, recurring expenses, and instal
 
 `accounts` supports `cash`, `bank`, `debit_card`, and `credit_card`. It also accepts a user-facing `color` and `is_active` flag on create/update. `initial_balance_cents` is only valid for `cash`; non-cash accounts must use `0`.
 
-Credit cards require `cutoff_day` — the card's corte, validated from `1` to `28` to avoid invalid dates in February. Other account types must omit it and always return it as `null`. Any account accepts an optional `owner` (a household member id) for grouping and filtering; it never affects budget attribution:
+New credit cards require `cutoff_day` — the card's corte, validated from `1` to `28` — and `payment_due_day` — the bank deadline, validated from `1` to `31`. Other account types must omit both fields and always return them as `null`. Cards migrated from an earlier version keep `payment_due_day=null` until the real bank deadline is configured; the migration does not guess it. Any account accepts an optional `owner` (a household member id) for grouping and filtering; it never affects budget attribution:
 
 ```json
 {
@@ -187,6 +187,7 @@ Credit cards require `cutoff_day` — the card's corte, validated from `1` to `2
   "account_type": "credit_card",
   "color": "#eab308",
   "cutoff_day": 15,
+  "payment_due_day": 5,
   "owner": 2,
   "is_active": true
 }
@@ -502,6 +503,7 @@ Cycle mode for the card with corte `20` (`?account=3`):
     "name": "Tarjeta oro",
     "color": "#eab308",
     "cutoff_day": 20,
+    "payment_due_day": 10,
     "owner": { "id": 2, "name": "Ana", "color": "#dc2626" }
   },
   "current_period_key": "2026-05-20",
@@ -531,6 +533,8 @@ Period `plans` rows in cycle mode have the same shape as in month mode. The top-
 
 Returns one row per active credit card with two blocks resolved as of `date` (`as_of`, defaults to today): `closed_cycle` — the card's last closed cycle, its statement, what must be paid to avoid interest — and `open_cycle` — the cycle currently accumulating toward the next corte. Each block sums the cycle's purchases registered with that card (excluding transactions linked to installment plans) plus that cycle's MSI mensualidades for plans assigned to the card. Tracking-only transactions and plans are excluded. On the exact day of a corte the cycle is still open; it closes at the end of that day.
 
+When the card has `payment_due_day`, each block includes the real bank `payment_due_date` and `safe_payment_date`, exactly three calendar days earlier. The deadline is the first configured due day after that cycle's corte; days `29`–`31` clamp to the target month's last valid day. Both fields are `null` on migrated cards that still need configuration.
+
 `total_cents` is the sum of every card's `closed_cycle.total_cents`, and `owners` groups those statement totals by card owner (`member` is `null` for cards without owner; named owners sort first).
 
 Response shape:
@@ -548,6 +552,8 @@ Response shape:
       "closed_cycle": {
         "start": "2026-03-21",
         "end": "2026-04-20",
+        "payment_due_date": "2026-05-10",
+        "safe_payment_date": "2026-05-07",
         "purchase_cents": 30000,
         "installment_cents": 200000,
         "total_cents": 230000
@@ -555,6 +561,8 @@ Response shape:
       "open_cycle": {
         "start": "2026-04-21",
         "end": "2026-05-20",
+        "payment_due_date": "2026-06-10",
+        "safe_payment_date": "2026-06-07",
         "purchase_cents": 50000,
         "installment_cents": 200000,
         "total_cents": 250000
@@ -568,6 +576,8 @@ Response shape:
       "closed_cycle": {
         "start": "2026-04-06",
         "end": "2026-05-05",
+        "payment_due_date": null,
+        "safe_payment_date": null,
         "purchase_cents": 20000,
         "installment_cents": 0,
         "total_cents": 20000
@@ -575,6 +585,8 @@ Response shape:
       "open_cycle": {
         "start": "2026-05-06",
         "end": "2026-06-05",
+        "payment_due_date": null,
+        "safe_payment_date": null,
         "purchase_cents": 40000,
         "installment_cents": 0,
         "total_cents": 40000

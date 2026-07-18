@@ -37,8 +37,8 @@ The primary phone navigation follows the product jobs:
 
 - `Plan`: whole-house budget cycles with a compact past-to-current selector, category status cards first, centered progress bars, direct color-matched category expense actions, category expense detail, attention items styled like ledger cards, and a collapsed summary for totals.
 - `Gastos`: guided expense capture with searchable category and account cards, account color cues, reusable merchant/concept suggestions, a final expense details block for merchant, amount, date, and note, and recent movement review.
-- `Cargos`: recurring charges and interest-free installment pressure with separate internal label and merchant, a compact inline cycle total, the payment needed to avoid credit-card interest by card, transparent action buttons for each pending charge, MSI totals by cycle with liquidation markers, and new commitment creation that can start from payment 1 or from an already-running payment number.
-- `Ajustes`: admin-only setup sections for cutoff day, accounts, household people, and categories, then theme for every authenticated user, and a large logout action at the end of the screen.
+- `Cargos`: recurring charges and interest-free installment pressure with separate internal label and merchant, a compact inline cycle total, the payment needed to avoid credit-card interest by card, the bank deadline and three-day-safe payment date, transparent action buttons for each pending charge, MSI totals by cycle with liquidation markers, and new commitment creation that can start from payment 1 or from an already-running payment number.
+- `Ajustes`: admin-only setup sections for accounts (including per-card corte and payment deadline), household people, and categories, then theme for every authenticated user, and a large logout action at the end of the screen.
 
 Accounts are managed from `Ajustes` instead of being a separate main tab because the normal daily flow is planning, spending, and commitment review.
 Logout also lives in `Ajustes` so the daily Plan screen stays focused on budget actions.
@@ -58,14 +58,14 @@ Logout also lives in `Ajustes` so the daily Plan screen stays focused on budget 
 - Manual expenses, income, and transfers.
 - Recurring monthly expenses with merchant/provider tracking.
 - Interest-free installment plans with merchant tracking, including purchases already in progress during initial setup.
-- Monthly budget periods using a configurable cutoff day.
+- Calendar-month budget periods plus per-credit-card statement cycles, corte, and payment deadline.
 
 ## Out of Scope For MVP
 
 - Multi-tenant organizations.
 - Public self-registration outside the first-admin claim and admin-issued invitation links.
 - Bank connections, CSV imports, and statement reconciliation.
-- Credit-card statement cycles, interest, minimum payments, or debt payoff modeling.
+- Interest accrual, minimum payments, or debt payoff modeling.
 - Attachments and receipts.
 - Offline-first capture and synchronization.
 - Advanced analytics.

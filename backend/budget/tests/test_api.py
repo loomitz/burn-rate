@@ -265,7 +265,7 @@ class BudgetApiTests(APITestCase):
     def test_live_window_canonical_scenario(self):
         card_response = self.client.post(
             "/api/accounts/",
-            {"name": "Tarjeta", "account_type": "credit_card", "cutoff_day": 20},
+            {"name": "Tarjeta", "account_type": "credit_card", "cutoff_day": 20, "payment_due_day": 10},
             format="json",
         )
         self.assertEqual(card_response.status_code, 201)
@@ -905,12 +905,14 @@ class BudgetApiTests(APITestCase):
             name="Tarjeta oro",
             account_type=Account.AccountType.CREDIT_CARD,
             cutoff_day=20,
+            payment_due_day=10,
             owner=ana,
         )
         azul = Account.objects.create(
             name="Tarjeta azul",
             account_type=Account.AccountType.CREDIT_CARD,
             cutoff_day=5,
+            payment_due_day=25,
             owner=beto,
         )
         InstallmentPlan.objects.create(
@@ -947,9 +949,13 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(rows["Tarjeta oro"]["closed_cycle"]["purchase_cents"], 30000)
         self.assertEqual(rows["Tarjeta oro"]["closed_cycle"]["installment_cents"], 200000)
         self.assertEqual(rows["Tarjeta oro"]["closed_cycle"]["total_cents"], 230000)
+        self.assertEqual(rows["Tarjeta oro"]["closed_cycle"]["payment_due_date"], date(2026, 5, 10))
+        self.assertEqual(rows["Tarjeta oro"]["closed_cycle"]["safe_payment_date"], date(2026, 5, 7))
         self.assertEqual(rows["Tarjeta oro"]["open_cycle"]["purchase_cents"], 50000)
         self.assertEqual(rows["Tarjeta oro"]["open_cycle"]["installment_cents"], 200000)
         self.assertEqual(rows["Tarjeta oro"]["open_cycle"]["total_cents"], 250000)
+        self.assertEqual(rows["Tarjeta oro"]["open_cycle"]["payment_due_date"], date(2026, 6, 10))
+        self.assertEqual(rows["Tarjeta oro"]["open_cycle"]["safe_payment_date"], date(2026, 6, 7))
         self.assertEqual(rows["Tarjeta oro"]["owner"]["name"], "Anita")
         self.assertEqual(rows["Tarjeta azul"]["closed_cycle"]["total_cents"], 20000)
         self.assertEqual(rows["Tarjeta azul"]["open_cycle"]["total_cents"], 40000)
@@ -1151,6 +1157,7 @@ class BudgetApiTests(APITestCase):
                 "name": "Tarjeta oro",
                 "account_type": "credit_card",
                 "cutoff_day": 15,
+                "payment_due_day": 5,
                 "owner": self.member.id,
             },
             format="json",
@@ -1158,6 +1165,7 @@ class BudgetApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data["cutoff_day"], 15)
+        self.assertEqual(response.data["payment_due_day"], 5)
         self.assertEqual(response.data["owner"], self.member.id)
         self.assertEqual(response.data["owner_name"], "Ana")
 
@@ -1173,6 +1181,20 @@ class BudgetApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("cutoff_day", response.data)
+
+    def test_credit_card_requires_payment_due_day(self):
+        response = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Tarjeta sin limite",
+                "account_type": "credit_card",
+                "cutoff_day": 12,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("payment_due_day", response.data)
 
     def test_cutoff_day_out_of_range_rejected(self):
         too_high = self.client.post(
@@ -1199,6 +1221,33 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(too_low.status_code, 400)
         self.assertIn("cutoff_day", too_low.data)
 
+    def test_payment_due_day_out_of_range_rejected(self):
+        too_high = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Tarjeta limite alto",
+                "account_type": "credit_card",
+                "cutoff_day": 20,
+                "payment_due_day": 32,
+            },
+            format="json",
+        )
+        self.assertEqual(too_high.status_code, 400)
+        self.assertIn("payment_due_day", too_high.data)
+
+        too_low = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Tarjeta limite bajo",
+                "account_type": "credit_card",
+                "cutoff_day": 20,
+                "payment_due_day": 0,
+            },
+            format="json",
+        )
+        self.assertEqual(too_low.status_code, 400)
+        self.assertIn("payment_due_day", too_low.data)
+
     def test_non_credit_card_rejects_cutoff_day(self):
         response = self.client.post(
             "/api/accounts/",
@@ -1213,6 +1262,20 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("cutoff_day", response.data)
 
+    def test_non_credit_card_rejects_payment_due_day(self):
+        response = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Debito con limite",
+                "account_type": "debit_card",
+                "payment_due_day": 10,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("payment_due_day", response.data)
+
     def test_credit_card_owner_is_optional(self):
         response = self.client.post(
             "/api/accounts/",
@@ -1220,6 +1283,7 @@ class BudgetApiTests(APITestCase):
                 "name": "Tarjeta sin titular",
                 "account_type": "credit_card",
                 "cutoff_day": 12,
+                "payment_due_day": 2,
             },
             format="json",
         )
