@@ -1,5 +1,26 @@
 # Agent History
 
+## 2026-07-18 - Corrección de próxima fecha y publicación Docker Hub v0.1.26
+
+Objetivo: corregir el estado de pago mostrado cuando una tarjeta no tiene saldo cortado pero sí saldo acumulándose, sanear la historia publicable y alinear Docker Hub con el código listo para `main`.
+
+Cambios:
+
+- El resumen elige la fecha del ciclo cerrado solo cuando ese ciclo tiene saldo; de lo contrario usa el ciclo abierto con saldo.
+- Una tarjeta con fechas configuradas y ambos ciclos en cero ahora se muestra `Al día`, no como pendiente de configuración.
+- Se agregaron regresiones frontend para ambos casos; la suite subió a 55 pruebas.
+- `.gitignore` conserva fuera de Git el respaldo SQL, las capturas locales del sistema de diseño y el archivo interno del run; la rama publicable fue reconstruida sin esos blobs.
+- Publicadas `loomitz/burnrate:v0.1.26` y `latest` para `linux/amd64` y `linux/arm64`, con SBOM y procedencia OCI.
+- Ambas etiquetas apuntan al índice `sha256:43c56903612b7b3fe56af2421f1af96a07c04ab30b7efd0103df1aa115849f0d`; los manifiestos son `sha256:00f3cc0f5e4c81dfc043beb90d0bd767fb6e6e6ce93f695256bd770cfd55fc43` (AMD64) y `sha256:5315db3d0bb371d402392af102a5f7cec545f252dae46f41132b57c37f99a316` (ARM64).
+
+Verificaciones:
+
+- Backend: 138 tests, `manage.py check` limpio y `makemigrations --check --dry-run` sin pendientes.
+- Frontend: 55 tests y build de producción correctos.
+- Smoke local con PostgreSQL: contenedor healthy, migración `0020` aplicada, onboarding listo, `/healthz/`, SPA y asset compilado correctos.
+- Las imágenes remotas AMD64 y ARM64 se descargaron con `--pull=always`; ambas pasaron `manage.py check` con Django 5.2.16 e incluyeron migración y frontend.
+- Docker Scout consumió los SBOM publicados y no detectó paquetes con vulnerabilidades corregibles en ninguna arquitectura.
+
 ## 2026-07-18 - Resumen de tarjetas y publicación Docker Hub v0.1.25
 
 Objetivo: publicar la nueva vista separada de resumen de tarjetas, con gráficos y estado operativo por tarjeta, como una imagen estable multi-arquitectura.
