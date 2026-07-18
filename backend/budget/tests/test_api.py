@@ -45,6 +45,19 @@ class BudgetApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_settings_exposes_and_updates_time_zone(self):
+        response = self.client.patch("/api/settings/", {"time_zone": "America/Los_Angeles"}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["time_zone"], "America/Los_Angeles")
+        self.assertEqual(AppSettings.load().time_zone, "America/Los_Angeles")
+
+    def test_settings_rejects_invalid_time_zone(self):
+        response = self.client.patch("/api/settings/", {"time_zone": "Mars/Base"}, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("time_zone", response.data)
+
     def test_auth_me_returns_null_without_session(self):
         self.client.logout()
 
@@ -247,6 +260,50 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(summary.data["scope"], "family")
         self.assertEqual(summary.data["totals"]["spent_cents"], 25000)
         self.assertEqual(summary.data["categories"][0]["icon"], "tag")
+
+    def test_can_delete_expense_and_recalculate_budget_summary(self):
+        transaction = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Pago duplicado",
+            amount_cents=25000,
+            date=date(2026, 4, 25),
+            account=self.account,
+            category=self.category,
+            created_by=self.user,
+        )
+
+        response = self.client.delete(f"/api/transactions/{transaction.id}/")
+        summary = self.client.get("/api/budget/summary/?date=2026-04-25&scope=family")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Transaction.objects.filter(pk=transaction.id).exists())
+        self.assertEqual(summary.status_code, 200)
+        self.assertEqual(summary.data["totals"]["spent_cents"], 0)
+
+    def test_transaction_list_can_filter_by_budget_period_date(self):
+        current_period = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Super actual",
+            amount_cents=25000,
+            date=date(2026, 4, 25),
+            account=self.account,
+            category=self.category,
+            created_by=self.user,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Super anterior",
+            amount_cents=20000,
+            date=date(2026, 4, 10),
+            account=self.account,
+            category=self.category,
+            created_by=self.user,
+        )
+
+        response = self.client.get("/api/transactions/?date=2026-04-25&type=expense")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([transaction["id"] for transaction in response.data], [current_period.id])
 
     def test_can_create_tracking_only_expense_without_account_and_get_off_budget_summary(self):
         external = Category.objects.create(

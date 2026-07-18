@@ -18,6 +18,10 @@ function emptyOffBudgetSummary() {
   }
 }
 
+function settingsResponse(overrides: Partial<{ currency: string; cutoff_day: number; time_zone: string }> = {}) {
+  return jsonResponse({ currency: 'MXN', cutoff_day: 20, time_zone: 'America/Mexico_City', ...overrides })
+}
+
 describe('budget store auth flow', () => {
   const fetchMock = vi.fn()
   const readyOnboardingStatus = {
@@ -44,14 +48,15 @@ describe('budget store auth flow', () => {
   }
 
   beforeEach(() => {
+    vi.useRealTimers()
     setActivePinia(createPinia())
     fetchMock.mockReset()
     vi.stubGlobal('fetch', fetchMock)
   })
 
-  function mockFetchAllResponses() {
+  function mockFetchAllResponses(settingsOverrides: Partial<{ currency: string; cutoff_day: number; time_zone: string }> = {}) {
+    fetchMock.mockResolvedValueOnce(settingsResponse(settingsOverrides))
     fetchMock.mockResolvedValueOnce(jsonResponse({ created_count: 0, transactions: [] }))
-    fetchMock.mockResolvedValueOnce(jsonResponse({ currency: 'MXN', cutoff_day: 20 }))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
@@ -242,8 +247,8 @@ describe('budget store auth flow', () => {
 
   it('updates accounts through the account endpoint', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    fetchMock.mockResolvedValueOnce(settingsResponse())
     fetchMock.mockResolvedValueOnce(jsonResponse({ created_count: 0, transactions: [] }))
-    fetchMock.mockResolvedValueOnce(jsonResponse({ currency: 'MXN', cutoff_day: 20 }))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
@@ -283,6 +288,7 @@ describe('budget store auth flow', () => {
 
     await store.fetchAll('2026-04-25')
 
+    expect(fetchMock.mock.calls.map((call) => call[0])).toContain('/api/transactions/?date=2026-04-25')
     expect(fetchMock.mock.calls.map((call) => call[0])).toContain(
       '/api/credit-cards/interest-free-payment/?date=2026-04-25',
     )
@@ -300,6 +306,25 @@ describe('budget store auth flow', () => {
     expect(fetchMock.mock.calls.map((call) => call[0])).toContain('/api/budget/off-budget-summary/?date=2026-04-25')
     expect(store.offBudgetSummary?.totals.total_cents).toBe(37000)
     expect(store.offBudgetSummary?.categories[0].category_name).toBe('Tarjeta ajena')
+  })
+
+  it('uses the configured app timezone for default household refresh dates', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-05-21T06:30:00Z'))
+    mockFetchAllResponses({ time_zone: 'America/Los_Angeles' })
+
+    const store = useBudgetStore()
+
+    await store.fetchAll()
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/settings/')
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/expected-charges/auto-post/')
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ date: '2026-05-20' }),
+    })
+    expect(fetchMock.mock.calls.map((call) => call[0])).toContain('/api/budget/summary/?date=2026-05-20&scope=total')
+    expect(store.appToday).toBe('2026-05-20')
   })
 
   it('updates transactions through the transaction endpoint and refreshes the affected period', async () => {
@@ -323,13 +348,26 @@ describe('budget store auth flow', () => {
       method: 'PATCH',
       body: JSON.stringify(payload),
     })
-    expect(fetchMock.mock.calls.map((call) => call[0])).toContain('/api/transactions/')
+    expect(fetchMock.mock.calls.map((call) => call[0])).toContain('/api/transactions/?date=2026-05-02')
+  })
+
+  it('deletes transactions through the transaction endpoint and refreshes the affected period', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    mockFetchAllResponses()
+
+    const store = useBudgetStore()
+
+    await store.deleteTransaction(21, '2026-05-02')
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/transactions/21/')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'DELETE' })
+    expect(fetchMock.mock.calls.map((call) => call[0])).toContain('/api/budget/summary/?date=2026-05-02&scope=total')
   })
 
   it('updates household members through the member endpoint', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    fetchMock.mockResolvedValueOnce(settingsResponse())
     fetchMock.mockResolvedValueOnce(jsonResponse({ created_count: 0, transactions: [] }))
-    fetchMock.mockResolvedValueOnce(jsonResponse({ currency: 'MXN', cutoff_day: 20 }))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
@@ -473,8 +511,8 @@ describe('budget store auth flow', () => {
       is_active: true,
     }
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    fetchMock.mockResolvedValueOnce(settingsResponse())
     fetchMock.mockResolvedValueOnce(jsonResponse({ created_count: 0, transactions: [] }))
-    fetchMock.mockResolvedValueOnce(jsonResponse({ currency: 'MXN', cutoff_day: 20 }))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
@@ -519,8 +557,8 @@ describe('budget store auth flow', () => {
       is_active: true,
     }
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'ok' }))
+    fetchMock.mockResolvedValueOnce(settingsResponse())
     fetchMock.mockResolvedValueOnce(jsonResponse({ created_count: 0, transactions: [] }))
-    fetchMock.mockResolvedValueOnce(jsonResponse({ currency: 'MXN', cutoff_day: 20 }))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))

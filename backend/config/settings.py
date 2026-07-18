@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
@@ -18,6 +19,15 @@ def env_bool(name: str, default: bool) -> bool:
 
 def env_list(name: str, default: str = "") -> list[str]:
     return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
+
+
+def env_time_zone(name: str, default: str) -> str:
+    value = os.getenv(name, default).strip() or default
+    try:
+        ZoneInfo(value)
+    except ZoneInfoNotFoundError as exc:
+        raise ImproperlyConfigured(f"{name} must be a valid IANA time zone.") from exc
+    return value
 
 
 DEBUG = env_bool("DJANGO_DEBUG", True)
@@ -100,7 +110,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = "es-mx"
-TIME_ZONE = "America/Mexico_City"
+TIME_ZONE = env_time_zone("BURN_RATE_TIME_ZONE", "America/Mexico_City")
 USE_I18N = True
 USE_TZ = True
 INVITATION_TTL_DAYS = int(os.getenv("INVITATION_TTL_DAYS", "14"))

@@ -44,6 +44,13 @@ WORKDIR /app
 RUN apt-get update \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/* \
+    && rm -rf \
+        /usr/local/bin/pip \
+        /usr/local/bin/pip3 \
+        /usr/local/bin/pip3.* \
+        /usr/local/lib/python*/ensurepip \
+        /usr/local/lib/python*/site-packages/pip \
+        /usr/local/lib/python*/site-packages/pip-* \
     && useradd --create-home --shell /usr/sbin/nologin app
 COPY --from=backend-build /app/backend/.venv /app/backend/.venv
 COPY backend/ /app/backend/

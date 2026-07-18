@@ -11,6 +11,8 @@ from django.db import models
 from django.db.models import F
 from django.utils import timezone
 
+from .timezones import app_localdate, default_app_time_zone, normalize_time_zone
+
 
 def default_invitation_expiry():
     return timezone.now() + timedelta(days=getattr(settings, "INVITATION_TTL_DAYS", 14))
@@ -30,6 +32,7 @@ def merchant_concept_lookup_key(value: str) -> str:
 
 class AppSettings(models.Model):
     currency = models.CharField(max_length=3, default="MXN")
+    time_zone = models.CharField(max_length=64, default=default_app_time_zone)
     cutoff_day = models.PositiveSmallIntegerField(
         default=20,
         validators=[MinValueValidator(1), MaxValueValidator(28)],
@@ -39,8 +42,15 @@ class AppSettings(models.Model):
         verbose_name = "app settings"
         verbose_name_plural = "app settings"
 
+    def clean(self) -> None:
+        try:
+            self.time_zone = normalize_time_zone(self.time_zone)
+        except ValueError as exc:
+            raise ValidationError({"time_zone": str(exc)}) from exc
+
     def save(self, *args, **kwargs):
         self.pk = 1
+        self.full_clean()
         super().save(*args, **kwargs)
 
     @classmethod
@@ -49,7 +59,7 @@ class AppSettings(models.Model):
         return settings_obj
 
     def __str__(self) -> str:
-        return f"{self.currency}, corte {self.cutoff_day}"
+        return f"{self.currency}, corte {self.cutoff_day}, {self.time_zone}"
 
 
 class HouseholdMember(models.Model):
@@ -111,7 +121,7 @@ class Category(models.Model):
     )
     carryover_initial_balance_cents = models.IntegerField(default=0)
     carryover_start_date = models.DateField(null=True, blank=True)
-    overspend_tracking_start_date = models.DateField(default=timezone.localdate)
+    overspend_tracking_start_date = models.DateField(default=app_localdate)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -1,5 +1,141 @@
 # Agent History
 
+## 2026-07-01 - Sesión de dominio: mes calendario, cortes por tarjeta y ventana viva
+
+Objetivo: definir con el usuario, mediante entrevista de diseño, el nuevo modelo presupuestal para múltiples tarjetas de crédito con distinto titular y distinto día de corte. Sesión de documentación; sin cambios de código.
+
+Archivos tocados:
+
+- Nuevo `CONTEXT.md` con el glosario del lenguaje acordado (términos nuevos marcados como *target*).
+- Nuevo `docs/decisions/ADR-0002-live-window-budget-release.md` con la decisión central, alternativas rechazadas y consecuencias.
+
+Decisiones:
+
+- El periodo presupuestal pasa a mes calendario (1 → fin de mes); el día de corte deja de ser global y se vuelve atributo de cada tarjeta de crédito (validado 1–28).
+- Modelo "ventana viva": disponible = presupuesto − gasto efectivo/débito/banco del mes − gasto de cada tarjeta desde su último corte − cargos esperados pendientes. Al corte se libera lo gastado con esa tarjeta y se convierte en estado de cuenta por pagar.
+- Las categorías acumulables (carryover) quedan fuera de la liberación.
+- Sobregiro = disponible vivo < 0, con registro histórico como foto al cierre de mes; el flujo mensual queda como métrica informativa.
+- Mensualidades MSI ancladas al ciclo de su tarjeta (una por estado de cuenta), con mes calendario como respaldo para planes sin tarjeta.
+- `Account` gana titular opcional (`HouseholdMember`) solo para agrupar/filtrar; el presupuesto lo determina la categoría.
+- Pagos muestra por tarjeta el ciclo cerrado ("por pagar": compras + mensualidad MSI del ciclo) con total global, y el ciclo abierto ("acumulando").
+- Vista MSI: proyección global por mes calendario (mensualidad asignada al mes de su corte, total desglosado por tarjeta), filtro por tarjeta y por titular, y columnas por ciclo real al enfocar una sola tarjeta.
+- La historia materializada en periodos 21–20 se recalcula a meses calendario; el usuario corregirá a mano los datos de borde.
+- Los cargos recurrentes se siguen generando una vez por mes calendario según su día de cargo.
+
+## 2026-05-31 - Beneficios de tarjetas y publicación v0.1.23
+
+Objetivo: publicar la sección de beneficios de tarjetas con recomendaciones por escenario, corrigiendo Santander LikeU a tarjeta de crédito y agregando el beneficio de bebida Starbucks para The Platinum Credit Card American Express.
+
+Archivos tocados:
+
+- Actualizado `frontend/src/App.vue` para agregar la vista `Beneficios`, recomendaciones por uso y fichas comparativas para Costco Banamex, BBVA Oro, Santander LikeU crédito y The Platinum Credit Card American Express.
+- Actualizado `frontend/src/style.css` para la navegación activa, layout responsive y estilos de la nueva sección de beneficios.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.23`.
+- Actualizado `backend/uv.lock` para subir Django a `5.2.14`.
+- Actualizado `Dockerfile` para remover `pip` del runtime final y dejar la imagen sin CVEs detectadas por Docker Scout.
+
+Verificaciones locales:
+
+- `pnpm build` pasó en `frontend/`.
+- `pnpm test` pasó en `frontend/` con 27 tests.
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py test` pasó en `backend/` con 87 tests.
+- `docker build --pull -t loomitz/burnrate:v0.1.23 -t loomitz/burnrate:latest .` construyó la imagen local.
+- `docker run --rm --entrypoint sh -e DJANGO_SECRET_KEY=test-secret loomitz/burnrate:v0.1.23 -c 'python manage.py check'` pasó dentro de la imagen local.
+- El smoke container local respondió `/healthz/` correctamente y sirvió la SPA en `/`.
+- `docker --context colima buildx build --builder beaglebackbone-builder --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.23 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura.
+- `docker --context colima buildx imagetools inspect` confirmó que `v0.1.23` y `latest` apuntan al digest `sha256:a14b04197772bc5568f433e5f980cdc4992dab12b77e546f19b346cee96815df`, con manifiestos `linux/amd64` y `linux/arm64`.
+- `docker --context colima run --rm --pull=always --platform linux/arm64 --entrypoint sh -e DJANGO_SECRET_KEY=test-secret loomitz/burnrate:v0.1.23 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+- `docker --context colima run --rm --pull=always --platform linux/amd64 --entrypoint sh -e DJANGO_SECRET_KEY=test-secret loomitz/burnrate:v0.1.23 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+- `docker --context colima scout cves --platform linux/arm64 loomitz/burnrate:v0.1.23 --only-fixed` no detectó paquetes vulnerables.
+- `docker --context colima scout cves --platform linux/amd64 loomitz/burnrate:v0.1.23 --only-fixed` no detectó paquetes vulnerables.
+
+## 2026-05-30 - Revisión temporal de gastos filtrados y publicación v0.1.22
+
+Objetivo: publicar el modo temporal de revisión para gastos filtrados, permitiendo marcar pagos revisados sin persistir ese estado en la base.
+
+Archivos tocados:
+
+- Actualizado `frontend/src/App.vue` para mostrar el modo `Revisión` cuando el feed tiene filtros activos, marcar gastos visibles como revisados y limpiar el estado temporal al cambiar filtros o salir del feed.
+- Actualizado `frontend/src/style.css` para la barra de revisión, checks temporales y estados visuales revisados en desktop y mobile.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.22`.
+
+Verificaciones locales:
+
+- `pnpm build` pasó en `frontend/`.
+- `pnpm test -- --run frontend/src/stores/budget.test.ts` pasó en `frontend/` con 27 tests.
+- Playwright validó el flujo con filtro por método de pago, entrada a `Revisión`, marcado parcial, marcado completo, limpieza de checks, cambio de filtro y limpieza de filtros en desktop y mobile.
+- `docker --context colima buildx build --builder beaglebackbone-builder --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.22 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura.
+- `docker --context colima buildx imagetools inspect` confirmó que `v0.1.22` y `latest` apuntan al digest `sha256:41fb4701bf689284b820e852b5f1cf56b74ff77af6b79624d7353cb73a995840`, con manifiestos `linux/amd64` y `linux/arm64`.
+- `docker --context colima run --rm --platform linux/arm64 --entrypoint sh loomitz/burnrate:v0.1.22 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+- `docker --context colima run --rm --platform linux/amd64 --entrypoint sh loomitz/burnrate:v0.1.22 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+
+## 2026-05-30 - Filtro por método de pago y publicación v0.1.21
+
+Objetivo: publicar el filtro del feed de gastos por tipo de pago o por cuenta/tarjeta específica.
+
+Archivos tocados:
+
+- Actualizado `frontend/src/App.vue` para agregar el filtro de método de pago en `Gastos > Movimientos`, con opciones por tipo de cuenta y por cuenta/tarjeta.
+- Actualizado `frontend/src/style.css` para acomodar los filtros de categoría y método de pago en desktop y mobile.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.21`.
+
+Verificaciones locales:
+
+- `pnpm test -- --run frontend/src/stores/budget.test.ts` pasó en `frontend/` con 27 tests.
+- `pnpm build` pasó en `frontend/`.
+- Playwright validó el filtro por tipo de pago, por cuenta/tarjeta, combinado con categoría y su limpieza en desktop y mobile.
+- `docker --context colima buildx build --builder beaglebackbone-builder --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.21 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura.
+- `docker --context colima buildx imagetools inspect` confirmó que `v0.1.21` y `latest` apuntan al digest `sha256:4aecc5fbce5b645d2f459e11d955dfab2f53c04912b00fed10659f0a9777b171`, con manifiestos `linux/amd64` y `linux/arm64`.
+- `docker --context colima run --rm --platform linux/arm64 --entrypoint sh loomitz/burnrate:v0.1.21 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+- `docker --context colima run --rm --platform linux/amd64 --entrypoint sh loomitz/burnrate:v0.1.21 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+
+## 2026-05-30 - Gastos por ciclo y publicación v0.1.20
+
+Objetivo: publicar que el ciclo seleccionado se refleje también en Gastos > Movimientos y que la lista pueda filtrarse por categoría.
+
+Archivos tocados:
+
+- Actualizado `backend/budget/views.py` para que `/api/transactions/` acepte `date` y filtre por el ciclo presupuestal correspondiente.
+- Actualizado `frontend/src/stores/budget.ts` para cargar transacciones con la fecha activa del ciclo.
+- Actualizado `frontend/src/App.vue` y `frontend/src/style.css` para mostrar "Gastos del periodo", limpiar el filtro al cambiar de ciclo y filtrar el feed por categoría.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.20`.
+
+Verificaciones locales:
+
+- `pnpm test -- --run frontend/src/stores/budget.test.ts` pasó en `frontend/` con 27 tests.
+- `pnpm build` pasó en `frontend/`.
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py test budget.tests.test_api` pasó en `backend/` con 60 tests.
+- Playwright validó `Gastos > Movimientos` con cambio de ciclo y filtro por categoría en desktop y mobile.
+- `docker --context colima compose config` pasó.
+- `docker --context colima buildx build --builder beaglebackbone-builder --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.20 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura.
+- `docker --context colima buildx imagetools inspect` confirmó que `v0.1.20` y `latest` apuntan al digest `sha256:fbc5b4186c3f3495f162dcc073a19c163d71e7bbea6d35f904d872cc6fd32215`, con manifiestos `linux/amd64` y `linux/arm64`.
+- `docker --context colima run --rm --platform linux/arm64 --entrypoint sh loomitz/burnrate:v0.1.20 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+- `docker --context colima run --rm --platform linux/amd64 --entrypoint sh loomitz/burnrate:v0.1.20 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+
+## 2026-05-30 - Zona horaria configurable y publicación v0.1.19
+
+Objetivo: publicar la configuración de zona horaria de la aplicación para que el calendario no dependa de la zona local del servidor.
+
+Archivos tocados:
+
+- Agregado `AppSettings.time_zone`, validación IANA y helper de fecha local de aplicación.
+- Actualizados servicios y endpoints que calculan "hoy" para usar la zona horaria configurada.
+- Actualizado `frontend/src/App.vue` y `frontend/src/stores/budget.ts` para exponer la zona horaria en Ajustes y calcular el día actual de la app con esa zona.
+- Agregada eliminación de gastos registrados desde el feed y su refresco de presupuesto.
+- Fijado `frontend/package.json` a `pnpm@10.30.3` para que Docker/Corepack no use pnpm 11 en el build.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.19`.
+
+Verificaciones locales:
+
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py test budget.tests.test_api budget.tests.test_budget_domain budget.tests.test_settings` pasó en `backend/` con 85 tests.
+- `pnpm test -- --runInBand` pasó en `frontend/` con 27 tests.
+- `pnpm build` pasó en `frontend/`.
+- `uv run python manage.py makemigrations --check --dry-run` no detectó migraciones pendientes.
+- `docker --context colima buildx build --builder beaglebackbone-builder --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.19 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura.
+- `docker --context colima buildx imagetools inspect` confirmó que `v0.1.19` y `latest` apuntan al digest `sha256:b30f0bf01050597de57e2ca5d99838eb5a469b8c6a1afa791148110d30f9cc50`, con manifiestos `linux/amd64` y `linux/arm64`.
+- `docker --context colima run --rm --platform linux/arm64 --entrypoint sh loomitz/burnrate:v0.1.19 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+- `docker --context colima run --rm --platform linux/amd64 --entrypoint sh loomitz/burnrate:v0.1.19 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+
 ## 2026-05-05 - Distribución de gasto sin agrupación v0.1.18
 
 Objetivo: publicar el rediseño del gráfico de distribución de gasto para mostrar cada categoría real sin agrupar las menores como "Otras".

@@ -1,4 +1,5 @@
-from datetime import date
+from datetime import date, datetime, timezone as dt_timezone
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
@@ -6,6 +7,7 @@ from django.test import TestCase
 
 from budget.models import (
     Account,
+    AppSettings,
     BudgetAllocation,
     Category,
     CategoryBudgetChange,
@@ -36,6 +38,18 @@ class BudgetPeriodTests(TestCase):
 
     def test_day_after_cutoff_starts_next_period(self):
         period = get_budget_period(date(2026, 4, 21), cutoff_day=20)
+
+        self.assertEqual(period.start, date(2026, 4, 21))
+        self.assertEqual(period.end, date(2026, 5, 20))
+
+    def test_default_period_uses_configured_app_time_zone(self):
+        settings = AppSettings.load()
+        settings.time_zone = "America/Los_Angeles"
+        settings.cutoff_day = 20
+        settings.save()
+
+        with patch("budget.timezones.timezone.now", return_value=datetime(2026, 5, 21, 6, 30, tzinfo=dt_timezone.utc)):
+            period = get_budget_period()
 
         self.assertEqual(period.start, date(2026, 4, 21))
         self.assertEqual(period.end, date(2026, 5, 20))

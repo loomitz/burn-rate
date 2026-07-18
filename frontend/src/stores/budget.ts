@@ -103,6 +103,7 @@ export interface InvitationAcceptPayload {
 export interface Settings {
   currency: string
   cutoff_day: number
+  time_zone: string
 }
 
 export interface HouseholdMember {
@@ -363,8 +364,27 @@ export interface OffBudgetSummary {
 type AuthResponse = { user?: User | null } | null
 type InvitationListResponse = Invitation[] | { invitations?: Invitation[]; results?: Invitation[] }
 
-const DEFAULT_SETTINGS: Settings = { currency: 'MXN', cutoff_day: 20 }
+const DEFAULT_SETTINGS: Settings = { currency: 'MXN', cutoff_day: 20, time_zone: 'America/Mexico_City' }
 const AUTH_REFRESH_THROTTLE_MS = 2 * 60 * 1000
+
+export function dateInTimeZone(timeZone: string, value = new Date()) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(value)
+    const lookup = new Map(parts.map((part) => [part.type, part.value]))
+    const year = lookup.get('year')
+    const month = lookup.get('month')
+    const day = lookup.get('day')
+    if (year && month && day) return `${year}-${month}-${day}`
+  } catch {
+    // Fall back to UTC if the runtime does not know the configured timezone yet.
+  }
+  return value.toISOString().slice(0, 10)
+}
 
 function normalizeInvitationList(response: InvitationListResponse) {
   if (Array.isArray(response)) return response
@@ -377,6 +397,7 @@ export const useBudgetStore = defineStore('budget', () => {
   const onboardingStatus = ref<OnboardingStatus | null>(null)
   const bootstrapStatus = ref<BootstrapStatus | null>(null)
   const settings = ref<Settings>({ ...DEFAULT_SETTINGS })
+  const appToday = ref(dateInTimeZone(DEFAULT_SETTINGS.time_zone))
   const members = ref<HouseholdMember[]>([])
   const categories = ref<Category[]>([])
   const accounts = ref<Account[]>([])
@@ -417,6 +438,7 @@ export const useBudgetStore = defineStore('budget', () => {
     fetchAllRequestId += 1
     if (clearUser) user.value = null
     settings.value = { ...DEFAULT_SETTINGS }
+    appToday.value = dateInTimeZone(DEFAULT_SETTINGS.time_zone)
     members.value = []
     categories.value = []
     accounts.value = []
@@ -560,20 +582,22 @@ export const useBudgetStore = defineStore('budget', () => {
     }
   }
 
-  async function fetchAll(date = new Date().toISOString().slice(0, 10), scope: Scope = 'total', memberId?: number) {
+  async function fetchAll(date?: string, scope: Scope = 'total', memberId?: number) {
     const requestId = ++fetchAllRequestId
-    const summaryParams = new URLSearchParams({ date, scope })
-    if (memberId !== undefined) summaryParams.set('member_id', String(memberId))
     loading.value = true
     error.value = ''
     try {
+      const settingsData = await apiRequest<Settings>('/api/settings/')
+      const activeDate = date ?? dateInTimeZone(settingsData.time_zone)
+      const summaryParams = new URLSearchParams({ date: activeDate, scope })
+      const transactionParams = new URLSearchParams({ date: activeDate })
+      if (memberId !== undefined) summaryParams.set('member_id', String(memberId))
       await apiRequest('/api/expected-charges/auto-post/', {
         method: 'POST',
-        body: JSON.stringify({ date }),
+        body: JSON.stringify({ date: activeDate }),
       })
 
       const [
-        settingsData,
         membersData,
         categoriesData,
         accountsData,
@@ -587,22 +611,22 @@ export const useBudgetStore = defineStore('budget', () => {
         offBudgetData,
         creditCardPaymentData,
       ] = await Promise.all([
-        apiRequest<Settings>('/api/settings/'),
         apiRequest<HouseholdMember[]>('/api/household-members/'),
         apiRequest<Category[]>('/api/categories/'),
         apiRequest<Account[]>('/api/accounts/'),
         apiRequest<MerchantConcept[]>('/api/merchant-concepts/'),
-        apiRequest<Transaction[]>('/api/transactions/'),
+        apiRequest<Transaction[]>(`/api/transactions/?${transactionParams}`),
         apiRequest<RecurringExpense[]>('/api/recurring-expenses/'),
         apiRequest<InstallmentPlan[]>('/api/installment-plans/'),
         apiRequest<BudgetSummary>(`/api/budget/summary/?${summaryParams}`),
-        apiRequest<{ charges: ExpectedCharge[] }>(`/api/expected-charges/?date=${date}`),
-        apiRequest<InstallmentProjection>(`/api/installments/projection/?date=${date}&months=6`),
-        apiRequest<OffBudgetSummary>(`/api/budget/off-budget-summary/?date=${date}`),
-        apiRequest<CreditCardPaymentSummary>(`/api/credit-cards/interest-free-payment/?date=${date}`),
+        apiRequest<{ charges: ExpectedCharge[] }>(`/api/expected-charges/?date=${activeDate}`),
+        apiRequest<InstallmentProjection>(`/api/installments/projection/?date=${activeDate}&months=6`),
+        apiRequest<OffBudgetSummary>(`/api/budget/off-budget-summary/?date=${activeDate}`),
+        apiRequest<CreditCardPaymentSummary>(`/api/credit-cards/interest-free-payment/?date=${activeDate}`),
       ])
       if (requestId !== fetchAllRequestId) return
       settings.value = settingsData
+      appToday.value = dateInTimeZone(settingsData.time_zone)
       members.value = membersData
       categories.value = categoriesData
       accounts.value = accountsData
@@ -683,12 +707,17 @@ export const useBudgetStore = defineStore('budget', () => {
 
   async function createTransaction(payload: Partial<Transaction>) {
     await apiRequest('/api/transactions/', { method: 'POST', body: JSON.stringify(payload) })
-    await fetchAll(payload.date ?? new Date().toISOString().slice(0, 10))
+    await fetchAll(payload.date)
   }
 
   async function updateTransaction(id: Transaction['id'], payload: Partial<Transaction>) {
     await apiRequest(`/api/transactions/${id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
-    await fetchAll(payload.date ?? new Date().toISOString().slice(0, 10))
+    await fetchAll(payload.date)
+  }
+
+  async function deleteTransaction(id: Transaction['id'], date?: Transaction['date']) {
+    await apiRequest(`/api/transactions/${id}/`, { method: 'DELETE' })
+    await fetchAll(date)
   }
 
   async function createRecurring(payload: Partial<RecurringExpense>) {
@@ -799,6 +828,7 @@ export const useBudgetStore = defineStore('budget', () => {
     onboardingReady,
     bootstrapStatus,
     settings,
+    appToday,
     members,
     categories,
     accounts,
@@ -838,6 +868,7 @@ export const useBudgetStore = defineStore('budget', () => {
     updateAccount,
     createTransaction,
     updateTransaction,
+    deleteTransaction,
     createRecurring,
     updateRecurring,
     deleteRecurring,

@@ -3,7 +3,6 @@ from datetime import date
 from django.contrib.auth import login, logout
 from django.contrib.auth.models import User
 from django.db import transaction
-from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from rest_framework import mixins, status, viewsets
@@ -54,6 +53,7 @@ from .services import (
     installment_projection,
 )
 from .setup_services import build_onboarding_status
+from .timezones import app_localdate
 
 
 class IsStaffForUnsafe(BasePermission):
@@ -334,8 +334,8 @@ class TransactionViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(category__scope=Category.Scope.GLOBAL)
         if params.get("scope") == "personal":
             queryset = queryset.filter(category__scope=Category.Scope.PERSONAL)
-        if params.get("period"):
-            period_date = date.fromisoformat(f"{params['period']}-01")
+        if params.get("date") or params.get("period"):
+            period_date = date.fromisoformat(params["date"] if params.get("date") else f"{params['period']}-01")
             period = get_budget_period(period_date)
             queryset = queryset.filter(date__gte=period.start, date__lte=period.end)
         return queryset
@@ -452,8 +452,9 @@ class ConfirmExpectedChargeView(APIView):
 
 class AutoPostRecurringChargesView(APIView):
     def post(self, request):
-        requested_date = date.fromisoformat(request.data.get("date")) if request.data.get("date") else timezone.localdate()
-        as_of = min(requested_date, timezone.localdate())
+        today = app_localdate()
+        requested_date = date.fromisoformat(request.data.get("date")) if request.data.get("date") else today
+        as_of = min(requested_date, today)
         transactions = auto_post_due_recurring_charges(as_of, request.user)
         return Response(
             {

@@ -23,6 +23,7 @@ from .models import (
     Transaction,
 )
 from .services import account_balance, record_category_budget_change
+from .timezones import normalize_time_zone
 
 
 def add_calendar_months(value, months: int):
@@ -95,7 +96,14 @@ def validate_user_password(password: str, *, email: str, full_name: str, usernam
 class AppSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = AppSettings
-        fields = ["currency", "cutoff_day"]
+        fields = ["currency", "cutoff_day", "time_zone"]
+        extra_kwargs = {"time_zone": {"required": False}}
+
+    def validate_time_zone(self, value):
+        try:
+            return normalize_time_zone(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
 
 
 class BootstrapClaimSerializer(serializers.Serializer):

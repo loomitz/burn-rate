@@ -5,7 +5,6 @@ from datetime import date
 
 from django.db import transaction as db_transaction
 from django.db.models import Q, Sum
-from django.utils import timezone
 
 from .models import (
     Account,
@@ -19,6 +18,7 @@ from .models import (
     RecurringExpense,
     Transaction,
 )
+from .timezones import app_localdate
 
 
 @dataclass(frozen=True)
@@ -84,7 +84,7 @@ def charge_dates_for_recurring_expense(recurring: RecurringExpense, as_of: date,
 
 
 def get_budget_period(value: date | None = None, cutoff_day: int | None = None) -> BudgetPeriod:
-    value = value or timezone.localdate()
+    value = value or app_localdate()
     cutoff_day = cutoff_day or AppSettings.load().cutoff_day
     if not 1 <= cutoff_day <= 28:
         raise ValueError("cutoff_day must be between 1 and 28")
@@ -155,14 +155,15 @@ def record_category_budget_change(
     previous_amount_cents: int | None = None,
 ) -> CategoryBudgetChange:
     effective_period = get_budget_period(effective_date)
-    current_period = get_budget_period(timezone.localdate())
+    today = app_localdate()
+    current_period = get_budget_period(today)
     has_changes = CategoryBudgetChange.objects.filter(category=category).exists()
 
     if previous_amount_cents is not None and not has_changes and period_key(effective_period) > period_key(current_period):
         CategoryBudgetChange.objects.create(
             category=category,
             amount_cents=previous_amount_cents,
-            effective_date=timezone.localdate(),
+            effective_date=today,
             period_start=current_period.start,
             period_end=current_period.end,
         )
@@ -225,7 +226,7 @@ def sync_monthly_overspend_record(category: Category, period: BudgetPeriod) -> N
     if category.budget_behavior != Category.BudgetBehavior.MONTHLY_RESET:
         return
     tracking_period = get_budget_period(category.overspend_tracking_start_date)
-    if period_key(period) < period_key(tracking_period) or period.end >= timezone.localdate():
+    if period_key(period) < period_key(tracking_period) or period.end >= app_localdate():
         return
 
     budget = ensure_category_allocation(category, period).amount_cents
@@ -247,7 +248,7 @@ def sync_monthly_overspend_record(category: Category, period: BudgetPeriod) -> N
 
 
 def sync_closed_overspend_records(categories: list[Category], requested_period: BudgetPeriod) -> None:
-    active_period = get_budget_period(timezone.localdate())
+    active_period = get_budget_period(app_localdate())
     last_closed_period = previous_budget_period(active_period)
     if period_key(requested_period) < period_key(last_closed_period):
         last_period = requested_period
@@ -852,7 +853,7 @@ def confirm_expected_charge(source_type: str, source_id: int, charge_date: date,
 
 
 def auto_post_due_recurring_charges(as_of: date | None = None, user=None) -> list[Transaction]:
-    as_of = as_of or timezone.localdate()
+    as_of = as_of or app_localdate()
     created: list[Transaction] = []
     recurring_queryset = RecurringExpense.objects.filter(
         auto_charge=True,
