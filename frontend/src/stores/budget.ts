@@ -102,7 +102,7 @@ export interface InvitationAcceptPayload {
 
 export interface Settings {
   currency: string
-  cutoff_day: number
+  time_zone: string
 }
 
 export interface HouseholdMember {
@@ -121,6 +121,9 @@ export interface HouseholdMember {
   is_admin?: boolean
 }
 
+export type BudgetTreatment = 'budgeted' | 'tracking_only'
+export type BudgetBehavior = 'monthly_reset' | 'carryover'
+
 export interface Category {
   id: number
   name: string
@@ -129,10 +132,11 @@ export interface Category {
   order: number
   is_active: boolean
   scope: 'global' | 'personal'
+  budget_treatment: BudgetTreatment
   member: number | null
   member_name: string | null
   monthly_budget_cents: number
-  budget_behavior: 'monthly_reset' | 'carryover'
+  budget_behavior: BudgetBehavior
   carryover_initial_balance_cents: number
   carryover_start_date: string | null
   overspend_tracking_start_date: string
@@ -146,6 +150,10 @@ export interface Account {
   color: string
   initial_balance_cents: number
   current_balance_cents: number
+  cutoff_day: number | null
+  payment_due_day: number | null
+  owner: number | null
+  owner_name: string | null
   is_active: boolean
 }
 
@@ -223,7 +231,7 @@ export interface ExpectedCharge {
   merchant: string
   amount_cents: number
   date: string
-  category: { id: number; name: string; scope: string; color: string; icon: string }
+  category: { id: number; name: string; scope: string; budget_treatment?: BudgetTreatment; color: string; icon: string }
   member: { id: number; name: string; color: string } | null
   account: { id: number; name: string } | null
   payment_number: number | null
@@ -245,9 +253,10 @@ export interface InstallmentProjectionPlan {
   remaining_payments: number
   projected_total_cents?: number
   monthly_amounts?: Array<{ period_end: string; amount_cents: number }>
-  category: { id: number; name: string; scope: string; color: string; icon: string }
+  category: { id: number; name: string; scope: string; budget_treatment?: BudgetTreatment; color: string; icon: string }
   member: { id: number; name: string; color: string } | null
-  account: { id: number; name: string } | null
+  account: { id: number; name: string; account_type?: string; color?: string } | null
+  owner: { id: number; name: string; color: string } | null
 }
 
 export interface InstallmentProjectionPeriod {
@@ -256,29 +265,49 @@ export interface InstallmentProjectionPeriod {
   end: string
   label: string
   total_cents: number
+  cards: Array<{ account_id: number | null; account_name: string | null; total_cents: number }>
   plans: InstallmentProjectionPlan[]
 }
 
 export interface InstallmentProjection {
+  mode: 'month' | 'cycle'
+  account: { id: number; name: string; color: string; cutoff_day: number; payment_due_day: number | null; owner: { id: number; name: string; color: string } | null } | null
   current_period_key: string
   current_total_cents: number
   periods: InstallmentProjectionPeriod[]
   plans: InstallmentProjectionPlan[]
 }
 
+export interface CardCycleBlock {
+  start: string
+  end: string
+  payment_due_date: string | null
+  safe_payment_date: string | null
+  purchase_cents: number
+  installment_cents: number
+  total_cents: number
+}
+
 export interface CreditCardPaymentSummaryCard {
   account_id: number
   account_name: string
   account_color: string
-  cycle_purchase_cents: number
-  installment_cents: number
-  interest_free_payment_cents: number
+  owner: { id: number; name: string; color: string } | null
+  closed_cycle: CardCycleBlock
+  open_cycle: CardCycleBlock
+}
+
+export interface CreditCardPaymentOwner {
+  member: { id: number; name: string; color: string } | null
+  total_cents: number
+  account_ids: number[]
 }
 
 export interface CreditCardPaymentSummary {
-  period: { start: string; end: string }
   total_cents: number
+  as_of: string
   cards: CreditCardPaymentSummaryCard[]
+  owners: CreditCardPaymentOwner[]
 }
 
 export interface BudgetCategorySummary {
@@ -288,6 +317,7 @@ export interface BudgetCategorySummary {
   member: { id: number; name: string; color: string } | null
   color: string
   icon: string
+  budget_treatment: BudgetTreatment
   budget_cents: number
   spent_cents: number
   expected_cents: number
@@ -295,11 +325,20 @@ export interface BudgetCategorySummary {
   available_cents: number
   real_available_cents: number
   projected_available_cents: number
+  monthly_flow_cents: number
+  live_windows: Array<{
+    kind: 'month' | 'card'
+    account_id: number | null
+    account_name: string | null
+    start: string
+    end: string
+    spent_cents: number
+  }>
   carryover_real_balance_cents: number | null
   carryover_start_date: string | null
   percent_available: number
   is_overspent: boolean
-  budget_behavior: 'monthly_reset' | 'carryover'
+  budget_behavior: BudgetBehavior
   overspend_count: number
   overspend_total_cents: number
   last_overspend_cents: number
@@ -317,6 +356,7 @@ export interface BudgetSummary {
     expected_cents: number
     available_cents: number
     real_available_cents?: number
+    monthly_flow_cents?: number
   }
   breakdown: Array<{
     key: string
@@ -327,15 +367,59 @@ export interface BudgetSummary {
     expected_cents: number
     available_cents: number
     real_available_cents?: number
+    monthly_flow_cents?: number
   }>
   categories: BudgetCategorySummary[]
+}
+
+export interface OffBudgetCategorySummary {
+  category_id: number
+  category_name: string
+  scope: string
+  member: { id: number; name: string; color: string } | null
+  color: string
+  icon: string
+  budget_treatment: BudgetTreatment
+  spent_cents: number
+  expected_cents: number
+  total_cents: number
+}
+
+export interface OffBudgetSummary {
+  period: { start: string; end: string }
+  totals: {
+    spent_cents: number
+    expected_cents: number
+    total_cents: number
+  }
+  categories: OffBudgetCategorySummary[]
+  expected_charges: ExpectedCharge[]
 }
 
 type AuthResponse = { user?: User | null } | null
 type InvitationListResponse = Invitation[] | { invitations?: Invitation[]; results?: Invitation[] }
 
-const DEFAULT_SETTINGS: Settings = { currency: 'MXN', cutoff_day: 20 }
+const DEFAULT_SETTINGS: Settings = { currency: 'MXN', time_zone: 'America/Mexico_City' }
 const AUTH_REFRESH_THROTTLE_MS = 2 * 60 * 1000
+
+export function dateInTimeZone(timeZone: string, value = new Date()) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(value)
+    const lookup = new Map(parts.map((part) => [part.type, part.value]))
+    const year = lookup.get('year')
+    const month = lookup.get('month')
+    const day = lookup.get('day')
+    if (year && month && day) return `${year}-${month}-${day}`
+  } catch {
+    // Fall back to UTC if the runtime does not know the configured timezone yet.
+  }
+  return value.toISOString().slice(0, 10)
+}
 
 function normalizeInvitationList(response: InvitationListResponse) {
   if (Array.isArray(response)) return response
@@ -348,6 +432,7 @@ export const useBudgetStore = defineStore('budget', () => {
   const onboardingStatus = ref<OnboardingStatus | null>(null)
   const bootstrapStatus = ref<BootstrapStatus | null>(null)
   const settings = ref<Settings>({ ...DEFAULT_SETTINGS })
+  const appToday = ref(dateInTimeZone(DEFAULT_SETTINGS.time_zone))
   const members = ref<HouseholdMember[]>([])
   const categories = ref<Category[]>([])
   const accounts = ref<Account[]>([])
@@ -358,6 +443,7 @@ export const useBudgetStore = defineStore('budget', () => {
   const expectedCharges = ref<ExpectedCharge[]>([])
   const installmentProjection = ref<InstallmentProjection | null>(null)
   const creditCardPaymentSummary = ref<CreditCardPaymentSummary | null>(null)
+  const offBudgetSummary = ref<OffBudgetSummary | null>(null)
   const summary = ref<BudgetSummary | null>(null)
   const invitations = ref<Invitation[]>([])
   const resolvedInvitation = ref<ResolvedInvitation | null>(null)
@@ -387,6 +473,7 @@ export const useBudgetStore = defineStore('budget', () => {
     fetchAllRequestId += 1
     if (clearUser) user.value = null
     settings.value = { ...DEFAULT_SETTINGS }
+    appToday.value = dateInTimeZone(DEFAULT_SETTINGS.time_zone)
     members.value = []
     categories.value = []
     accounts.value = []
@@ -397,6 +484,7 @@ export const useBudgetStore = defineStore('budget', () => {
     expectedCharges.value = []
     installmentProjection.value = null
     creditCardPaymentSummary.value = null
+    offBudgetSummary.value = null
     summary.value = null
     invitations.value = []
     resolvedInvitation.value = null
@@ -529,20 +617,22 @@ export const useBudgetStore = defineStore('budget', () => {
     }
   }
 
-  async function fetchAll(date = new Date().toISOString().slice(0, 10), scope: Scope = 'total', memberId?: number) {
+  async function fetchAll(date?: string, scope: Scope = 'total', memberId?: number) {
     const requestId = ++fetchAllRequestId
-    const summaryParams = new URLSearchParams({ date, scope })
-    if (memberId !== undefined) summaryParams.set('member_id', String(memberId))
     loading.value = true
     error.value = ''
     try {
+      const settingsData = await apiRequest<Settings>('/api/settings/')
+      const activeDate = date ?? dateInTimeZone(settingsData.time_zone)
+      const summaryParams = new URLSearchParams({ date: activeDate, scope })
+      const transactionParams = new URLSearchParams({ date: activeDate })
+      if (memberId !== undefined) summaryParams.set('member_id', String(memberId))
       await apiRequest('/api/expected-charges/auto-post/', {
         method: 'POST',
-        body: JSON.stringify({ date }),
+        body: JSON.stringify({ date: activeDate }),
       })
 
       const [
-        settingsData,
         membersData,
         categoriesData,
         accountsData,
@@ -553,23 +643,25 @@ export const useBudgetStore = defineStore('budget', () => {
         summaryData,
         expectedData,
         installmentData,
+        offBudgetData,
         creditCardPaymentData,
       ] = await Promise.all([
-        apiRequest<Settings>('/api/settings/'),
         apiRequest<HouseholdMember[]>('/api/household-members/'),
         apiRequest<Category[]>('/api/categories/'),
         apiRequest<Account[]>('/api/accounts/'),
         apiRequest<MerchantConcept[]>('/api/merchant-concepts/'),
-        apiRequest<Transaction[]>('/api/transactions/'),
+        apiRequest<Transaction[]>(`/api/transactions/?${transactionParams}`),
         apiRequest<RecurringExpense[]>('/api/recurring-expenses/'),
         apiRequest<InstallmentPlan[]>('/api/installment-plans/'),
         apiRequest<BudgetSummary>(`/api/budget/summary/?${summaryParams}`),
-        apiRequest<{ charges: ExpectedCharge[] }>(`/api/expected-charges/?date=${date}`),
-        apiRequest<InstallmentProjection>(`/api/installments/projection/?date=${date}&months=6`),
-        apiRequest<CreditCardPaymentSummary>(`/api/credit-cards/interest-free-payment/?date=${date}`),
+        apiRequest<{ charges: ExpectedCharge[] }>(`/api/expected-charges/?date=${activeDate}`),
+        apiRequest<InstallmentProjection>(`/api/installments/projection/?date=${activeDate}&months=6`),
+        apiRequest<OffBudgetSummary>(`/api/budget/off-budget-summary/?date=${activeDate}`),
+        apiRequest<CreditCardPaymentSummary>(`/api/credit-cards/interest-free-payment/?date=${activeDate}`),
       ])
       if (requestId !== fetchAllRequestId) return
       settings.value = settingsData
+      appToday.value = dateInTimeZone(settingsData.time_zone)
       members.value = membersData
       categories.value = categoriesData
       accounts.value = accountsData
@@ -580,6 +672,7 @@ export const useBudgetStore = defineStore('budget', () => {
       summary.value = summaryData
       expectedCharges.value = expectedData.charges
       installmentProjection.value = installmentData
+      offBudgetSummary.value = offBudgetData
       creditCardPaymentSummary.value = creditCardPaymentData
     } catch (err) {
       if (requestId !== fetchAllRequestId) return
@@ -604,10 +697,12 @@ export const useBudgetStore = defineStore('budget', () => {
     expectedCharges.value = data.charges
   }
 
-  async function fetchInstallmentProjection(date: string) {
-    installmentProjection.value = await apiRequest<InstallmentProjection>(
-      `/api/installments/projection/?date=${date}&months=6`,
-    )
+  async function fetchInstallmentProjection(date: string, accountId?: number) {
+    const params = new URLSearchParams({ date, months: '6' })
+    if (accountId !== undefined) params.set('account', String(accountId))
+    const data = await apiRequest<InstallmentProjection>(`/api/installments/projection/?${params}`)
+    if (accountId === undefined) installmentProjection.value = data
+    return data
   }
 
   async function saveSettings(payload: Settings) {
@@ -649,12 +744,17 @@ export const useBudgetStore = defineStore('budget', () => {
 
   async function createTransaction(payload: Partial<Transaction>) {
     await apiRequest('/api/transactions/', { method: 'POST', body: JSON.stringify(payload) })
-    await fetchAll(payload.date ?? new Date().toISOString().slice(0, 10))
+    await fetchAll(payload.date)
   }
 
   async function updateTransaction(id: Transaction['id'], payload: Partial<Transaction>) {
     await apiRequest(`/api/transactions/${id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
-    await fetchAll(payload.date ?? new Date().toISOString().slice(0, 10))
+    await fetchAll(payload.date)
+  }
+
+  async function deleteTransaction(id: Transaction['id'], date?: Transaction['date']) {
+    await apiRequest(`/api/transactions/${id}/`, { method: 'DELETE' })
+    await fetchAll(date)
   }
 
   async function createRecurring(payload: Partial<RecurringExpense>) {
@@ -690,7 +790,7 @@ export const useBudgetStore = defineStore('budget', () => {
     await fetchAll()
   }
 
-  async function confirmCharge(charge: ExpectedCharge, accountId: number) {
+  async function confirmCharge(charge: ExpectedCharge, accountId: number | null) {
     await apiRequest('/api/expected-charges/confirm/', {
       method: 'POST',
       body: JSON.stringify({
@@ -765,6 +865,7 @@ export const useBudgetStore = defineStore('budget', () => {
     onboardingReady,
     bootstrapStatus,
     settings,
+    appToday,
     members,
     categories,
     accounts,
@@ -775,6 +876,7 @@ export const useBudgetStore = defineStore('budget', () => {
     expectedCharges,
     installmentProjection,
     creditCardPaymentSummary,
+    offBudgetSummary,
     summary,
     invitations,
     resolvedInvitation,
@@ -803,6 +905,7 @@ export const useBudgetStore = defineStore('budget', () => {
     updateAccount,
     createTransaction,
     updateTransaction,
+    deleteTransaction,
     createRecurring,
     updateRecurring,
     deleteRecurring,

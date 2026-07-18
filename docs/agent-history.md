@@ -1,5 +1,298 @@
 # Agent History
 
+## 2026-07-18 - Corrección de próxima fecha y publicación Docker Hub v0.1.26
+
+Objetivo: corregir el estado de pago mostrado cuando una tarjeta no tiene saldo cortado pero sí saldo acumulándose, sanear la historia publicable y alinear Docker Hub con el código listo para `main`.
+
+Cambios:
+
+- El resumen elige la fecha del ciclo cerrado solo cuando ese ciclo tiene saldo; de lo contrario usa el ciclo abierto con saldo.
+- Una tarjeta con fechas configuradas y ambos ciclos en cero ahora se muestra `Al día`, no como pendiente de configuración.
+- Se agregaron regresiones frontend para ambos casos; la suite subió a 55 pruebas.
+- `.gitignore` conserva fuera de Git el respaldo SQL, las capturas locales del sistema de diseño y el archivo interno del run; la rama publicable fue reconstruida sin esos blobs.
+- Publicadas `loomitz/burnrate:v0.1.26` y `latest` para `linux/amd64` y `linux/arm64`, con SBOM y procedencia OCI.
+- Ambas etiquetas apuntan al índice `sha256:43c56903612b7b3fe56af2421f1af96a07c04ab30b7efd0103df1aa115849f0d`; los manifiestos son `sha256:00f3cc0f5e4c81dfc043beb90d0bd767fb6e6e6ce93f695256bd770cfd55fc43` (AMD64) y `sha256:5315db3d0bb371d402392af102a5f7cec545f252dae46f41132b57c37f99a316` (ARM64).
+
+Verificaciones:
+
+- Backend: 138 tests, `manage.py check` limpio y `makemigrations --check --dry-run` sin pendientes.
+- Frontend: 55 tests y build de producción correctos.
+- Smoke local con PostgreSQL: contenedor healthy, migración `0020` aplicada, onboarding listo, `/healthz/`, SPA y asset compilado correctos.
+- Las imágenes remotas AMD64 y ARM64 se descargaron con `--pull=always`; ambas pasaron `manage.py check` con Django 5.2.16 e incluyeron migración y frontend.
+- Docker Scout consumió los SBOM publicados y no detectó paquetes con vulnerabilidades corregibles en ninguna arquitectura.
+
+## 2026-07-18 - Resumen de tarjetas y publicación Docker Hub v0.1.25
+
+Objetivo: publicar la nueva vista separada de resumen de tarjetas, con gráficos y estado operativo por tarjeta, como una imagen estable multi-arquitectura.
+
+Cambios:
+
+- La vista `Tarjetas > Resumen` concentra distribución del saldo, comparación entre ciclos cortados y abiertos, composición del adeudo y próximas fechas de pago.
+- Actualizado Django de `5.2.14` a `5.2.16`; el lock quedó regenerado para eliminar las ocho vulnerabilidades corregibles reportadas por Docker Scout.
+- Agregado `*.sql` a `.dockerignore` para impedir que respaldos locales entren al contexto enviado a BuildKit.
+- Actualizadas `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para usar `loomitz/burnrate:v0.1.25` como versión estable.
+- Publicadas `v0.1.25` y `latest` para `linux/amd64` y `linux/arm64`, con SBOM y procedencia OCI.
+- Ambas etiquetas apuntan al índice `sha256:2d951a3263f0c6b6d77553874eb6dd1f2a65321c647def95d65ebd4c6fe3b402`; los manifiestos son `sha256:3b075cc22fecb4189ea91991dce65fb2507b188e0b3039042270a15c88180dec` (AMD64) y `sha256:8d129c26c305fcd3fd6b27637a74b7374ab0383f5bff35ba9765400695aa4e77` (ARM64).
+
+Verificaciones:
+
+- Backend: 138 tests pasaron con Django 5.2.16; `manage.py check` quedó limpio y `makemigrations --check --dry-run` no encontró migraciones pendientes.
+- Frontend: 53 tests pasaron y el build de producción terminó correctamente.
+- El smoke local contra PostgreSQL temporal aplicó `budget.0020_account_payment_due_day`, dejó onboarding listo, marcó el contenedor healthy y respondió correctamente en `/healthz/`, `/`, y el asset JavaScript compilado.
+- Las imágenes AMD64 y ARM64 se descargaron con `--pull=always` desde Docker Hub; ambas pasaron `manage.py check` e incluyeron la migración y el frontend compilado.
+- Docker Scout consumió los SBOM publicados y no detectó paquetes con vulnerabilidades corregibles en ninguna arquitectura.
+
+## 2026-07-18 - Publicación Docker Hub v0.1.24
+
+Objetivo: publicar el estado actual de Burn Rate con el presupuesto por mes calendario, ciclos por tarjeta, fecha límite bancaria, pago preventivo y la actualización de Beneficios.
+
+Cambios:
+
+- Actualizadas `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para usar `loomitz/burnrate:v0.1.24` como versión estable.
+- Publicadas en Docker Hub las etiquetas `v0.1.24` y `latest` para `linux/amd64` y `linux/arm64`.
+- Ambas etiquetas apuntan al índice OCI `sha256:1368845ef43035da0effc36c12feaf6cd6bbd469424bf774ea48a41e0b8180b7`; los manifiestos de plataforma son `sha256:e2a72ddf1b3ecac1830f2909520f0282e8b8ffa06b79a34785672f028d0d8d8b` (AMD64) y `sha256:e9bdc30a06fc7536b2e7e1fd47e355eec3d7d65b1e95b1a51328fefabf830ea2` (ARM64).
+
+Verificaciones:
+
+- Backend: 138 tests pasaron; `manage.py check` quedó limpio y `makemigrations --check --dry-run` no encontró migraciones pendientes.
+- Frontend: 45 tests pasaron y el build de producción terminó correctamente.
+- El build local ARM64 pasó `manage.py check` e incluyó la migración `0020_account_payment_due_day.py` y los artefactos compilados del frontend.
+- Las imágenes publicadas se descargaron de Docker Hub con `--pull=always`; tanto ARM64 como AMD64 pasaron `manage.py check`.
+- Docker Scout no encontró vulnerabilidades críticas ni altas. Reportó 6 medias y 2 bajas en Django 5.2.14, todas con corrección disponible en Django 5.2.16; la actualización de dependencia queda pendiente y no se mezcló con esta publicación.
+
+## 2026-07-18 - Fecha límite por tarjeta y pago preventivo
+
+Objetivo: permitir configurar, además del día de corte, el día límite bancario de cada tarjeta y operar siempre con una fecha segura tres días calendario anterior.
+
+Cambios:
+
+- `Account.payment_due_day` (`1`–`31`) y migración aditiva `0020`; las tarjetas existentes conservan `null` para no inventar su fecha real y las tarjetas nuevas la requieren por API/UI.
+- `card_payment_dates` resuelve el primer límite posterior al corte, ajusta días `29`–`31` al último día de meses cortos y resta un margen fijo de tres días.
+- El resumen de Pagos expone `payment_due_date` y `safe_payment_date` para los ciclos cerrado y abierto; la interfaz muestra ambas y prioriza visualmente la fecha preventiva.
+- Ajustes permite crear/editar el día límite y explica el margen; el seed demo usa corte `20` y límite `10`.
+- Contratos de tipos y documentación actualizados para el modelo nuevo.
+
+Verificaciones locales:
+
+- Backend: `USE_SQLITE_FOR_TESTS=true uv run pytest` pasó con 138 tests; `manage.py check` limpio; `makemigrations --check --dry-run` sin pendientes.
+- Frontend: `pnpm test` pasó con 45 tests; `pnpm build` pasó con `vue-tsc` y Vite.
+- La migración `budget.0020_account_payment_due_day` se aplicó correctamente en la base local; `/healthz/` y `http://localhost:5173/` respondieron, y el smoke de corte `2026-07-20` con límite `10` resolvió límite `2026-08-10` y pago seguro `2026-08-07`.
+
+## 2026-07-02 - Re-run de verificación issue #2: cobertura, revisión adversarial y cierre de huecos
+
+Objetivo: re-ejecución del prompt del run desatendido del issue #2 sobre la implementación ya commiteada, como pase integral de verificación: auditoría de cobertura contra el PRD, segunda revisión adversarial del dominio y corrección de lo confirmado. Commits locales, sin push ni PR.
+
+Archivos tocados:
+
+- `frontend/src/creditCardViews.ts` (nuevo): lógica pura extraída de `App.vue` para los filtros de la vista MSI (chips por tarjeta/titular, enfoque por ciclo) y la agrupación del panel de Pagos por titular; `App.vue` solo delega, sin cambio de comportamiento.
+- `frontend/src/creditCardViews.test.ts` (nuevo): 15 tests que cierran el hueco de la Testing Decision de frontend (filtros MSI y presentación de Pagos).
+- `backend/budget/services.py`: tres correcciones de la revisión adversarial (ver abajo).
+- `backend/budget/tests/test_budget_domain.py`: 5 tests de regresión de las correcciones.
+
+Auditoría de cobertura (agente independiente): 26/26 user stories y 13/13 Implementation Decisions verificadas con evidencia de código y test; escenario canónico pasando en la costura API; gate documental completo (`domain.md`, `api.md`, README sin corte global); Out of Scope respetado. Único hueco real: la costura de tests frontend de filtros MSI/Pagos, cerrado en este run.
+
+Revisión adversarial (agente independiente, 46 tests adversariales; 42 hipótesis resistieron, incluido barrido de 30,688 ciclos 2026–2028, liberación día a día con cortes 1/20/28, febrero bisiesto y no bisiesto, foto de cierre inmutable desde 5 "hoys" y conciliación Pagos↔ventana viva). Refutaciones confirmadas y corregidas:
+
+- MSI fantasma: plan con tarjeta capturado después del corte con `first_payment_number > 1` inyectaba la mensualidad `first−1` en el mes de captura; `installment_charge_for_period` ahora rechaza pagos anteriores a `first_payment_number`.
+- Un cambio de presupuesto con fecha efectiva anterior aplastaba cambios ya programados a futuro; las allocations afectadas ahora se recalculan respetando la historia de `CategoryBudgetChange`.
+- Las transacciones `expected_charge` en tarjeta consumían la ventana viva pero el ciclo cerrado de Pagos no las cobraba; `_card_cycle_block` usa `SPEND_TYPES` para que lo cobrado iguale lo liberado.
+
+Decisiones:
+
+- Tarjeta inactiva fuera del panel de Pagos pero consumiendo su ventana hasta el corte: se mantiene tal cual — es decisión deliberada del run anterior, documentada en `docs/domain.md`.
+- El flujo mensual se muestra en el detalle de categoría y no en el grid del Plan: lectura razonable de la story 9; sin cambio.
+
+Verificaciones locales:
+
+- Backend: `USE_SQLITE_FOR_TESTS=true uv run pytest` pasó con 132 tests (127 al inicio del re-run); `manage.py check` limpio; `makemigrations --check --dry-run` sin pendientes.
+- Frontend: `pnpm test` pasó con 44 tests (29 al inicio); `pnpm build` (vue-tsc estricto) pasó.
+- `scripts/dev-services.sh restart` levantó db/Django/Vite; `/healthz/` y `:5173` respondieron 200; smoke sobre la DB real: summary con mes calendario + `live_windows`/`monthly_flow_cents`, Pagos por tarjeta con total y titulares, proyección MSI en modo mes.
+
+## 2026-07-01 - Implementación issue #2: mes calendario, cortes por tarjeta y ventana viva
+
+Objetivo: implementar por completo el issue #2 (run desatendido multi-agente) sobre la rama `feat/issue-2-calendar-card-cycles`, en cinco fases con tests primero y revisión adversarial final. Los commits quedan locales, sin push ni PR, para verificación del usuario.
+
+Archivos tocados:
+
+- `backend/budget/models.py`: `Account.cutoff_day` (solo tarjetas de crédito, 1–28) y `Account.owner` (miembro del hogar, solo metadato); eliminado `AppSettings.cutoff_day`.
+- Migraciones `0017` (campos + backfill de corte 20 desde el valor global), `0018` (remueve `cutoff_day` global) y `0019` (recálculo histórico: re-ancla `CategoryBudgetChange` y descartes a meses calendario, purga asignaciones y sobregiros para regeneración lazy).
+- `backend/budget/services.py`: `get_budget_period` pasa a mes calendario; nuevos `card_cycle`, `previous_card_cycle`, `last_closed_card_cycle`, `card_cycle_for_offset`; `build_budget_summary` reescrito al modelo de ventana viva (liberación al corte, foto de cierre para meses no actuales, carryover excluido, `monthly_flow_cents` y `live_windows`); sobregiro = disponible vivo negativo con registro al cierre; MSI numeradas por offset de ciclos de su tarjeta (sin tarjeta: mes calendario); `card_payments_summary` con ciclo cerrado (por pagar) y abierto (acumulando) por tarjeta, total global y titulares; `installment_projection` con modos mes/ciclo (`?account=`); descartes anclados por ciclo de tarjeta.
+- `backend/budget/views.py`, `serializers.py`, `admin.py`, `seed_demo_data.py`: superficies de los cambios anteriores.
+- `frontend/src/stores/budget.ts` y `App.vue`: el cliente elimina su algoritmo de corte y navega meses calendario; Ajustes sin corte global; formulario de cuenta con corte y titular; panel de Pagos nuevo (por pagar/acumulando/titulares); vista MSI con filtros por tarjeta(s) y titular y columnas por ciclo real al enfocar una tarjeta; detalle de categoría con flujo mensual y reparto del consumo vivo; día de cargo default 21 → 1.
+- `docs/domain.md`, `docs/api.md`, `README.md`: documentación al modelo y contratos nuevos.
+
+Decisiones ante ambigüedad (fuente: entrevista 2026-07-01 / ADR-0002 / conservadoras):
+
+- Foto de cierre = recálculo determinístico as-of último día del mes (sin snapshot en DB); `CategoryOverspendRecord` sigue materializado para la historia de sobregiros.
+- Tarjetas existentes migran con el valor global anterior de corte (20); corte obligatorio en la API para tarjetas nuevas, con auto-relleno 20 en creaciones ORM.
+- Descartes históricos se re-anclan al día 1 del mes calendario de su periodo viejo (el hogar corregirá bordes a mano, según ADR).
+- El ciclo abierto en Pagos incluye su mensualidad MSI proyectada para anticipar el próximo estado de cuenta.
+- Nota de transición: planes MSI con tarjeta y fecha de inicio posterior al corte muestran su mensualidad un mes calendario después que antes (ahora cuadra con el estado de cuenta del banco).
+
+Verificaciones locales:
+
+- Backend: `USE_SQLITE_FOR_TESTS=true uv run pytest` pasó con 127 tests (87 antes del run); `manage.py check` limpio; `makemigrations --check --dry-run` sin pendientes. Incluye el escenario canónico por API (Comida $10,000: tarjeta $5,000 + efectivo $2,000 → disponible $3,000; liberación al corte → $8,000; $4,000 post-corte → $4,000; agosto vivo → $6,000; foto de julio inmutable en $4,000).
+- Frontend: `pnpm test` pasó con 29 tests (27 antes); `pnpm build` (vue-tsc estricto) pasó.
+- Revisión adversarial (agente independiente): confirmó liberación exacta el día del corte (cortes 1, 20 y 28), ciclos contiguos en febrero bisiesto y no bisiesto, cruce de mes, carryover intacto al corte, MSI sin tarjeta y foto de cierre inmutable (26 asserts ejecutados). Encontró y se corrigió un crash con corte 28 en años no bisiestos (`add_months` sobre ciclo que arranca el 29 de marzo) y se blindó el dedupe de descartes de la migración 0019.
+- Migraciones 0017–0019 aplicadas sobre la base de desarrollo real (respaldo previo en `pre-issue-2-backup.sql`); `scripts/dev-services.sh restart` levantó db/Django/Vite; `curl` a `/healthz/` y `:5173` respondió 200 y los servicios de dominio sirven la forma nueva sobre los datos reales.
+
+## 2026-07-01 - Sesión de dominio: mes calendario, cortes por tarjeta y ventana viva
+
+Objetivo: definir con el usuario, mediante entrevista de diseño, el nuevo modelo presupuestal para múltiples tarjetas de crédito con distinto titular y distinto día de corte. Sesión de documentación; sin cambios de código.
+
+Archivos tocados:
+
+- Nuevo `CONTEXT.md` con el glosario del lenguaje acordado (términos nuevos marcados como *target*).
+- Nuevo `docs/decisions/ADR-0002-live-window-budget-release.md` con la decisión central, alternativas rechazadas y consecuencias.
+
+Decisiones:
+
+- El periodo presupuestal pasa a mes calendario (1 → fin de mes); el día de corte deja de ser global y se vuelve atributo de cada tarjeta de crédito (validado 1–28).
+- Modelo "ventana viva": disponible = presupuesto − gasto efectivo/débito/banco del mes − gasto de cada tarjeta desde su último corte − cargos esperados pendientes. Al corte se libera lo gastado con esa tarjeta y se convierte en estado de cuenta por pagar.
+- Las categorías acumulables (carryover) quedan fuera de la liberación.
+- Sobregiro = disponible vivo < 0, con registro histórico como foto al cierre de mes; el flujo mensual queda como métrica informativa.
+- Mensualidades MSI ancladas al ciclo de su tarjeta (una por estado de cuenta), con mes calendario como respaldo para planes sin tarjeta.
+- `Account` gana titular opcional (`HouseholdMember`) solo para agrupar/filtrar; el presupuesto lo determina la categoría.
+- Pagos muestra por tarjeta el ciclo cerrado ("por pagar": compras + mensualidad MSI del ciclo) con total global, y el ciclo abierto ("acumulando").
+- Vista MSI: proyección global por mes calendario (mensualidad asignada al mes de su corte, total desglosado por tarjeta), filtro por tarjeta y por titular, y columnas por ciclo real al enfocar una sola tarjeta.
+- La historia materializada en periodos 21–20 se recalcula a meses calendario; el usuario corregirá a mano los datos de borde.
+- Los cargos recurrentes se siguen generando una vez por mes calendario según su día de cargo.
+
+## 2026-05-31 - Beneficios de tarjetas y publicación v0.1.23
+
+Objetivo: publicar la sección de beneficios de tarjetas con recomendaciones por escenario, corrigiendo Santander LikeU a tarjeta de crédito y agregando el beneficio de bebida Starbucks para The Platinum Credit Card American Express.
+
+Archivos tocados:
+
+- Actualizado `frontend/src/App.vue` para agregar la vista `Beneficios`, recomendaciones por uso y fichas comparativas para Costco Banamex, BBVA Oro, Santander LikeU crédito y The Platinum Credit Card American Express.
+- Actualizado `frontend/src/style.css` para la navegación activa, layout responsive y estilos de la nueva sección de beneficios.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.23`.
+- Actualizado `backend/uv.lock` para subir Django a `5.2.14`.
+- Actualizado `Dockerfile` para remover `pip` del runtime final y dejar la imagen sin CVEs detectadas por Docker Scout.
+
+Verificaciones locales:
+
+- `pnpm build` pasó en `frontend/`.
+- `pnpm test` pasó en `frontend/` con 27 tests.
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py test` pasó en `backend/` con 87 tests.
+- `docker build --pull -t loomitz/burnrate:v0.1.23 -t loomitz/burnrate:latest .` construyó la imagen local.
+- `docker run --rm --entrypoint sh -e DJANGO_SECRET_KEY=test-secret loomitz/burnrate:v0.1.23 -c 'python manage.py check'` pasó dentro de la imagen local.
+- El smoke container local respondió `/healthz/` correctamente y sirvió la SPA en `/`.
+- `docker --context colima buildx build --builder beaglebackbone-builder --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.23 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura.
+- `docker --context colima buildx imagetools inspect` confirmó que `v0.1.23` y `latest` apuntan al digest `sha256:a14b04197772bc5568f433e5f980cdc4992dab12b77e546f19b346cee96815df`, con manifiestos `linux/amd64` y `linux/arm64`.
+- `docker --context colima run --rm --pull=always --platform linux/arm64 --entrypoint sh -e DJANGO_SECRET_KEY=test-secret loomitz/burnrate:v0.1.23 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+- `docker --context colima run --rm --pull=always --platform linux/amd64 --entrypoint sh -e DJANGO_SECRET_KEY=test-secret loomitz/burnrate:v0.1.23 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+- `docker --context colima scout cves --platform linux/arm64 loomitz/burnrate:v0.1.23 --only-fixed` no detectó paquetes vulnerables.
+- `docker --context colima scout cves --platform linux/amd64 loomitz/burnrate:v0.1.23 --only-fixed` no detectó paquetes vulnerables.
+
+## 2026-05-30 - Revisión temporal de gastos filtrados y publicación v0.1.22
+
+Objetivo: publicar el modo temporal de revisión para gastos filtrados, permitiendo marcar pagos revisados sin persistir ese estado en la base.
+
+Archivos tocados:
+
+- Actualizado `frontend/src/App.vue` para mostrar el modo `Revisión` cuando el feed tiene filtros activos, marcar gastos visibles como revisados y limpiar el estado temporal al cambiar filtros o salir del feed.
+- Actualizado `frontend/src/style.css` para la barra de revisión, checks temporales y estados visuales revisados en desktop y mobile.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.22`.
+
+Verificaciones locales:
+
+- `pnpm build` pasó en `frontend/`.
+- `pnpm test -- --run frontend/src/stores/budget.test.ts` pasó en `frontend/` con 27 tests.
+- Playwright validó el flujo con filtro por método de pago, entrada a `Revisión`, marcado parcial, marcado completo, limpieza de checks, cambio de filtro y limpieza de filtros en desktop y mobile.
+- `docker --context colima buildx build --builder beaglebackbone-builder --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.22 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura.
+- `docker --context colima buildx imagetools inspect` confirmó que `v0.1.22` y `latest` apuntan al digest `sha256:41fb4701bf689284b820e852b5f1cf56b74ff77af6b79624d7353cb73a995840`, con manifiestos `linux/amd64` y `linux/arm64`.
+- `docker --context colima run --rm --platform linux/arm64 --entrypoint sh loomitz/burnrate:v0.1.22 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+- `docker --context colima run --rm --platform linux/amd64 --entrypoint sh loomitz/burnrate:v0.1.22 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+
+## 2026-05-30 - Filtro por método de pago y publicación v0.1.21
+
+Objetivo: publicar el filtro del feed de gastos por tipo de pago o por cuenta/tarjeta específica.
+
+Archivos tocados:
+
+- Actualizado `frontend/src/App.vue` para agregar el filtro de método de pago en `Gastos > Movimientos`, con opciones por tipo de cuenta y por cuenta/tarjeta.
+- Actualizado `frontend/src/style.css` para acomodar los filtros de categoría y método de pago en desktop y mobile.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.21`.
+
+Verificaciones locales:
+
+- `pnpm test -- --run frontend/src/stores/budget.test.ts` pasó en `frontend/` con 27 tests.
+- `pnpm build` pasó en `frontend/`.
+- Playwright validó el filtro por tipo de pago, por cuenta/tarjeta, combinado con categoría y su limpieza en desktop y mobile.
+- `docker --context colima buildx build --builder beaglebackbone-builder --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.21 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura.
+- `docker --context colima buildx imagetools inspect` confirmó que `v0.1.21` y `latest` apuntan al digest `sha256:4aecc5fbce5b645d2f459e11d955dfab2f53c04912b00fed10659f0a9777b171`, con manifiestos `linux/amd64` y `linux/arm64`.
+- `docker --context colima run --rm --platform linux/arm64 --entrypoint sh loomitz/burnrate:v0.1.21 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+- `docker --context colima run --rm --platform linux/amd64 --entrypoint sh loomitz/burnrate:v0.1.21 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+
+## 2026-05-30 - Gastos por ciclo y publicación v0.1.20
+
+Objetivo: publicar que el ciclo seleccionado se refleje también en Gastos > Movimientos y que la lista pueda filtrarse por categoría.
+
+Archivos tocados:
+
+- Actualizado `backend/budget/views.py` para que `/api/transactions/` acepte `date` y filtre por el ciclo presupuestal correspondiente.
+- Actualizado `frontend/src/stores/budget.ts` para cargar transacciones con la fecha activa del ciclo.
+- Actualizado `frontend/src/App.vue` y `frontend/src/style.css` para mostrar "Gastos del periodo", limpiar el filtro al cambiar de ciclo y filtrar el feed por categoría.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.20`.
+
+Verificaciones locales:
+
+- `pnpm test -- --run frontend/src/stores/budget.test.ts` pasó en `frontend/` con 27 tests.
+- `pnpm build` pasó en `frontend/`.
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py test budget.tests.test_api` pasó en `backend/` con 60 tests.
+- Playwright validó `Gastos > Movimientos` con cambio de ciclo y filtro por categoría en desktop y mobile.
+- `docker --context colima compose config` pasó.
+- `docker --context colima buildx build --builder beaglebackbone-builder --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.20 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura.
+- `docker --context colima buildx imagetools inspect` confirmó que `v0.1.20` y `latest` apuntan al digest `sha256:fbc5b4186c3f3495f162dcc073a19c163d71e7bbea6d35f904d872cc6fd32215`, con manifiestos `linux/amd64` y `linux/arm64`.
+- `docker --context colima run --rm --platform linux/arm64 --entrypoint sh loomitz/burnrate:v0.1.20 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+- `docker --context colima run --rm --platform linux/amd64 --entrypoint sh loomitz/burnrate:v0.1.20 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+
+## 2026-05-30 - Zona horaria configurable y publicación v0.1.19
+
+Objetivo: publicar la configuración de zona horaria de la aplicación para que el calendario no dependa de la zona local del servidor.
+
+Archivos tocados:
+
+- Agregado `AppSettings.time_zone`, validación IANA y helper de fecha local de aplicación.
+- Actualizados servicios y endpoints que calculan "hoy" para usar la zona horaria configurada.
+- Actualizado `frontend/src/App.vue` y `frontend/src/stores/budget.ts` para exponer la zona horaria en Ajustes y calcular el día actual de la app con esa zona.
+- Agregada eliminación de gastos registrados desde el feed y su refresco de presupuesto.
+- Fijado `frontend/package.json` a `pnpm@10.30.3` para que Docker/Corepack no use pnpm 11 en el build.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.19`.
+
+Verificaciones locales:
+
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py test budget.tests.test_api budget.tests.test_budget_domain budget.tests.test_settings` pasó en `backend/` con 85 tests.
+- `pnpm test -- --runInBand` pasó en `frontend/` con 27 tests.
+- `pnpm build` pasó en `frontend/`.
+- `uv run python manage.py makemigrations --check --dry-run` no detectó migraciones pendientes.
+- `docker --context colima buildx build --builder beaglebackbone-builder --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.19 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura.
+- `docker --context colima buildx imagetools inspect` confirmó que `v0.1.19` y `latest` apuntan al digest `sha256:b30f0bf01050597de57e2ca5d99838eb5a469b8c6a1afa791148110d30f9cc50`, con manifiestos `linux/amd64` y `linux/arm64`.
+- `docker --context colima run --rm --platform linux/arm64 --entrypoint sh loomitz/burnrate:v0.1.19 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+- `docker --context colima run --rm --platform linux/amd64 --entrypoint sh loomitz/burnrate:v0.1.19 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+
+## 2026-05-05 - Distribución de gasto sin agrupación v0.1.18
+
+Objetivo: publicar el rediseño del gráfico de distribución de gasto para mostrar cada categoría real sin agrupar las menores como "Otras".
+
+Archivos tocados:
+
+- Actualizado `frontend/src/App.vue` para calcular todos los segmentos de gasto por categoría y conservar el click al detalle.
+- Actualizado `frontend/src/style.css` para un panel tipo ledger con donut, icono de categoría, punto de color, porcentaje, barra corta, monto y flecha.
+- Actualizados `.env.example`, `docker-compose.yml`, `README.md` y `docs/docker-hub-overview.md` para la etiqueta `loomitz/burnrate:v0.1.18`.
+
+Verificaciones locales:
+
+- `pnpm test -- --runInBand` pasó en `frontend/`.
+- `pnpm build` pasó en `frontend/`.
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py test budget` pasó en `backend/` con 82 tests.
+- `USE_SQLITE_FOR_TESTS=true uv run python manage.py makemigrations --check --dry-run` no detectó migraciones pendientes.
+- `curl http://127.0.0.1:5173/` y `curl http://127.0.0.1:8001/healthz/` respondieron `200`.
+- `docker --context colima buildx build --builder beaglebackbone-builder --platform linux/amd64,linux/arm64 -t loomitz/burnrate:v0.1.18 -t loomitz/burnrate:latest --push .` publicó la imagen multi-arquitectura.
+- `docker --context colima buildx imagetools inspect` confirmó que `v0.1.18` y `latest` apuntan al digest `sha256:1557ad20ee78d87b72d62a7875364bfb59717e73d3aec94dce4c0c245530c204`, con manifiestos `linux/amd64` y `linux/arm64`.
+- `docker --context colima run --rm --platform linux/arm64 --entrypoint sh ... loomitz/burnrate:v0.1.18 -c 'python manage.py check'` pasó dentro de la imagen publicada.
+
 ## 2026-05-04 - Edición de gastos y pago para no generar intereses v0.1.16
 
 Objetivo: publicar el resumen por tarjeta del pago necesario para no generar intereses y permitir corregir gastos recientes desde la interfaz.

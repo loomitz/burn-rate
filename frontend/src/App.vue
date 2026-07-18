@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { Laptop, Moon, Pencil, Search, Sun, X } from '@lucide/vue'
+import { Check, ChevronRight, Laptop, ListChecks, Moon, Pencil, Search, Sun, Trash2, X } from '@lucide/vue'
 import {
   useBudgetStore,
   type Account,
@@ -9,6 +9,8 @@ import {
   type BudgetCategorySummary,
   type ExpectedCharge,
   type HouseholdMember,
+  type InstallmentProjection,
+  type InstallmentProjectionPeriod,
   type InstallmentProjectionPlan,
   type Invitation,
   type RecurringExpense,
@@ -17,6 +19,13 @@ import {
 } from './stores/budget'
 import { apiErrorMessage, centsFromInput, money } from './stores/api'
 import { categoryIcons, getCategoryIcon } from './categoryIcons'
+import {
+  computeProjectionPeriodsView,
+  focusedMsiCardId,
+  msiCardChipsFrom,
+  msiOwnerChipsFrom,
+} from './creditCardViews'
+import CreditCardsSummary from './components/CreditCardsSummary.vue'
 import burnRateLogoDark from './assets/brand/burn-rate-logo-dark.svg'
 import burnRateLogoLight from './assets/brand/burn-rate-logo-light.svg'
 
@@ -27,6 +36,7 @@ const {
   onboardingStatus,
   onboardingReady,
   settings,
+  appToday,
   members,
   categories,
   accounts,
@@ -39,6 +49,7 @@ const {
   expectedCharges,
   installmentProjection,
   creditCardPaymentSummary,
+  offBudgetSummary,
   summary,
   invitations,
   resolvedInvitation,
@@ -47,9 +58,10 @@ const {
   firstRunClaimRequired,
 } = storeToRefs(store)
 
-type View = 'budget' | 'expenses' | 'commitments' | 'settings'
+type View = 'budget' | 'expenses' | 'commitments' | 'cards' | 'settings'
 type ExpensesTab = 'capture' | 'feed'
 type CommitmentTab = 'subscriptions' | 'msi'
+type CardsTab = 'summary' | 'benefits'
 type CommitmentKind = 'subscription' | 'msi'
 type CommitmentEditKind = 'recurring' | 'installment'
 type SettingsPanel = 'accounts' | 'people' | 'categories' | 'invitations'
@@ -64,7 +76,38 @@ type SpendingChartSegment = {
   amount_cents: number
   percent: number
   color: string
+  icon: string
   category_ids: number[]
+}
+type BenefitSource = {
+  label: string
+  url: string
+}
+type BenefitItem = {
+  label: string
+  value: string
+  detail: string
+}
+type BenefitProduct = {
+  id: string
+  name: string
+  issuer: string
+  type: string
+  accent: string
+  bestFor: string
+  quickRule: string
+  bestUses: string[]
+  benefits: BenefitItem[]
+  watchOut: string
+  sources: BenefitSource[]
+}
+type BenefitRecommendation = {
+  id: string
+  spend: string
+  product: string
+  reason: string
+  note: string
+  accent: string
 }
 
 const THEME_STORAGE_KEY = 'burn-rate-theme'
@@ -73,6 +116,7 @@ const AUTH_ACTIVITY_REFRESH_MS = 2 * 60 * 1000
 const view = ref<View>('budget')
 const expensesTab = ref<ExpensesTab>('capture')
 const commitmentTab = ref<CommitmentTab>('subscriptions')
+const cardsTab = ref<CardsTab>('summary')
 const commitmentKind = ref<CommitmentKind>('subscription')
 const settingsPanel = ref<SettingsPanel>('accounts')
 const theme = ref<ThemePreference>(storedThemePreference())
@@ -83,12 +127,15 @@ const iconGalleryOpen = ref(false)
 const iconGalleryDialog = ref<HTMLElement | null>(null)
 const iconGalleryOpener = ref<HTMLElement | null>(null)
 const iconSearch = ref('')
-const todayIso = new Date().toISOString().slice(0, 10)
-const selectedDate = ref(todayIso)
+const selectedDate = ref(appToday.value)
 const selectedScope = ref<Scope>('total')
 const selectedCategoryId = ref<number | null>(null)
 const expenseCategorySearch = ref('')
 const expenseAccountSearch = ref('')
+const expenseFeedCategoryId = ref('')
+const expenseFeedPaymentMethod = ref('')
+const expenseReviewMode = ref(false)
+const reviewedExpenseIds = shallowRef(new Set<Transaction['id']>())
 const commitmentCategorySearch = ref('')
 const commitmentAccountSearch = ref('')
 const merchantSuggestionsOpen = ref(false)
@@ -101,11 +148,16 @@ const editingAccountId = ref<number | null>(null)
 const editingMemberId = ref<number | null>(null)
 const editingCategoryId = ref<number | null>(null)
 const editingTransactionId = ref<number | null>(null)
+const deleteConfirmTransactionId = ref<number | null>(null)
 const accountFormOpen = ref(false)
 const memberFormOpen = ref(false)
 const categoryFormOpen = ref(false)
 const editingCommitment = ref<{ type: CommitmentEditKind; id: number } | null>(null)
 const deleteConfirmCommitment = ref<{ type: CommitmentEditKind; id: number } | null>(null)
+const msiCardFilter = ref<number[]>([])
+const msiOwnerFilter = ref<number[]>([])
+const focusedProjection = ref<InstallmentProjection | null>(null)
+const focusedProjectionLoading = ref(false)
 const claimForm = reactive({ full_name: '', display_name: '', email: '', password: '', confirmPassword: '' })
 const loginForm = reactive({ email: '', password: '' })
 const acceptInviteForm = reactive({ full_name: '', display_name: '', password: '', confirmPassword: '' })
@@ -121,6 +173,9 @@ const accountForm = reactive({
   initial_balance: '',
   color: '#7c6250',
   is_active: true,
+  cutoff_day: '' as string | number,
+  payment_due_day: '' as string | number,
+  owner: '' as string | number,
 })
 const memberForm = reactive({
   name: '',
@@ -134,6 +189,7 @@ const memberForm = reactive({
 const categoryForm = reactive({
   name: '',
   scope: 'global',
+  budget_treatment: 'budgeted' as 'budgeted' | 'tracking_only',
   member: '',
   monthly_budget: '',
   budget_behavior: 'monthly_reset' as 'monthly_reset' | 'carryover',
@@ -152,7 +208,7 @@ const recurringForm = reactive({
   account: '',
   start_date: selectedDate.value,
   end_date: '',
-  charge_day: 21,
+  charge_day: 1,
   auto_charge: false,
 })
 const installmentForm = reactive({
@@ -173,7 +229,7 @@ const commitmentEditForm = reactive({
   charge_day: 1,
   auto_charge: false,
 })
-const settingsForm = reactive({ cutoff_day: 20 })
+const settingsForm = reactive({ time_zone: settings.value.time_zone })
 const notice = reactive<{ type: NoticeType; message: string }>({ type: 'info', message: '' })
 const actionBusy = ref('')
 let noticeTimer: ReturnType<typeof window.setTimeout> | undefined
@@ -187,8 +243,357 @@ const navItems = [
   { id: 'budget', label: 'Presupuesto', icon: 'M3.5 11.5 12 4l8.5 7.5M5.5 10.5V20h13v-9.5M9 20v-6h6v6M9.2 12.2l1.7 1.7 3.7-3.9' },
   { id: 'expenses', label: 'Gastos', icon: 'M4 7h16v10H4zM7 10h5M7 14h3M15 14a2 2 0 100-4 2 2 0 000 4z' },
   { id: 'commitments', label: 'Pagos', icon: 'M4 7a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2zM4 9h16M7 15h4M15 15h2' },
+  { id: 'cards', label: 'Tarjetas', icon: 'M4 6h16v12H4zM4 10h16M7 15h4M16 14h1.5' },
   { id: 'settings', label: 'Ajustes', icon: 'M12 15a3 3 0 100-6 3 3 0 000 6ZM19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 008.92 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.24.54.78.9 1.37 1H21a2 2 0 110 4h-.23a1.65 1.65 0 00-1.37 1Z' },
 ] as const
+
+const benefitsLastChecked = '18 julio 2026'
+const benefitRecommendations: BenefitRecommendation[] = [
+  {
+    id: 'supermarkets',
+    spend: 'Súper fuera de Costco',
+    product: 'Klar Platino',
+    reason: 'Klar publica 6% de cashback en supermercados participantes como Sam’s Club, Walmart, Chedraui, HEB y La Comer.',
+    note: 'Costco es la excepción: ahí la regla de la casa es usar Banamex Costco aunque dé menos cashback.',
+    accent: '#5f776d',
+  },
+  {
+    id: 'costco-gas',
+    spend: 'Costco y gasolina Costco',
+    product: 'Banamex Costco',
+    reason: 'Regla de la casa: úsala en Costco aunque su 3% publicado sea menor que el 6% de Klar Platino; en gasolina Costco da 5%.',
+    note: 'Esta preferencia por Banamex Costco es deliberada. En gasolina, el 5% tiene tope mensual antes de bajar a 3%.',
+    accent: '#9d5f16',
+  },
+  {
+    id: 'education',
+    spend: 'Escuela, libros y educación',
+    product: 'Banamex Costco',
+    reason: 'La categoría educación acumula 4% de reembolso anual hasta el tope mensual publicado por Banamex.',
+    note: 'Después del tope acumula 1%, así que conviene separar compras grandes.',
+    accent: '#9d5f16',
+  },
+  {
+    id: 'pharmacy',
+    spend: 'Farmacias',
+    product: 'Santander LikeU crédito',
+    reason: 'Es la mejor categoría directa: la Tarjeta de Crédito LikeU publica 6% de cashback en farmacias participantes.',
+    note: 'Requiere inscripción, cuenta Santander participante y compra directa en el comercio.',
+    accent: '#c43131',
+  },
+  {
+    id: 'restaurants',
+    spend: 'Restaurantes y antojos',
+    product: 'Santander LikeU crédito',
+    reason: 'LikeU crédito da 5% de cashback en restaurantes participantes; supera el 2% anual de Banamex Costco.',
+    note: 'Paga directo; si es Grupo Carolo, Arango o Mandala, revisa el 20% del Dining Program de Klar Platino.',
+    accent: '#c43131',
+  },
+  {
+    id: 'telecom',
+    spend: 'Internet, celular y telecom',
+    product: 'Santander LikeU crédito',
+    reason: 'LikeU crédito da 4% de cashback en telecomunicaciones participantes.',
+    note: 'Debe ser cargo directo del comercio o servicio participante.',
+    accent: '#c43131',
+  },
+  {
+    id: 'subscriptions',
+    spend: 'Streaming y suscripciones',
+    product: 'Klar Platino',
+    reason: 'Publica 6% de cashback en servicios participantes como Netflix, Disney+, Max, Paramount Plus y Spotify.',
+    note: 'Confirma que el cargo llegue directo del comercio participante y revisa el tope mensual de cashback.',
+    accent: '#5f776d',
+  },
+  {
+    id: 'mobility-delivery',
+    spend: 'Uber, Didi y comida a domicilio',
+    product: 'Klar Platino',
+    reason: 'Da 3% de cashback en movilidad y servicios de entrega participantes como Uber, Didi, Rappi y Uber Eats.',
+    note: 'La categoría y el comercio deben aparecer como participantes en las condiciones de Klar.',
+    accent: '#5f776d',
+  },
+  {
+    id: 'klar-travel',
+    spend: 'Viajes en comercios participantes',
+    product: 'Klar Platino',
+    reason: 'Da 3% en aerolíneas y plataformas publicadas por Klar, además de cinco accesos LoungeKey y beneficios Mastercard Platino.',
+    note: 'Para compras grandes compara contra los 3 MSI automáticos y promociones activadas de Amex.',
+    accent: '#5f776d',
+  },
+  {
+    id: 'cinema-vip',
+    spend: 'Cinépolis VIP',
+    product: 'Klar Platino',
+    reason: 'La promoción oficial ofrece 2x1 en boletos VIP al pagar con Klar Platino y aplicar el código vigente.',
+    note: 'Tiene límite de canjes, no se acumula con otras promociones y está publicada hasta el 31 de julio de 2027.',
+    accent: '#5f776d',
+  },
+  {
+    id: 'travel-large',
+    spend: 'Compras grandes y viajes fuera de Klar',
+    product: 'Amex Platinum Credit Card',
+    reason: 'Conviene por 3 MSI automáticos, Priority Pass, PriceTravel, protecciones y promociones activables.',
+    note: 'Confirma aceptación Amex y activa beneficios antes de comprar.',
+    accent: '#6f5db8',
+  },
+  {
+    id: 'general',
+    spend: 'Compras generales sin categoría',
+    product: 'BBVA Dorada (Oro) o Banamex Costco',
+    reason: 'BBVA acumula 11% en Puntos BBVA en compras a una exhibición; Banamex deja 1% anual en el resto.',
+    note: 'Antes confirma que el gasto no caiga en el cashback de Klar o LikeU ni en una categoría especial de Banamex.',
+    accent: '#2f65d7',
+  },
+]
+const benefitProducts: BenefitProduct[] = [
+  {
+    id: 'klar-platino',
+    name: 'Klar Platino',
+    issuer: 'Klar + Mastercard',
+    type: 'Tarjeta de crédito',
+    accent: '#5f776d',
+    bestFor: 'Supermercados fuera de Costco, suscripciones, viajes, movilidad, delivery y beneficios de viaje Mastercard.',
+    quickRule: 'Ponla primero en supermercados participantes excepto Costco y en suscripciones; en viajes, movilidad y delivery úsala cuando su 3% supere otra promoción activa.',
+    bestUses: ['Súper fuera de Costco', 'Suscripciones', 'Viajes', 'Movilidad y delivery', 'Salas VIP', 'Cinépolis VIP'],
+    benefits: [
+      {
+        label: 'Supermercados',
+        value: '6%',
+        detail: 'Klar incluye Costco, pero la regla de la casa es usar Banamex Costco ahí. Para el resto: Walmart, Chedraui, HEB, Soriana, La Comer, Sam’s Club y City Market.',
+      },
+      {
+        label: 'Suscripciones',
+        value: '6%',
+        detail: 'Cashback en servicios participantes como Disney+, Netflix, Max, Paramount Plus y Spotify.',
+      },
+      {
+        label: 'Viajes',
+        value: '3%',
+        detail: 'Cashback en aerolíneas y plataformas participantes como Aeroméxico, Viva, Volaris, Booking, Expedia y Airbnb.',
+      },
+      {
+        label: 'Telecom, movilidad y delivery',
+        value: '3%',
+        detail: 'Aplica en comercios participantes como Telcel, Telmex, Izzi, Uber, Didi, Rappi y Uber Eats.',
+      },
+      {
+        label: 'Salas VIP',
+        value: '5 accesos',
+        detail: 'Cinco accesos LoungeKey; Klar publica un cobro de $35 USD por persona para visitas adicionales.',
+      },
+      {
+        label: 'Cinépolis VIP',
+        value: '2x1',
+        detail: 'Código 6HDE8FU35JF46M8I en app o web de Cinépolis; sujeto a canjes disponibles y vigencia publicada.',
+      },
+      {
+        label: 'Mastercard Platino',
+        value: '20%',
+        detail: 'Dining Program en grupos participantes, concierge, Elite Valet, Priceless Cities y protecciones de precio, garantía y compras.',
+      },
+    ],
+    watchOut: 'El cashback tiene tope de $3,000 MXN al mes. La anualidad es de $1,500 MXN más IVA; Klar publica exención con $60,000 MXN de gasto en los primeros tres meses del primer año y $200,000 MXN en el año previo a partir del segundo.',
+    sources: [
+      {
+        label: 'Klar Platino: beneficios y condiciones',
+        url: 'https://www.klar.mx/platino',
+      },
+      {
+        label: 'Costos y CAT Klar Platino',
+        url: 'https://www.klar.mx/cat',
+      },
+      {
+        label: '2x1 Cinépolis con Klar',
+        url: 'https://www.klar.mx/post/beneficios-de-klar-platino-2x1-en-cinepolis-y-mas-con-mastercard',
+      },
+    ],
+  },
+  {
+    id: 'banamex-costco',
+    name: 'Banamex Costco',
+    issuer: 'Banamex + Costco',
+    type: 'Tarjeta de crédito',
+    accent: '#9d5f16',
+    bestFor: 'Costco, gasolina Costco, educación, restaurantes, streaming, TV e internet.',
+    quickRule: 'Úsala siempre en Costco y gasolina Costco, aunque Klar publique más cashback para compras de tienda. Evita agregadores para conservar la categoría.',
+    bestUses: ['Costco', 'Gasolina Costco', 'Educación', 'Restaurantes', 'Streaming e internet'],
+    benefits: [
+      {
+        label: 'Gasolina Costco',
+        value: '5%',
+        detail: 'Reembolso anual con tope de $10,000 MXN de facturación mensual; después acumula 3%.',
+      },
+      {
+        label: 'Educación',
+        value: '4%',
+        detail: 'Aplica en escuelas, librerías y giros educativos hasta $20,000 MXN de facturación mensual.',
+      },
+      {
+        label: 'Costco',
+        value: '3%',
+        detail: 'Tiendas Costco México, Costco Estados Unidos y costco.com.mx. Es la tarjeta preferida de la casa aunque Klar publique 6%.',
+      },
+      {
+        label: 'Casa digital',
+        value: '2%',
+        detail: 'Restaurantes, streaming, televisión de paga y servicios de internet.',
+      },
+      {
+        label: 'Resto',
+        value: '1%',
+        detail: 'Compras fuera de las categorías anteriores y pagos por agregadores.',
+      },
+    ],
+    watchOut: 'El reembolso es anual y las compras por agregadores generan 1% aunque el comercio original pertenezca a otra categoría.',
+    sources: [
+      {
+        label: 'Folleto informativo Costco Banamex',
+        url: 'https://www.banamex.com/resources/pdf/es/personas/creditos/tarjetas_credito/folleto-informativo-costco.pdf',
+      },
+    ],
+  },
+  {
+    id: 'bbva-oro',
+    name: 'BBVA Dorada (Oro)',
+    issuer: 'BBVA México',
+    type: 'Tarjeta de crédito',
+    accent: '#2f65d7',
+    bestFor: 'Compras a una exhibición cuando te sirven los Puntos BBVA.',
+    quickRule: 'Es respaldo útil si redimes Puntos BBVA seguido; no la pongas por encima de cashback directo en categorías claras.',
+    bestUses: ['Compras a una exhibición', 'Respaldo Visa', 'Seguridad en app', 'Viajes con equipaje'],
+    benefits: [
+      {
+        label: 'Puntos BBVA',
+        value: '11%',
+        detail: 'Acumula 11% de tus compras en Puntos BBVA; las compras a meses sin intereses no acumulan.',
+      },
+      {
+        label: 'Compras en línea',
+        value: 'CVV',
+        detail: 'CVV dinámico en app, tarjeta sin datos visibles, apagado desde la app y notificaciones.',
+      },
+      {
+        label: 'Equipaje',
+        value: '$1,000 / $3,000',
+        detail: 'Cobertura BBVA por demora o pérdida de equipaje, con condiciones publicadas por el banco.',
+      },
+      {
+        label: 'Compra protegida',
+        value: 'Seguro',
+        detail: 'Protección para ciertos bienes comprados totalmente con tarjetas BBVA.',
+      },
+    ],
+    watchOut: 'Los Puntos BBVA dependen del canje y no son cashback en efectivo; revisa anualidad y si tu oferta personal la exenta.',
+    sources: [
+      {
+        label: 'Tarjeta Oro BBVA',
+        url: 'https://www.bbva.mx/personas/productos/tarjetas-de-credito/tarjeta-de-credito-oro.html',
+      },
+    ],
+  },
+  {
+    id: 'santander-u',
+    name: 'Santander LikeU crédito',
+    issuer: 'Santander México',
+    type: 'Tarjeta de crédito',
+    accent: '#c43131',
+    bestFor: 'Farmacias, restaurantes, telecomunicaciones y supermercados participantes.',
+    quickRule: 'Úsala en giros participantes cuando puedas pagar directo con el comercio; para recibir cashback necesitas inscripción y cuenta Santander participante.',
+    bestUses: ['Farmacias', 'Restaurantes', 'Telecom', 'Supermercados', 'MSI con cashback'],
+    benefits: [
+      {
+        label: 'Farmacias',
+        value: '6%',
+        detail: 'Cashback en farmacias participantes. No aplica en farmacias dentro de supermercados o tiendas departamentales.',
+      },
+      {
+        label: 'Restaurantes',
+        value: '5%',
+        detail: 'Cashback en restaurantes participantes cuando pagas directo con el establecimiento o su app oficial.',
+      },
+      {
+        label: 'Telecom',
+        value: '4%',
+        detail: 'Cashback en servicios de cable, telefonía e internet participantes.',
+      },
+      {
+        label: 'Supermercados',
+        value: '1%',
+        detail: 'Cashback en supermercados participantes, incluso en app del establecimiento cuando aplique.',
+      },
+      {
+        label: 'Costos y seguridad',
+        value: '$0 anual',
+        detail: 'Sin anualidad; tarjeta sin números impresos, tarjeta digital inmediata y CVV dinámico.',
+      },
+    ],
+    watchOut: 'Si no haces al menos $200 MXN de compras al mes, Santander publica una comisión mensual de mantenimiento. El cashback cae en una cuenta Santander y no aplica en compras por plataformas intermediarias.',
+    sources: [
+      {
+        label: 'Tarjeta de Crédito LikeU',
+        url: 'https://www.santander.com.mx/personas/credito-y-financiamiento/tarjetas-de-credito/likeu',
+      },
+      {
+        label: 'Cashback Santander',
+        url: 'https://www.santander.com.mx/cashback.html',
+      },
+      {
+        label: 'Comercios participantes',
+        url: 'https://www.santander.com.mx/cashback/comercios-participantes/',
+      },
+    ],
+  },
+  {
+    id: 'amex-platinum-credit',
+    name: 'Amex Platinum Credit Card',
+    issuer: 'American Express México',
+    type: 'Tarjeta de crédito',
+    accent: '#6f5db8',
+    bestFor: 'Viajes, compras grandes, promociones activables y meses automáticos.',
+    quickRule: 'Úsala cuando el comercio acepte Amex y el beneficio activado supere una tarjeta de cashback simple.',
+    bestUses: ['3 MSI automático', 'Viajes', 'Priority Pass', 'Starbucks', 'Promos activables'],
+    benefits: [
+      {
+        label: 'Meses automáticos',
+        value: '3 MSI',
+        detail: 'Compras desde $6,000 MXN en moneda nacional y sin mínimo en moneda extranjera.',
+      },
+      {
+        label: 'Salas VIP',
+        value: '4 accesos',
+        detail: 'Membresía Priority Pass con cuatro accesos anuales sin costo para titular.',
+      },
+      {
+        label: 'Viajes',
+        value: '10%',
+        detail: 'Descuento PriceTravel en sitio exclusivo y beneficios de viaje publicados por Amex.',
+      },
+      {
+        label: 'Promos vigentes',
+        value: '$800 / $500',
+        detail: 'Bonificaciones en Viva y Walmart.com.mx con inscripción y condiciones de vigencia.',
+      },
+      {
+        label: 'Starbucks',
+        value: '$120',
+        detail: 'Bebida de cortesía diaria al hacer un consumo mínimo de $120.00 MXN con The Platinum Credit Card.',
+      },
+      {
+        label: 'Recompensas y protección',
+        value: 'MR',
+        detail: 'Membership Rewards, Fiesta Rewards Platino y protecciones de viaje y compras.',
+      },
+    ],
+    watchOut: 'Varias promociones requieren inscripción previa; la cuota anual a partir del segundo año y la aceptación Amex cambian la conveniencia.',
+    sources: [
+      {
+        label: 'Beneficios The Platinum Credit Card',
+        url: 'https://www.americanexpress.com/mx/beneficios/the-platinum-credit-card/index.html',
+      },
+    ],
+  },
+]
 
 const setupPanelItems = [
   { id: 'accounts', label: 'Cuentas' },
@@ -201,6 +606,18 @@ const themeOptions = [
   { id: 'auto', label: 'Sistema', icon: Laptop },
   { id: 'light', label: 'Claro', icon: Sun },
   { id: 'dark', label: 'Oscuro', icon: Moon },
+] as const
+
+const timeZoneOptions = [
+  'America/Mexico_City',
+  'America/Merida',
+  'America/Monterrey',
+  'America/Tijuana',
+  'America/Cancun',
+  'UTC',
+  'America/New_York',
+  'America/Los_Angeles',
+  'Europe/Madrid',
 ] as const
 
 const categoryColors = [
@@ -283,18 +700,19 @@ const onboardingChecklist = computed(() => {
 })
 
 const visibleCategories = computed(() => activeCategories.value)
-const activeBudgetPeriod = computed(() => budgetPeriodForDate(selectedDate.value, settings.value.cutoff_day))
-const currentBudgetPeriod = computed(() => budgetPeriodForDate(todayIso, settings.value.cutoff_day))
+const trackingOnlyCategories = computed(() => categories.value.filter((category) => category.budget_treatment === 'tracking_only'))
+const activeBudgetPeriod = computed(() => monthPeriodForDate(selectedDate.value))
+const currentBudgetPeriod = computed(() => monthPeriodForDate(appToday.value))
 const budgetCycleOptions = computed<BudgetCycleOption[]>(() => {
-  const period = currentBudgetPeriod.value
+  const base = parseIsoDate(currentBudgetPeriod.value.start)
   return Array.from({ length: 13 }, (_, index) => {
     const offset = index - 12
-    const start = formatIsoDate(addMonths(parseIsoDate(period.start), offset))
-    const end = formatIsoDate(addMonths(parseIsoDate(period.end), offset))
-    const prefix = offset === 0 ? 'Ciclo actual' : `${Math.abs(offset)} antes`
+    const monthStart = formatIsoDate(addCalendarMonths(base, offset))
+    const { start, end } = monthPeriodForDate(monthStart)
+    const prefix = offset === 0 ? 'Mes actual' : `${Math.abs(offset)} antes`
     return {
       value: start,
-      label: `${prefix} · ${formatPeriodLabel(start, end)}`,
+      label: `${prefix} · ${formatMonthLabel(start)}`,
       start,
       end,
       offset,
@@ -306,8 +724,8 @@ const activeBudgetCycleOption = computed(() =>
   budgetCycleOptions.value[budgetCycleOptions.value.length - 1],
 )
 const budgetCycleMenuOptions = computed(() => [...budgetCycleOptions.value].reverse())
-const periodRange = computed(() => `${activeBudgetPeriod.value.start} / ${activeBudgetPeriod.value.end}`)
-const activePeriodLabel = computed(() => formatPeriodLabel(activeBudgetPeriod.value.start, activeBudgetPeriod.value.end))
+const periodRange = computed(() => formatMonthLabel(activeBudgetPeriod.value.start))
+const activePeriodLabel = computed(() => formatMonthLabel(activeBudgetPeriod.value.start))
 const canShiftToPreviousCycle = computed(() => activeBudgetPeriod.value.start > (budgetCycleOptions.value[0]?.start ?? activeBudgetPeriod.value.start))
 const canShiftToNextCycle = computed(() => activeBudgetPeriod.value.start < currentBudgetPeriod.value.start)
 const overspent = computed(() => summary.value?.categories.filter((category) => category.is_overspent) ?? [])
@@ -330,24 +748,119 @@ const planAttentionItems = computed(() => {
       body: `Va ${money(Math.abs(category.available_cents), settings.value.currency)} arriba del presupuesto.`,
   }))
   const upcomingCharges = expectedCharges.value
-    .filter((charge) => charge.source_type === 'recurring')
+    .filter((charge) => charge.source_type === 'recurring' && charge.category.budget_treatment !== 'tracking_only')
     .slice(0, 2)
     .map((charge) => ({
       key: `charge-${charge.key}`,
       tone: 'warm',
       title: charge.name,
       body: `${money(charge.amount_cents, settings.value.currency)} pendiente este periodo.`,
-    }))
+  }))
   return [...items, ...upcomingCharges].slice(0, 3)
 })
-const recentExpenses = computed(() =>
-  transactions.value.filter((transaction) => transaction.transaction_type === 'expense').slice(0, 20),
+const categoryLookup = computed(() => new Map(categories.value.map((category) => [category.id, category])))
+const accountLookup = computed(() => new Map(accounts.value.map((account) => [account.id, account])))
+const periodExpenses = computed(() => {
+  const start = activeBudgetPeriod.value.start
+  const end = activeBudgetPeriod.value.end
+  return transactions.value.filter((transaction) => {
+    return transaction.transaction_type === 'expense' && transaction.date >= start && transaction.date <= end
+  })
+})
+const expenseFeedCategoryOptions = computed(() => {
+  const options = new Map<number, { id: number; label: string }>()
+  for (const transaction of periodExpenses.value) {
+    if (!transaction.category || options.has(transaction.category)) continue
+    const category = categoryLookup.value.get(transaction.category)
+    const categoryName = transaction.category_name ?? category?.name ?? 'Sin categoría'
+    const memberName = transaction.member_name ?? category?.member_name
+    options.set(transaction.category, {
+      id: transaction.category,
+      label: memberName ? `${categoryName} · ${memberName}` : categoryName,
+    })
+  }
+  return [...options.values()].sort((a, b) => a.label.localeCompare(b.label, 'es-MX'))
+})
+const expenseFeedAccountTypeOptions = computed(() => {
+  const accountTypes = new Set<string>()
+  for (const transaction of periodExpenses.value) {
+    const account = accountForTransaction(transaction)
+    if (account) accountTypes.add(account.account_type)
+  }
+  return ['cash', 'debit_card', 'credit_card', 'bank']
+    .filter((accountType) => accountTypes.has(accountType))
+    .map((accountType) => ({ value: `type:${accountType}`, label: accountTypeLabel(accountType) }))
+})
+const expenseFeedAccountOptions = computed(() => {
+  const options = new Map<number, { value: string; label: string }>()
+  for (const transaction of periodExpenses.value) {
+    const account = accountForTransaction(transaction)
+    if (!account || options.has(account.id)) continue
+    options.set(account.id, {
+      value: `account:${account.id}`,
+      label: `${account.name} · ${accountTypeLabel(account.account_type)}`,
+    })
+  }
+  return [...options.values()].sort((a, b) => a.label.localeCompare(b.label, 'es-MX'))
+})
+const hasUnaccountedPeriodExpenses = computed(() => periodExpenses.value.some((transaction) => !transaction.account))
+const filteredPeriodExpenses = computed(() => {
+  const categoryId = Number(expenseFeedCategoryId.value)
+  return periodExpenses.value.filter((transaction) => {
+    const matchesCategory =
+      !expenseFeedCategoryId.value || !Number.isFinite(categoryId) || transaction.category === categoryId
+    return matchesCategory && transactionMatchesExpensePaymentFilter(transaction)
+  })
+})
+const expenseFeedHasActiveFilters = computed(() => Boolean(expenseFeedCategoryId.value || expenseFeedPaymentMethod.value))
+const reviewedFilteredExpenseCount = computed(
+  () => filteredPeriodExpenses.value.filter((transaction) => reviewedExpenseIds.value.has(transaction.id)).length,
 )
-const selectedDateExpenseTotal = computed(() =>
-  recentExpenses.value
-    .filter((transaction) => transaction.date === selectedDate.value)
-    .reduce((total, transaction) => total + transaction.amount_cents, 0),
+const remainingReviewExpenseCount = computed(() =>
+  Math.max(filteredPeriodExpenses.value.length - reviewedFilteredExpenseCount.value, 0),
 )
+const expenseReviewProgressLabel = computed(() => {
+  if (!filteredPeriodExpenses.value.length) return 'Sin gastos'
+  if (!remainingReviewExpenseCount.value) return 'Todo revisado'
+  const noun = remainingReviewExpenseCount.value === 1 ? 'pendiente' : 'pendientes'
+  return `${reviewedFilteredExpenseCount.value}/${filteredPeriodExpenses.value.length} revisados · ${remainingReviewExpenseCount.value} ${noun}`
+})
+const selectedExpenseFeedCategoryLabel = computed(() => {
+  const categoryId = Number(expenseFeedCategoryId.value)
+  return expenseFeedCategoryOptions.value.find((category) => category.id === categoryId)?.label ?? 'esta categoría'
+})
+const selectedExpenseFeedPaymentLabel = computed(() => {
+  if (!expenseFeedPaymentMethod.value) return ''
+  if (expenseFeedPaymentMethod.value === 'none') return 'sin cuenta'
+  if (expenseFeedPaymentMethod.value.startsWith('type:')) {
+    return accountTypeLabel(expenseFeedPaymentMethod.value.replace('type:', ''))
+  }
+  return (
+    expenseFeedAccountOptions.value.find((option) => option.value === expenseFeedPaymentMethod.value)?.label ??
+    'ese método de pago'
+  )
+})
+const periodExpenseTotal = computed(() =>
+  periodExpenses.value.reduce((total, transaction) => total + transaction.amount_cents, 0),
+)
+const filteredPeriodExpenseTotal = computed(() =>
+  filteredPeriodExpenses.value.reduce((total, transaction) => total + transaction.amount_cents, 0),
+)
+const expenseFeedSummaryLabel = computed(() => {
+  const total =
+    expenseFeedCategoryId.value || expenseFeedPaymentMethod.value
+      ? filteredPeriodExpenseTotal.value
+      : periodExpenseTotal.value
+  const count = filteredPeriodExpenses.value.length
+  const noun = count === 1 ? 'gasto' : 'gastos'
+  return `${count} ${noun} · ${money(total, settings.value.currency)}`
+})
+const expenseFeedEmptyMessage = computed(() => {
+  if (!periodExpenses.value.length) return 'Sin gastos en este periodo.'
+  const categoryText = expenseFeedCategoryId.value ? ` de ${selectedExpenseFeedCategoryLabel.value}` : ''
+  const paymentText = expenseFeedPaymentMethod.value ? ` pagados con ${selectedExpenseFeedPaymentLabel.value}` : ''
+  return `Sin gastos${categoryText}${paymentText} en este periodo.`
+})
 const recurringExpectedCharges = computed(() =>
   expectedCharges.value.filter((charge) => charge.source_type === 'recurring'),
 )
@@ -358,28 +871,37 @@ const activeRecurringExpenses = computed(() => recurringExpenses.value.filter((e
 const activeRecurringTotal = computed(() =>
   activeRecurringExpenses.value.reduce((total, expense) => total + expense.amount_cents, 0),
 )
-const categoryLookup = computed(() => new Map(categories.value.map((category) => [category.id, category])))
 const recurringCommitmentRows = computed(() =>
   activeRecurringExpenses.value.map((expense) => ({
     expense,
     charge: recurringExpectedCharges.value.find((charge) => charge.source_id === expense.id),
   })),
 )
-const projectedInstallmentPeriods = computed(() => installmentProjection.value?.periods ?? [])
+const msiFocusedCardId = computed(() => focusedMsiCardId(msiCardFilter.value))
+const msiCardChips = computed(() => msiCardChipsFrom(installmentProjection.value))
+const msiOwnerChips = computed(() => msiOwnerChipsFrom(installmentProjection.value))
+const activeProjection = computed(() => focusedProjection.value ?? installmentProjection.value)
+const projectionPeriodsView = computed<InstallmentProjectionPeriod[]>(() =>
+  computeProjectionPeriodsView(
+    installmentProjection.value,
+    focusedProjection.value,
+    msiCardFilter.value,
+    msiOwnerFilter.value,
+  ),
+)
 const projectedInstallmentPlans = computed(() =>
   (installmentProjection.value?.plans ?? []).filter((plan) => plan.projected_total_cents || plan.current_amount_cents),
 )
 const installmentPlanLookup = computed(() => new Map(installmentPlans.value.map((plan) => [plan.id, plan])))
 const installmentCalculatedEndDate = computed(() => installmentEndDateFor(installmentForm.start_date, installmentForm.months_count))
-const currentInstallmentTotal = computed(() => installmentProjection.value?.current_total_cents ?? 0)
+const currentInstallmentTotal = computed(() => activeProjection.value?.current_total_cents ?? 0)
 const registeredInstallmentTotal = computed(() =>
   projectedInstallmentPlans.value.reduce((total, plan) => total + plan.total_amount_cents, 0),
 )
-const creditCardPaymentCards = computed(() => creditCardPaymentSummary.value?.cards ?? [])
-const creditCardInterestFreeTotal = computed(() => creditCardPaymentSummary.value?.total_cents ?? 0)
+const offBudgetTotal = computed(() => offBudgetSummary.value?.totals.total_cents ?? 0)
 const currentCommitmentTotal = computed(() => recurringExpectedTotal.value + currentInstallmentTotal.value)
 const maxProjectedPeriodTotal = computed(() =>
-  Math.max(1, ...projectedInstallmentPeriods.value.map((period) => period.total_cents)),
+  Math.max(1, ...projectionPeriodsView.value.map((period) => period.total_cents)),
 )
 const totalAccountBalance = computed(() =>
   activeAccounts.value.reduce((total, account) => total + account.current_balance_cents, 0),
@@ -412,6 +934,19 @@ const filteredCommitmentAccounts = computed(() => {
     return `${account.name} ${account.account_type}`.toLowerCase().includes(query)
   })
 })
+const selectedExpenseCategory = computed(() =>
+  expenseForm.category ? categoryLookup.value.get(Number(expenseForm.category)) ?? null : null,
+)
+const selectedTransactionEditCategory = computed(() =>
+  transactionEditForm.category ? categoryLookup.value.get(Number(transactionEditForm.category)) ?? null : null,
+)
+const selectedCommitmentCategory = computed(() => {
+  const categoryId = commitmentCategoryValue()
+  return categoryId ? categoryLookup.value.get(Number(categoryId)) ?? null : null
+})
+const expenseIsTrackingOnly = computed(() => selectedExpenseCategory.value?.budget_treatment === 'tracking_only')
+const transactionEditIsTrackingOnly = computed(() => selectedTransactionEditCategory.value?.budget_treatment === 'tracking_only')
+const commitmentIsTrackingOnly = computed(() => selectedCommitmentCategory.value?.budget_treatment === 'tracking_only')
 const merchantConceptSuggestions = computed(() => {
   const query = lookupText(merchantValueForTarget())
   return merchantConcepts.value
@@ -441,9 +976,11 @@ const categorySubmitLabel = computed(() => {
 const editingCategory = computed(() => categories.value.find((category) => category.id === editingCategoryId.value) ?? null)
 const categoryBudgetChanged = computed(() => {
   if (!editingCategory.value) return false
+  if (categoryForm.budget_treatment === 'tracking_only') return false
   return centsFromInput(categoryForm.monthly_budget) !== editingCategory.value.monthly_budget_cents
 })
 const categoryBehaviorLabel = computed(() => {
+  if (categoryForm.budget_treatment === 'tracking_only') return 'Fuera de presupuesto'
   if (categoryForm.budget_behavior === 'carryover') return 'Acumula saldo'
   return 'Se reinicia cada mes'
 })
@@ -480,41 +1017,27 @@ const spendingChartSegments = computed<SpendingChartSegment[]>(() => {
 
   if (!spentCategories.length || spendingChartTotal.value <= 0) return []
 
-  const visibleCategories = spentCategories.slice(0, 5)
-  const hiddenCategories = spentCategories.slice(5)
-  const baseSegments = visibleCategories.map((category) => ({
+  return spentCategories.map((category) => ({
     key: `category-${category.category_id}`,
     label: category.member?.name ? `${category.category_name} · ${category.member.name}` : category.category_name,
     amount_cents: category.spent_cents,
     percent: (category.spent_cents / spendingChartTotal.value) * 100,
     color: category.color,
+    icon: category.icon,
     category_ids: [category.category_id],
   }))
-
-  if (!hiddenCategories.length) return baseSegments
-
-  const otherAmount = hiddenCategories.reduce((total, category) => total + category.spent_cents, 0)
-  return [
-    ...baseSegments,
-    {
-      key: 'other',
-      label: `Otras ${hiddenCategories.length}`,
-      amount_cents: otherAmount,
-      percent: (otherAmount / spendingChartTotal.value) * 100,
-      color: 'var(--chart-other)',
-      category_ids: hiddenCategories.map((category) => category.category_id),
-    },
-  ]
 })
 const spendingChartStyle = computed(() => {
   if (!spendingChartSegments.value.length) {
     return { '--spending-chart-fill': 'conic-gradient(var(--surface-tint), var(--surface-tint))' }
   }
   let cursor = 0
+  const separator = spendingChartSegments.value.length > 1 ? 0.58 : 0
   const stops = spendingChartSegments.value.map((segment) => {
     const start = cursor
     cursor += segment.percent
-    return `${segment.color} ${start.toFixed(2)}% ${cursor.toFixed(2)}%`
+    const colorEnd = Math.max(start, cursor - Math.min(separator, segment.percent * 0.42))
+    return `${segment.color} ${start.toFixed(2)}% ${colorEnd.toFixed(2)}%, var(--surface) ${colorEnd.toFixed(2)}% ${cursor.toFixed(2)}%`
   })
   return { '--spending-chart-fill': `conic-gradient(${stops.join(', ')})` }
 })
@@ -525,7 +1048,7 @@ onMounted(async () => {
   updateSystemTheme(systemThemeMediaQuery)
   systemThemeMediaQuery.addEventListener('change', updateSystemTheme)
   await store.bootstrap()
-  settingsForm.cutoff_day = settings.value.cutoff_day
+  syncSettingsForm()
   if (inviteToken.value && !user.value && !firstRunClaimRequired.value) {
     await resolveCurrentInvitation()
   }
@@ -534,8 +1057,20 @@ onMounted(async () => {
   window.addEventListener('keydown', handleAuthActivity)
 })
 
-watch(selectedDate, async () => {
+watch(appToday, (nextDate, previousDate) => {
+  if (selectedDate.value !== previousDate) return
+  syncDefaultFormDates(nextDate, previousDate)
+  selectedDate.value = nextDate
+})
+
+watch(selectedDate, async (nextDate, previousDate) => {
   selectedCategoryId.value = null
+  expenseFeedCategoryId.value = ''
+  expenseFeedPaymentMethod.value = ''
+  msiCardFilter.value = []
+  msiOwnerFilter.value = []
+  focusedProjection.value = null
+  syncDefaultFormDates(nextDate, previousDate)
   if (!user.value) return
   try {
     await refreshSelectedPeriod()
@@ -543,6 +1078,43 @@ watch(selectedDate, async () => {
     showNotice('No pudimos actualizar el periodo. Intenta de nuevo.', 'error')
   }
 })
+
+watch([msiFocusedCardId, selectedDate], async ([cardId]) => {
+  if (cardId == null) {
+    focusedProjection.value = null
+    return
+  }
+  focusedProjectionLoading.value = true
+  try {
+    focusedProjection.value = await store.fetchInstallmentProjection(selectedDate.value, cardId)
+  } catch {
+    focusedProjection.value = null
+    showNotice('No pudimos cargar la proyección de esa tarjeta.', 'error')
+  } finally {
+    focusedProjectionLoading.value = false
+  }
+})
+
+watch([expenseFeedCategoryId, expenseFeedPaymentMethod], () => resetExpenseReview())
+
+watch(filteredPeriodExpenses, (nextExpenses) => {
+  if (!expenseFeedHasActiveFilters.value || !nextExpenses.length) {
+    resetExpenseReview()
+    return
+  }
+  const visibleIds = new Set(nextExpenses.map((transaction) => transaction.id))
+  const nextReviewedIds = new Set(
+    [...reviewedExpenseIds.value].filter((transactionId) => visibleIds.has(transactionId)),
+  )
+  if (nextReviewedIds.size !== reviewedExpenseIds.value.size) reviewedExpenseIds.value = nextReviewedIds
+})
+
+watch(
+  () => [view.value, expensesTab.value] as const,
+  ([nextView, nextExpensesTab]) => {
+    if (nextView !== 'expenses' || nextExpensesTab !== 'feed') resetExpenseReview()
+  },
+)
 
 watch(iconGalleryOpen, (isOpen) => {
   document.body.classList.toggle('modal-open', isOpen)
@@ -733,23 +1305,16 @@ function installmentEndDateFor(startDate: string, monthsCount: string) {
   return formatIsoDate(addCalendarMonths(parseIsoDate(startDate), months - 1))
 }
 
-function budgetPeriodForDate(value: string, cutoffDay: number) {
+function monthPeriodForDate(value: string) {
   const dateValue = parseIsoDate(value)
-  const safeCutoff = Math.min(28, Math.max(1, cutoffDay || 20))
-  if (dateValue.getDate() <= safeCutoff) {
-    const end = new Date(dateValue.getFullYear(), dateValue.getMonth(), safeCutoff)
-    const previousEnd = addMonths(end, -1)
-    const start = new Date(previousEnd.getFullYear(), previousEnd.getMonth(), safeCutoff + 1)
-    return { start: formatIsoDate(start), end: formatIsoDate(end) }
-  }
-  const start = new Date(dateValue.getFullYear(), dateValue.getMonth(), safeCutoff + 1)
-  const end = addMonths(new Date(dateValue.getFullYear(), dateValue.getMonth(), safeCutoff), 1)
+  const start = new Date(dateValue.getFullYear(), dateValue.getMonth(), 1)
+  const end = new Date(dateValue.getFullYear(), dateValue.getMonth() + 1, 0)
   return { start: formatIsoDate(start), end: formatIsoDate(end) }
 }
 
-function formatPeriodLabel(start: string, end: string) {
-  const formatter = new Intl.DateTimeFormat('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
-  return `${formatter.format(parseIsoDate(start))} - ${formatter.format(parseIsoDate(end))}`
+function formatMonthLabel(iso: string) {
+  const label = new Intl.DateTimeFormat('es-MX', { month: 'long', year: 'numeric' }).format(parseIsoDate(iso))
+  return label.charAt(0).toUpperCase() + label.slice(1)
 }
 
 function scrollToTop() {
@@ -770,6 +1335,28 @@ function clearNotice() {
   if (noticeTimer) window.clearTimeout(noticeTimer)
   noticeTimer = undefined
   notice.message = ''
+}
+
+function syncSettingsForm() {
+  settingsForm.time_zone = settings.value.time_zone
+}
+
+function syncDefaultFormDates(nextDate: string, previousDate: string) {
+  if (expenseForm.date === previousDate) expenseForm.date = nextDate
+  if (transactionEditForm.date === previousDate) transactionEditForm.date = nextDate
+  if (categoryForm.carryover_start_date === previousDate) categoryForm.carryover_start_date = nextDate
+  if (categoryForm.budget_effective_date === previousDate) categoryForm.budget_effective_date = nextDate
+  if (recurringForm.start_date === previousDate) recurringForm.start_date = nextDate
+  if (installmentForm.start_date === previousDate) installmentForm.start_date = nextDate
+}
+
+function isValidTimeZone(value: string) {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date())
+    return true
+  } catch {
+    return false
+  }
 }
 
 function merchantValueForTarget(target = merchantSuggestionTarget.value) {
@@ -861,7 +1448,7 @@ async function submitClaim() {
     await store.claimFirstRun({ full_name: fullName, display_name: displayName, email, password })
     claimForm.password = ''
     claimForm.confirmPassword = ''
-    settingsForm.cutoff_day = settings.value.cutoff_day
+    syncSettingsForm()
   })
 }
 
@@ -875,7 +1462,7 @@ async function submitLogin() {
   await runAction('login', 'Listo. Entraste a Burn Rate.', async () => {
     await store.login(loginForm.email, loginForm.password)
     loginForm.password = ''
-    settingsForm.cutoff_day = settings.value.cutoff_day
+    syncSettingsForm()
   })
 }
 
@@ -927,7 +1514,7 @@ async function submitInvitationAccept() {
     acceptInviteForm.password = ''
     acceptInviteForm.confirmPassword = ''
     clearInviteFromUrl()
-    settingsForm.cutoff_day = settings.value.cutoff_day
+    syncSettingsForm()
   })
 }
 
@@ -1016,17 +1603,20 @@ async function submitExpense() {
     showNotice('Falta categoría. Elige una para guardar el gasto.', 'error')
     return
   }
-  if (!expenseForm.account) {
+  if (!expenseIsTrackingOnly.value && !expenseForm.account) {
     showNotice('Falta cuenta. Elige desde dónde se pagó.', 'error')
     return
   }
-  await runAction('expense', 'Gasto guardado. El presupuesto ya está actualizado.', async () => {
+  await runAction(
+    'expense',
+    expenseIsTrackingOnly.value ? 'Registro fuera de presupuesto guardado.' : 'Gasto guardado. El presupuesto ya está actualizado.',
+    async () => {
     await store.createTransaction({
       transaction_type: 'expense',
       merchant,
       amount_cents: amountCents,
       date: expenseForm.date,
-      account: Number(expenseForm.account),
+      account: expenseIsTrackingOnly.value ? null : Number(expenseForm.account),
       category: Number(expenseForm.category),
       note: expenseForm.note,
     })
@@ -1035,11 +1625,13 @@ async function submitExpense() {
     expenseForm.note = ''
     merchantSuggestionsOpen.value = false
     expensesTab.value = 'feed'
-  })
+    },
+  )
 }
 
 function openTransactionEdit(transaction: Transaction) {
   editingTransactionId.value = transaction.id
+  deleteConfirmTransactionId.value = null
   transactionEditForm.merchant = transaction.merchant
   transactionEditForm.amount = centsToInput(transaction.amount_cents)
   transactionEditForm.category = transaction.category ? String(transaction.category) : ''
@@ -1050,6 +1642,7 @@ function openTransactionEdit(transaction: Transaction) {
 
 function cancelTransactionEdit() {
   editingTransactionId.value = null
+  deleteConfirmTransactionId.value = null
   transactionEditForm.merchant = ''
   transactionEditForm.amount = ''
   transactionEditForm.category = ''
@@ -1073,20 +1666,50 @@ async function saveTransactionEdit(transaction: Transaction) {
     showNotice('Falta categoría. Elige una para actualizar el gasto.', 'error')
     return
   }
-  if (!transactionEditForm.account) {
+  if (!transactionEditIsTrackingOnly.value && !transactionEditForm.account) {
     showNotice('Falta cuenta. Elige desde dónde se pagó.', 'error')
     return
   }
-  await runAction(`edit-transaction-${transaction.id}`, 'Gasto actualizado. El presupuesto ya está recalculado.', async () => {
+  await runAction(
+    `edit-transaction-${transaction.id}`,
+    transactionEditIsTrackingOnly.value ? 'Registro fuera de presupuesto actualizado.' : 'Gasto actualizado. El presupuesto ya está recalculado.',
+    async () => {
     await store.updateTransaction(transaction.id, {
       merchant,
       amount_cents: amountCents,
       date: transactionEditForm.date,
-      account: Number(transactionEditForm.account),
+      account: transactionEditIsTrackingOnly.value ? null : Number(transactionEditForm.account),
       category: Number(transactionEditForm.category),
       note: transactionEditForm.note,
     })
     cancelTransactionEdit()
+    },
+  )
+}
+
+function transactionLabel(transaction: Transaction) {
+  return transaction.merchant || transaction.category_name || 'este gasto'
+}
+
+function isConfirmingTransactionDelete(transactionId: Transaction['id']) {
+  return deleteConfirmTransactionId.value === transactionId
+}
+
+function startTransactionDelete(transaction: Transaction) {
+  deleteConfirmTransactionId.value = transaction.id
+}
+
+function cancelTransactionDelete() {
+  deleteConfirmTransactionId.value = null
+}
+
+async function deleteTransaction(transaction: Transaction) {
+  const successMessage = transactionIsTrackingOnly(transaction)
+    ? 'Registro fuera de presupuesto eliminado.'
+    : 'Gasto eliminado. El presupuesto y la cuenta ya están recalculados.'
+  await runAction(`delete-transaction-${transaction.id}`, successMessage, async () => {
+    await store.deleteTransaction(transaction.id, transaction.date)
+    deleteConfirmTransactionId.value = null
   })
 }
 
@@ -1096,6 +1719,17 @@ async function submitAccount() {
     showNotice('Falta nombre de cuenta. Escríbelo para guardar.', 'error')
     return
   }
+  const isCredit = accountForm.account_type === 'credit_card'
+  const cutoffDay = isCredit ? Math.min(28, Math.max(1, Number(accountForm.cutoff_day) || 0)) : null
+  const paymentDueDay = isCredit ? Math.min(31, Math.max(1, Number(accountForm.payment_due_day) || 0)) : null
+  if (isCredit && !cutoffDay) {
+    showNotice('Las tarjetas de crédito necesitan un día de corte (1–28).', 'error')
+    return
+  }
+  if (isCredit && !paymentDueDay) {
+    showNotice('Las tarjetas de crédito necesitan un día límite de pago (1–31).', 'error')
+    return
+  }
   await runAction('account', editingAccountId.value ? 'Cuenta actualizada.' : 'Cuenta guardada para la casa.', async () => {
     const payload = {
       name,
@@ -1103,6 +1737,9 @@ async function submitAccount() {
       initial_balance_cents: accountForm.account_type === 'cash' ? centsFromInput(accountForm.initial_balance || '0') : 0,
       color: accountForm.color,
       is_active: accountForm.is_active,
+      cutoff_day: cutoffDay,
+      payment_due_day: paymentDueDay,
+      owner: accountForm.owner ? Number(accountForm.owner) : null,
     }
     if (editingAccountId.value) {
       await store.updateAccount(editingAccountId.value, payload)
@@ -1121,6 +1758,9 @@ function editAccount(account: Account) {
   accountForm.initial_balance = String(account.initial_balance_cents / 100)
   accountForm.color = account.color || '#7c6250'
   accountForm.is_active = account.is_active
+  accountForm.cutoff_day = account.cutoff_day ?? ''
+  accountForm.payment_due_day = account.payment_due_day ?? ''
+  accountForm.owner = account.owner ?? ''
 }
 
 function resetAccountForm() {
@@ -1131,6 +1771,9 @@ function resetAccountForm() {
   accountForm.initial_balance = ''
   accountForm.color = '#7c6250'
   accountForm.is_active = true
+  accountForm.cutoff_day = ''
+  accountForm.payment_due_day = ''
+  accountForm.owner = ''
 }
 
 function startAccountForm() {
@@ -1144,6 +1787,55 @@ function accountTypeLabel(accountType: string) {
   if (accountType === 'debit_card') return 'Tarjeta débito'
   if (accountType === 'credit_card') return 'Tarjeta crédito'
   return accountType
+}
+
+function accountForTransaction(transaction: Transaction) {
+  return transaction.account ? accountLookup.value.get(transaction.account) ?? null : null
+}
+
+function transactionMatchesExpensePaymentFilter(transaction: Transaction) {
+  const filter = expenseFeedPaymentMethod.value
+  if (!filter) return true
+  if (filter === 'none') return !transaction.account
+  if (filter.startsWith('account:')) return String(transaction.account ?? '') === filter.replace('account:', '')
+  if (filter.startsWith('type:')) return accountForTransaction(transaction)?.account_type === filter.replace('type:', '')
+  return true
+}
+
+function resetExpenseReview() {
+  expenseReviewMode.value = false
+  reviewedExpenseIds.value = new Set<Transaction['id']>()
+}
+
+function toggleExpenseReviewMode() {
+  if (!expenseFeedHasActiveFilters.value || !filteredPeriodExpenses.value.length) return
+  expenseReviewMode.value = !expenseReviewMode.value
+  reviewedExpenseIds.value = new Set<Transaction['id']>()
+}
+
+function transactionIsReviewed(transaction: Transaction) {
+  return reviewedExpenseIds.value.has(transaction.id)
+}
+
+function toggleExpenseReviewed(transactionId: Transaction['id']) {
+  if (!expenseReviewMode.value) return
+  const nextReviewedIds = new Set(reviewedExpenseIds.value)
+  if (nextReviewedIds.has(transactionId)) {
+    nextReviewedIds.delete(transactionId)
+  } else {
+    nextReviewedIds.add(transactionId)
+  }
+  reviewedExpenseIds.value = nextReviewedIds
+}
+
+function clearReviewedExpenses() {
+  reviewedExpenseIds.value = new Set<Transaction['id']>()
+}
+
+function clearExpenseFeedFilters() {
+  resetExpenseReview()
+  expenseFeedCategoryId.value = ''
+  expenseFeedPaymentMethod.value = ''
 }
 
 function setMemberAccess(enabled: boolean) {
@@ -1243,7 +1935,8 @@ function usernameSuggestionFromName(name: string) {
 async function submitCategory() {
   const name = normalizeText(categoryForm.name)
   const memberId = categoryForm.scope === 'personal' ? Number(categoryForm.member) : null
-  const monthlyBudgetCents = centsFromInput(categoryForm.monthly_budget)
+  const isTrackingOnly = categoryForm.budget_treatment === 'tracking_only'
+  const monthlyBudgetCents = isTrackingOnly ? 0 : centsFromInput(categoryForm.monthly_budget)
   const carryoverInitialBalanceCents = centsFromInput(categoryForm.carryover_initial_balance || '0')
   if (!name) {
     showNotice('Falta nombre de categoría. Escríbelo para guardar.', 'error')
@@ -1253,11 +1946,11 @@ async function submitCategory() {
     showNotice('Falta persona. Elige a quién pertenece esta categoría.', 'error')
     return
   }
-  if (monthlyBudgetCents <= 0) {
+  if (!isTrackingOnly && monthlyBudgetCents <= 0) {
     showNotice('Falta presupuesto mensual válido. Escribe una cantidad mayor a cero.', 'error')
     return
   }
-  if (!editingCategoryId.value && categoryForm.budget_behavior === 'carryover' && !categoryForm.carryover_start_date) {
+  if (!isTrackingOnly && !editingCategoryId.value && categoryForm.budget_behavior === 'carryover' && !categoryForm.carryover_start_date) {
     showNotice('Falta fecha de inicio. Indica desde cuándo acumula saldo.', 'error')
     return
   }
@@ -1282,8 +1975,9 @@ async function submitCategory() {
       }
       await store.updateCategory(editingCategoryId.value, payload)
     } else {
-      payload.budget_behavior = categoryForm.budget_behavior
-      if (categoryForm.budget_behavior === 'carryover') {
+      payload.budget_treatment = categoryForm.budget_treatment
+      payload.budget_behavior = isTrackingOnly ? 'monthly_reset' : categoryForm.budget_behavior
+      if (!isTrackingOnly && categoryForm.budget_behavior === 'carryover') {
         payload.carryover_initial_balance_cents = carryoverInitialBalanceCents
         payload.carryover_start_date = categoryForm.carryover_start_date
       }
@@ -1298,6 +1992,7 @@ function editCategory(category: Category) {
   editingCategoryId.value = category.id
   categoryForm.name = category.name
   categoryForm.scope = category.scope
+  categoryForm.budget_treatment = category.budget_treatment
   categoryForm.member = category.member ? String(category.member) : ''
   categoryForm.monthly_budget = String(category.monthly_budget_cents / 100)
   categoryForm.budget_behavior = category.budget_behavior
@@ -1314,6 +2009,7 @@ function resetCategoryForm() {
   editingCategoryId.value = null
   categoryForm.name = ''
   categoryForm.scope = 'global'
+  categoryForm.budget_treatment = 'budgeted'
   categoryForm.member = ''
   categoryForm.monthly_budget = ''
   categoryForm.budget_behavior = 'monthly_reset'
@@ -1351,7 +2047,7 @@ async function submitRecurring() {
     showNotice('Falta categoría. Elige dónde cae este pago mensual.', 'error')
     return
   }
-  if (recurringForm.auto_charge && !recurringForm.account) {
+  if (recurringForm.auto_charge && !commitmentIsTrackingOnly.value && !recurringForm.account) {
     showNotice('El cargo automático necesita una cuenta configurada.', 'error')
     return
   }
@@ -1365,7 +2061,7 @@ async function submitRecurring() {
       merchant,
       amount_cents: amountCents,
       category: Number(recurringForm.category),
-      account: recurringForm.account ? Number(recurringForm.account) : null,
+      account: commitmentIsTrackingOnly.value ? null : recurringForm.account ? Number(recurringForm.account) : null,
       start_date: recurringForm.start_date,
       end_date: recurringForm.end_date || null,
       charge_day: chargeDay,
@@ -1416,7 +2112,7 @@ async function submitInstallment() {
       merchant,
       total_amount_cents: totalAmountCents,
       category: Number(installmentForm.category),
-      account: installmentForm.account ? Number(installmentForm.account) : null,
+      account: commitmentIsTrackingOnly.value ? null : installmentForm.account ? Number(installmentForm.account) : null,
       start_date: installmentForm.start_date,
       months_count: monthsCount,
       round_up_monthly_payment: installmentForm.round_up_monthly_payment,
@@ -1569,16 +2265,22 @@ async function deleteInstallmentPlan(plan: { id: number }) {
 }
 
 async function saveSettings() {
-  const cutoffDay = Math.min(28, Math.max(1, Number(settingsForm.cutoff_day) || 1))
-  await runAction('settings', 'Día de corte actualizado.', async () => {
-    await store.saveSettings({ ...settings.value, cutoff_day: cutoffDay })
+  const timeZone = normalizeText(settingsForm.time_zone) || settings.value.time_zone
+  if (!isValidTimeZone(timeZone)) {
+    showNotice('La zona horaria no es válida. Usa un identificador como America/Mexico_City.', 'error')
+    return
+  }
+  await runAction('settings', 'Zona horaria actualizada.', async () => {
+    await store.saveSettings({ ...settings.value, time_zone: timeZone })
+    syncSettingsForm()
     await refreshSelectedPeriod()
   })
 }
 
 async function confirmCharge(charge: ExpectedCharge) {
-  const fallback = charge.account?.id ?? activeAccounts.value[0]?.id
-  if (!fallback) {
+  const isTrackingOnly = charge.category.budget_treatment === 'tracking_only'
+  const fallback = isTrackingOnly ? null : (charge.account?.id ?? activeAccounts.value[0]?.id ?? null)
+  if (!isTrackingOnly && !fallback) {
     showNotice('Falta cuenta activa. Crea o activa una cuenta antes de marcar este pago.', 'error')
     return
   }
@@ -1615,12 +2317,12 @@ function goToExpenseCaptureForCategory(categoryId: number) {
 }
 
 function cycleRelativeLabel(cycle: BudgetCycleOption) {
-  if (cycle.offset === 0) return 'Ciclo actual'
-  return cycle.offset === -1 ? 'Ciclo anterior' : `${Math.abs(cycle.offset)} ciclos antes`
+  if (cycle.offset === 0) return 'Mes actual'
+  return cycle.offset === -1 ? 'Mes anterior' : `${Math.abs(cycle.offset)} meses antes`
 }
 
 function selectBudgetCycle(value: string) {
-  selectedDate.value = value
+  selectedDate.value = value === currentBudgetPeriod.value.start ? appToday.value : value
   cycleMenuOpen.value = false
 }
 
@@ -1635,8 +2337,8 @@ function shiftBudgetCycle(offset: number) {
   if (offset < 0 && !canShiftToPreviousCycle.value) return
   if (offset > 0 && !canShiftToNextCycle.value) return
   const currentStart = parseIsoDate(activeBudgetPeriod.value.start)
-  const nextStart = formatIsoDate(addMonths(currentStart, offset))
-  selectedDate.value = nextStart > currentBudgetPeriod.value.start ? currentBudgetPeriod.value.start : nextStart
+  const nextStart = formatIsoDate(addCalendarMonths(currentStart, offset))
+  selectedDate.value = nextStart >= currentBudgetPeriod.value.start ? appToday.value : nextStart
   cycleMenuOpen.value = false
 }
 
@@ -1652,6 +2354,8 @@ function closeCommitmentForm() {
 
 function chooseExpenseCategory(categoryId: number) {
   expenseForm.category = String(categoryId)
+  const category = categoryLookup.value.get(categoryId)
+  if (category?.budget_treatment === 'tracking_only') expenseForm.account = ''
 }
 
 function chooseExpenseAccount(accountId: number) {
@@ -1676,9 +2380,13 @@ function commitmentAccountStatusLabel() {
 function chooseCommitmentCategory(categoryId: number) {
   if (commitmentKind.value === 'subscription') {
     recurringForm.category = String(categoryId)
+    const category = categoryLookup.value.get(categoryId)
+    if (category?.budget_treatment === 'tracking_only') recurringForm.account = ''
     return
   }
   installmentForm.category = String(categoryId)
+  const category = categoryLookup.value.get(categoryId)
+  if (category?.budget_treatment === 'tracking_only') installmentForm.account = ''
 }
 
 function chooseCommitmentAccount(accountId: number | null) {
@@ -1780,8 +2488,25 @@ function categoryStatusLabel(item: BudgetCategorySummary) {
   return item.budget_behavior === 'carryover' ? 'Acumula' : 'Bien'
 }
 
-function projectionPeriodLabel(index: number) {
+function transactionIsTrackingOnly(transaction: Transaction) {
+  return Boolean(transaction.category && categoryLookup.value.get(transaction.category)?.budget_treatment === 'tracking_only')
+}
+
+function projectionColumnLabel(period: InstallmentProjectionPeriod, index: number) {
+  if (focusedProjection.value) return formatMonthLabel(period.end)
   return index === 0 ? 'Act.' : `+${index}`
+}
+
+function toggleMsiCard(id: number) {
+  const index = msiCardFilter.value.indexOf(id)
+  if (index === -1) msiCardFilter.value.push(id)
+  else msiCardFilter.value.splice(index, 1)
+}
+
+function toggleMsiOwner(id: number) {
+  const index = msiOwnerFilter.value.indexOf(id)
+  if (index === -1) msiOwnerFilter.value.push(id)
+  else msiOwnerFilter.value.splice(index, 1)
 }
 
 function projectionPaymentCountLabel(count: number) {
@@ -1810,13 +2535,15 @@ function recurringCommitmentCategory(row: { expense: RecurringExpense; charge?: 
 }
 
 function recurringCommitmentCategoryLabel(row: { expense: RecurringExpense; charge?: ExpectedCharge }) {
-  if (row.expense.member_name) return `${row.expense.category_name} · ${row.expense.member_name}`
-  return row.expense.category_name
+  const suffix = recurringCommitmentCategory(row)?.budget_treatment === 'tracking_only' ? ' · fuera de presupuesto' : ''
+  if (row.expense.member_name) return `${row.expense.category_name} · ${row.expense.member_name}${suffix}`
+  return `${row.expense.category_name}${suffix}`
 }
 
 function installmentCommitmentCategoryLabel(plan: InstallmentProjectionPlan) {
-  if (plan.member) return `${plan.category.name} · ${plan.member.name}`
-  return plan.category.name
+  const suffix = plan.category.budget_treatment === 'tracking_only' ? ' · fuera de presupuesto' : ''
+  if (plan.member) return `${plan.category.name} · ${plan.member.name}${suffix}`
+  return `${plan.category.name}${suffix}`
 }
 
 function categoryIconComponent(icon?: string | null) {
@@ -2080,6 +2807,10 @@ function categoryIconComponent(icon?: string | null) {
             <span>Esperado</span>
             <b>{{ money(selectedCategory.expected_cents, settings.currency) }}</b>
           </article>
+          <article>
+            <span>Flujo mensual</span>
+            <b>{{ money(selectedCategory.monthly_flow_cents, settings.currency) }}</b>
+          </article>
           <article v-if="selectedCategory.budget_behavior === 'monthly_reset'">
             <span>Excedentes</span>
             <b>{{ selectedCategory.overspend_count }}</b>
@@ -2101,6 +2832,17 @@ function categoryIconComponent(icon?: string | null) {
           ></span>
           <span v-if="selectedCategory.is_overspent" class="meter-overflow"></span>
         </div>
+      </section>
+
+      <section v-if="selectedCategory.live_windows?.length" class="live-windows">
+        <h3>Consumo vivo por ventana</h3>
+        <article v-for="win in selectedCategory.live_windows" :key="`${win.kind}-${win.account_id ?? 'mes'}`">
+          <div>
+            <b>{{ win.kind === 'card' ? (win.account_name ?? 'Tarjeta') : 'Del mes' }}</b>
+            <small>{{ win.start }} → {{ win.end }}</small>
+          </div>
+          <strong>{{ money(win.spent_cents, settings.currency) }}</strong>
+        </article>
       </section>
 
       <div class="section-title-row">
@@ -2181,7 +2923,7 @@ function categoryIconComponent(icon?: string | null) {
               >
                 <span>
                   <small>{{ cycleRelativeLabel(cycle) }}</small>
-                  <strong>{{ formatPeriodLabel(cycle.start, cycle.end) }}</strong>
+                  <strong>{{ formatMonthLabel(cycle.start) }}</strong>
                 </span>
                 <b v-if="cycle.value === activeBudgetPeriod.start">Activo</b>
               </button>
@@ -2300,6 +3042,35 @@ function categoryIconComponent(icon?: string | null) {
         </dl>
       </section>
 
+      <section v-if="offBudgetSummary && (offBudgetTotal > 0 || trackingOnlyCategories.length)" class="off-budget-panel" aria-label="Registros fuera de presupuesto">
+        <div class="section-title-row">
+          <div>
+            <h2>Fuera de presupuesto</h2>
+          </div>
+          <span>{{ money(offBudgetTotal, settings.currency) }}</span>
+        </div>
+        <div v-if="offBudgetSummary.categories.length" class="off-budget-list">
+          <article
+            v-for="item in offBudgetSummary.categories"
+            :key="item.category_id"
+            class="off-budget-row"
+            :style="{ '--category-color': item.color }"
+          >
+            <span class="category-icon" :style="{ '--category-color': item.color }">
+              <component :is="categoryIconComponent(item.icon)" aria-hidden="true" />
+            </span>
+            <div>
+              <b>{{ item.category_name }}</b>
+              <small>
+                Registrado {{ money(item.spent_cents, settings.currency) }} · por venir {{ money(item.expected_cents, settings.currency) }}
+              </small>
+            </div>
+            <strong>{{ money(item.total_cents, settings.currency) }}</strong>
+          </article>
+        </div>
+        <p v-else class="empty-line">Sin registros fuera de presupuesto en este periodo.</p>
+      </section>
+
       <section class="attention-panel" :class="{ calm: !planAttentionItems.length }">
         <div class="section-title-row">
           <h2>{{ planAttentionItems.length ? 'Atención de casa' : 'Casa tranquila' }}</h2>
@@ -2338,22 +3109,19 @@ function categoryIconComponent(icon?: string | null) {
               :key="segment.key"
               :style="{ '--category-color': segment.color }"
             >
-              <button
-                v-if="segment.category_ids.length === 1"
-                type="button"
-                @click="selectedCategoryId = segment.category_ids[0]; scrollToTop()"
-              >
+              <button type="button" @click="selectedCategoryId = segment.category_ids[0]; scrollToTop()">
+                <span class="legend-icon" aria-hidden="true">
+                  <component :is="categoryIconComponent(segment.icon)" />
+                </span>
                 <span class="legend-swatch" aria-hidden="true"></span>
                 <b>{{ segment.label }}</b>
-                <em>{{ segment.percent.toFixed(0) }}%</em>
+                <span class="legend-percent">
+                  <em>{{ segment.percent.toFixed(0) }}%</em>
+                  <i :style="{ '--legend-percent': `${Math.max(6, segment.percent)}%` }" aria-hidden="true"></i>
+                </span>
                 <strong>{{ money(segment.amount_cents, settings.currency) }}</strong>
+                <ChevronRight class="legend-chevron" aria-hidden="true" />
               </button>
-              <div v-else>
-                <span class="legend-swatch" aria-hidden="true"></span>
-                <b>{{ segment.label }}</b>
-                <em>{{ segment.percent.toFixed(0) }}%</em>
-                <strong>{{ money(segment.amount_cents, settings.currency) }}</strong>
-              </div>
             </li>
           </ol>
           <p v-else class="spending-empty">Todavía no hay gastos en este periodo.</p>
@@ -2371,7 +3139,7 @@ function categoryIconComponent(icon?: string | null) {
         <div>
           <span>Burn Rate</span>
           <h1>Gastos</h1>
-          <p>{{ expensesTab === 'capture' ? 'Guarda el gasto en pocos pasos. Usa los accesos rápidos si coincide con lo de siempre.' : 'Revisa los gastos recientes y confirma que quedaron en la cuenta correcta.' }}</p>
+          <p>{{ expensesTab === 'capture' ? 'Guarda el gasto en pocos pasos. Usa los accesos rápidos si coincide con lo de siempre.' : 'Revisa los gastos del periodo y confirma que quedaron en la cuenta correcta.' }}</p>
         </div>
       </header>
 
@@ -2404,7 +3172,8 @@ function categoryIconComponent(icon?: string | null) {
               <span class="category-icon" :style="{ '--category-color': category.color }">
                 <component :is="categoryIconComponent(category.icon)" aria-hidden="true" />
               </span>
-              {{ category.name }}
+              <span>{{ category.name }}</span>
+              <small v-if="category.budget_treatment === 'tracking_only'" class="choice-note">Fuera de presupuesto</small>
             </button>
             <p v-if="!filteredExpenseCategories.length" class="empty-line">No encontramos esa categoría.</p>
           </div>
@@ -2413,15 +3182,19 @@ function categoryIconComponent(icon?: string | null) {
         <section class="choice-block">
           <div class="section-title-row">
             <h2>Cuenta</h2>
-            <span>{{ expenseForm.account ? 'Lista' : 'Desde dónde se pagó' }}</span>
+            <span>{{ expenseIsTrackingOnly ? 'No aplica' : expenseForm.account ? 'Lista' : 'Desde dónde se pagó' }}</span>
           </div>
 
-          <label class="search-field account-search-field">
+          <p v-if="expenseIsTrackingOnly" class="tracking-only-note">
+            Este registro no afecta presupuesto ni saldos de cuentas.
+          </p>
+
+          <label v-if="!expenseIsTrackingOnly" class="search-field account-search-field">
             Buscar cuenta
             <input v-model="expenseAccountSearch" type="search" placeholder="BBVA, caja, tarjeta" autocomplete="off" />
           </label>
 
-          <div class="choice-chips account-card-list" role="list">
+          <div v-if="!expenseIsTrackingOnly" class="choice-chips account-card-list" role="list">
             <button
               v-for="account in filteredExpenseAccounts"
               :key="account.id"
@@ -2492,14 +3265,81 @@ function categoryIconComponent(icon?: string | null) {
 
       <section v-else class="feed movement-list">
         <div class="section-title-row">
-          <h2>Gastos recientes</h2>
-          <span>Hoy: {{ money(selectedDateExpenseTotal, settings.currency) }}</span>
+          <div>
+            <h2>Gastos del periodo</h2>
+            <small>{{ activePeriodLabel }}</small>
+          </div>
+          <span>{{ expenseFeedSummaryLabel }}</span>
+        </div>
+        <div class="feed-filter-row">
+          <label>
+            Categoría
+            <select v-model="expenseFeedCategoryId" :disabled="!expenseFeedCategoryOptions.length">
+              <option value="">Todas las categorías</option>
+              <option v-for="category in expenseFeedCategoryOptions" :key="category.id" :value="String(category.id)">
+                {{ category.label }}
+              </option>
+            </select>
+          </label>
+          <label>
+            Método de pago
+            <select v-model="expenseFeedPaymentMethod" :disabled="!expenseFeedAccountTypeOptions.length && !expenseFeedAccountOptions.length && !hasUnaccountedPeriodExpenses">
+              <option value="">Todos los métodos</option>
+              <optgroup v-if="expenseFeedAccountTypeOptions.length" label="Tipo de pago">
+                <option v-for="option in expenseFeedAccountTypeOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </optgroup>
+              <optgroup v-if="expenseFeedAccountOptions.length || hasUnaccountedPeriodExpenses" label="Cuenta o tarjeta">
+                <option v-if="hasUnaccountedPeriodExpenses" value="none">Sin cuenta</option>
+                <option v-for="option in expenseFeedAccountOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </optgroup>
+            </select>
+          </label>
+          <button
+            v-if="expenseFeedCategoryId || expenseFeedPaymentMethod"
+            class="square-action feed-filter-clear"
+            type="button"
+            aria-label="Limpiar filtros de movimientos"
+            title="Limpiar filtros"
+            @click="clearExpenseFeedFilters"
+          >
+            <X :size="16" :stroke-width="2.4" />
+          </button>
+        </div>
+        <div
+          v-if="expenseFeedHasActiveFilters && filteredPeriodExpenses.length"
+          class="expense-review-toolbar"
+          :class="{ active: expenseReviewMode }"
+        >
+          <button
+            class="secondary expense-review-toggle"
+            type="button"
+            :aria-pressed="expenseReviewMode"
+            @click="toggleExpenseReviewMode"
+          >
+            <ListChecks :size="17" :stroke-width="2.4" />
+            {{ expenseReviewMode ? 'Cerrar revisión' : 'Revisión' }}
+          </button>
+          <span v-if="expenseReviewMode" class="expense-review-count">{{ expenseReviewProgressLabel }}</span>
+          <button
+            v-if="expenseReviewMode && reviewedFilteredExpenseCount"
+            class="square-action expense-review-reset"
+            type="button"
+            aria-label="Limpiar checks de revisión"
+            title="Limpiar checks"
+            @click="clearReviewedExpenses"
+          >
+            <X :size="16" :stroke-width="2.4" />
+          </button>
         </div>
         <article
-          v-for="transaction in recentExpenses"
+          v-for="transaction in filteredPeriodExpenses"
           :key="transaction.id"
           class="feed-row accent-left"
-          :class="{ editing: editingTransactionId === transaction.id }"
+          :class="{ editing: editingTransactionId === transaction.id, reviewed: transactionIsReviewed(transaction) }"
         >
           <template v-if="editingTransactionId !== transaction.id">
             <div>
@@ -2509,8 +3349,21 @@ function categoryIconComponent(icon?: string | null) {
                 {{ transaction.account_name ?? 'sin cuenta' }} ·
                 {{ transaction.created_by_username ?? 'sin usuario' }} · {{ transaction.date }}
               </span>
+              <small v-if="transactionIsTrackingOnly(transaction)" class="tracking-inline">Fuera de presupuesto</small>
             </div>
             <div class="feed-row-actions">
+              <button
+                v-if="expenseReviewMode"
+                class="square-action expense-review-check"
+                :class="{ checked: transactionIsReviewed(transaction) }"
+                type="button"
+                :aria-pressed="transactionIsReviewed(transaction)"
+                :aria-label="transactionIsReviewed(transaction) ? `Marcar ${transactionLabel(transaction)} como pendiente` : `Marcar ${transactionLabel(transaction)} como revisado`"
+                :title="transactionIsReviewed(transaction) ? 'Marcar como pendiente' : 'Marcar como revisado'"
+                @click="toggleExpenseReviewed(transaction.id)"
+              >
+                <Check :size="16" :stroke-width="2.6" />
+              </button>
               <strong>-{{ money(transaction.amount_cents, settings.currency) }}</strong>
               <button
                 class="square-action edit-action"
@@ -2539,13 +3392,13 @@ function categoryIconComponent(icon?: string | null) {
                 <select v-model="transactionEditForm.category" required>
                   <option value="" disabled>Elige una categoría</option>
                   <option v-for="category in categories" :key="category.id" :value="String(category.id)">
-                    {{ category.name }}
+                    {{ category.name }}{{ category.budget_treatment === 'tracking_only' ? ' · fuera de presupuesto' : '' }}
                   </option>
                 </select>
               </label>
             </div>
             <div class="field-row expense-meta-row">
-              <label>
+              <label v-if="!transactionEditIsTrackingOnly">
                 Cuenta
                 <select v-model="transactionEditForm.account" required>
                   <option value="" disabled>Elige una cuenta</option>
@@ -2554,6 +3407,7 @@ function categoryIconComponent(icon?: string | null) {
                   </option>
                 </select>
               </label>
+              <p v-else class="tracking-only-note">No afecta saldos de cuentas.</p>
               <label>Nota opcional<textarea v-model="transactionEditForm.note" rows="2"></textarea></label>
             </div>
             <div class="action-row">
@@ -2568,9 +3422,40 @@ function categoryIconComponent(icon?: string | null) {
                 Cancelar
               </button>
             </div>
+            <div class="transaction-danger-zone">
+              <button
+                v-if="!isConfirmingTransactionDelete(transaction.id)"
+                class="danger-action"
+                type="button"
+                @click="startTransactionDelete(transaction)"
+              >
+                <Trash2 :size="15" :stroke-width="2.4" />
+                Eliminar gasto registrado
+              </button>
+              <div
+                v-else
+                class="transaction-delete-confirm inline-confirm"
+                role="group"
+                :aria-label="`Confirmar eliminación de ${transactionLabel(transaction)}`"
+              >
+                <span>
+                  Eliminar {{ transactionLabel(transaction) }} de {{ transaction.date }} por
+                  {{ money(transaction.amount_cents, settings.currency) }}. Se recalcula el presupuesto y la cuenta.
+                </span>
+                <button
+                  class="danger-action"
+                  type="button"
+                  :disabled="actionBusy === `delete-transaction-${transaction.id}`"
+                  @click="deleteTransaction(transaction)"
+                >
+                  {{ actionBusy === `delete-transaction-${transaction.id}` ? 'Eliminando...' : 'Sí, eliminar' }}
+                </button>
+                <button class="secondary" type="button" @click="cancelTransactionDelete">Cancelar</button>
+              </div>
+            </div>
           </form>
         </article>
-        <p v-if="!recentExpenses.length" class="empty-line">No hay gastos registrados.</p>
+        <p v-if="!filteredPeriodExpenses.length" class="empty-line">{{ expenseFeedEmptyMessage }}</p>
       </section>
     </section>
 
@@ -2620,7 +3505,8 @@ function categoryIconComponent(icon?: string | null) {
                 <span class="category-icon" :style="{ '--category-color': category.color }">
                   <component :is="categoryIconComponent(category.icon)" aria-hidden="true" />
                 </span>
-                {{ category.name }}
+                <span>{{ category.name }}</span>
+                <small v-if="category.budget_treatment === 'tracking_only'" class="choice-note">Fuera de presupuesto</small>
               </button>
               <p v-if="!filteredCommitmentCategories.length" class="empty-line">No encontramos esa categoría.</p>
             </div>
@@ -2629,15 +3515,19 @@ function categoryIconComponent(icon?: string | null) {
           <section class="choice-block commitment-choice-block">
             <div class="section-title-row">
               <h2>Cuenta</h2>
-              <span>{{ commitmentAccountStatusLabel() }}</span>
+              <span>{{ commitmentIsTrackingOnly ? 'No aplica' : commitmentAccountStatusLabel() }}</span>
             </div>
 
-            <label class="search-field account-search-field">
+            <p v-if="commitmentIsTrackingOnly" class="tracking-only-note">
+              Este compromiso queda aparte y no afecta la distribución del gasto.
+            </p>
+
+            <label v-if="!commitmentIsTrackingOnly" class="search-field account-search-field">
               Buscar cuenta
               <input v-model="commitmentAccountSearch" type="search" placeholder="BBVA, caja, tarjeta" autocomplete="off" />
             </label>
 
-            <div class="choice-chips account-card-list" role="list">
+            <div v-if="!commitmentIsTrackingOnly" class="choice-chips account-card-list" role="list">
               <button
                 class="account-choice-card no-account-choice"
                 type="button"
@@ -2719,7 +3609,7 @@ function categoryIconComponent(icon?: string | null) {
               <span class="switch-track" aria-hidden="true"></span>
               <span>
                 <b>Cargar automáticamente</b>
-                <small>Cuando llegue el día de pago, se registra el gasto con la cuenta configurada.</small>
+                <small>{{ commitmentIsTrackingOnly ? 'Cuando llegue el día, se registra sin afectar cuentas.' : 'Cuando llegue el día de pago, se registra el gasto con la cuenta configurada.' }}</small>
               </span>
             </label>
             <div class="preview-box">
@@ -2819,10 +3709,10 @@ function categoryIconComponent(icon?: string | null) {
         <header class="mobile-header commitments-header">
           <div>
             <span>Burn Rate</span>
-            <h1>Pagos del mes</h1>
+            <h1>Pagos planeados</h1>
             <small class="commitment-inline-summary">
               <b>{{ money(currentCommitmentTotal, settings.currency) }}</b>
-              <em>{{ activeRecurringExpenses.length }} mensuales · {{ projectedInstallmentPlans.length }} a meses</em>
+              <em>por venir este mes · {{ activeRecurringExpenses.length }} mensuales · {{ projectedInstallmentPlans.length }} a meses</em>
             </small>
           </div>
         </header>
@@ -2839,40 +3729,6 @@ function categoryIconComponent(icon?: string | null) {
             <small>{{ projectedInstallmentPlans.length }} compras a meses activas</small>
           </article>
         </div>
-
-        <section v-if="creditCardPaymentSummary" class="credit-card-payment-panel" aria-label="Pago para no generar intereses">
-          <div class="credit-card-payment-header">
-            <div>
-              <span>Pago para no generar intereses</span>
-              <small>Compras registradas + compras a meses del ciclo</small>
-            </div>
-            <strong>{{ money(creditCardInterestFreeTotal, settings.currency) }}</strong>
-          </div>
-          <div v-if="creditCardPaymentCards.length" class="credit-card-payment-list">
-            <article
-              v-for="card in creditCardPaymentCards"
-              :key="card.account_id"
-              class="credit-card-payment-row"
-              :style="{ '--account-color': card.account_color }"
-            >
-              <div>
-                <b>{{ card.account_name }}</b>
-                <span>{{ money(card.interest_free_payment_cents, settings.currency) }}</span>
-              </div>
-              <dl>
-                <div>
-                  <dt>Compras del ciclo</dt>
-                  <dd>{{ money(card.cycle_purchase_cents, settings.currency) }}</dd>
-                </div>
-                <div>
-                  <dt>A meses del ciclo</dt>
-                  <dd>{{ money(card.installment_cents, settings.currency) }}</dd>
-                </div>
-              </dl>
-            </article>
-          </div>
-          <p v-else class="empty-line">No hay tarjetas de crédito activas.</p>
-        </section>
 
         <div class="segmented">
           <button :class="{ active: commitmentTab === 'subscriptions' }" type="button" @click="commitmentTab = 'subscriptions'">Mensuales</button>
@@ -3061,7 +3917,7 @@ function categoryIconComponent(icon?: string | null) {
                 <select v-model="commitmentEditForm.category" required>
                   <option value="">Categoría</option>
                   <option v-for="category in activeCategories" :key="category.id" :value="category.id">
-                    {{ category.name }}{{ category.member_name ? ` - ${category.member_name}` : '' }}
+                    {{ category.name }}{{ category.member_name ? ` - ${category.member_name}` : '' }}{{ category.budget_treatment === 'tracking_only' ? ' · fuera de presupuesto' : '' }}
                   </option>
                 </select>
               </label>
@@ -3121,17 +3977,41 @@ function categoryIconComponent(icon?: string | null) {
             </div>
             <strong>{{ money(registeredInstallmentTotal, settings.currency) }}</strong>
           </div>
+          <div v-if="msiCardChips.length || msiOwnerChips.length" class="msi-filters" role="group" aria-label="Filtrar proyección">
+            <button
+              v-for="chip in msiCardChips"
+              :key="`card-${chip.id}`"
+              type="button"
+              class="filter-chip"
+              :class="{ active: msiCardFilter.includes(chip.id) }"
+              @click="toggleMsiCard(chip.id)"
+            >
+              {{ chip.name }}
+            </button>
+            <button
+              v-for="chip in msiOwnerChips"
+              :key="`owner-${chip.id}`"
+              type="button"
+              class="filter-chip owner"
+              :class="{ active: msiOwnerFilter.includes(chip.id) }"
+              :style="{ '--chip-color': chip.color }"
+              @click="toggleMsiOwner(chip.id)"
+            >
+              {{ chip.name }}
+            </button>
+            <span v-if="msiFocusedCardId != null" class="filter-hint">Columnas por ciclos reales de la tarjeta</span>
+          </div>
           <div class="projection-timeline">
             <article
-              v-for="(period, index) in projectedInstallmentPeriods"
+              v-for="(period, index) in projectionPeriodsView"
               :key="period.key"
               :class="{ empty: !period.total_cents, settled: projectionSettledPlans(period).length }"
             >
               <div class="projection-period-main">
-                <span>{{ projectionPeriodLabel(index) }}</span>
+                <span>{{ projectionColumnLabel(period, index) }}</span>
                 <strong>{{ money(period.total_cents, settings.currency) }}</strong>
               </div>
-              <div class="projection-period-bar" :aria-label="`${money(period.total_cents, settings.currency)} en ${projectionPeriodLabel(index)}`">
+              <div class="projection-period-bar" :aria-label="`${money(period.total_cents, settings.currency)} en ${projectionColumnLabel(period, index)}`">
                 <i :style="{ width: projectionBarWidth(period.total_cents) }"></i>
               </div>
               <div class="projection-period-meta">
@@ -3142,6 +4022,139 @@ function categoryIconComponent(icon?: string | null) {
           </div>
         </section>
       </template>
+    </section>
+
+    <CreditCardsSummary
+      v-if="view === 'cards' && cardsTab === 'summary'"
+      :summary="creditCardPaymentSummary"
+      :currency="settings.currency"
+      :inert="iconGalleryOpen || undefined"
+      :aria-hidden="iconGalleryOpen ? 'true' : undefined"
+      @open-benefits="cardsTab = 'benefits'"
+      @open-settings="selectView('settings')"
+    />
+
+    <section
+      v-if="view === 'cards' && cardsTab === 'benefits'"
+      class="screen benefits-screen"
+      :inert="iconGalleryOpen || undefined"
+      :aria-hidden="iconGalleryOpen ? 'true' : undefined"
+    >
+      <div class="segmented cards-view-tabs" role="tablist" aria-label="Secciones de tarjetas">
+        <button type="button" role="tab" aria-selected="false" @click="cardsTab = 'summary'">Resumen</button>
+        <button class="active" type="button" role="tab" aria-selected="true">Beneficios</button>
+      </div>
+
+      <header class="mobile-header benefits-header">
+        <div>
+          <span>Burn Rate</span>
+          <h1>Beneficios</h1>
+          <p>Qué tarjeta o cuenta conviene usar según el tipo de gasto.</p>
+        </div>
+      </header>
+
+      <section class="benefits-intro" aria-label="Resumen de beneficios">
+        <div>
+          <span>Revisado: {{ benefitsLastChecked }}</span>
+          <h2>Elige por gasto, no por banco</h2>
+          <p>
+            Esta primera versión compara los beneficios publicados para tus tarjetas y cuenta. Úsalo como guía rápida antes de capturar un gasto.
+          </p>
+        </div>
+        <div class="benefit-mini-rules" aria-label="Reglas rápidas">
+          <span>Cashback claro primero</span>
+          <span>Promos Amex solo activadas</span>
+          <span>Puntos BBVA solo si los redimes</span>
+        </div>
+      </section>
+
+      <section class="benefit-recommendation-panel" aria-labelledby="benefit-recommendation-title">
+        <div class="section-title-row">
+          <div>
+            <h2 id="benefit-recommendation-title">Para qué usar cada una</h2>
+            <p>Orden práctico para compras comunes de la casa.</p>
+          </div>
+          <span>{{ benefitRecommendations.length }} casos</span>
+        </div>
+
+        <div class="benefit-recommendation-list">
+          <article
+            v-for="(recommendation, index) in benefitRecommendations"
+            :key="recommendation.id"
+            class="benefit-recommendation-row"
+            :style="{ '--benefit-color': recommendation.accent }"
+          >
+            <span class="benefit-rank">{{ index + 1 }}</span>
+            <div>
+              <b>{{ recommendation.spend }}</b>
+              <strong>{{ recommendation.product }}</strong>
+              <p>{{ recommendation.reason }}</p>
+              <small>{{ recommendation.note }}</small>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="benefit-product-section" aria-labelledby="benefit-product-title">
+        <div class="section-title-row">
+          <div>
+            <h2 id="benefit-product-title">Beneficios por tarjeta o cuenta</h2>
+            <p>Resumen por producto con fuente oficial.</p>
+          </div>
+          <span>{{ benefitsLastChecked }}</span>
+        </div>
+
+        <div class="benefit-product-list">
+          <article
+            v-for="product in benefitProducts"
+            :key="product.id"
+            class="benefit-product-card"
+            :style="{ '--benefit-color': product.accent }"
+          >
+            <header class="benefit-product-header">
+              <span>{{ product.type }}</span>
+              <h2>{{ product.name }}</h2>
+              <p>{{ product.issuer }} · {{ product.bestFor }}</p>
+            </header>
+
+            <div class="benefit-rule">
+              <b>Regla rápida</b>
+              <span>{{ product.quickRule }}</span>
+            </div>
+
+            <div class="benefit-chip-list" aria-label="Mejor para">
+              <span v-for="use in product.bestUses" :key="use">{{ use }}</span>
+            </div>
+
+            <ul class="benefit-detail-list">
+              <li v-for="benefit in product.benefits" :key="`${product.id}-${benefit.label}`">
+                <strong>{{ benefit.value }}</strong>
+                <span>
+                  <b>{{ benefit.label }}</b>
+                  <small>{{ benefit.detail }}</small>
+                </span>
+              </li>
+            </ul>
+
+            <p class="benefit-watchout">
+              <b>Ojo:</b>
+              {{ product.watchOut }}
+            </p>
+
+            <div class="benefit-source-list" aria-label="Fuentes">
+              <a
+                v-for="source in product.sources"
+                :key="source.url"
+                :href="source.url"
+                target="_blank"
+                rel="noreferrer"
+              >
+                {{ source.label }}
+              </a>
+            </div>
+          </article>
+        </div>
+      </section>
     </section>
 
     <section
@@ -3164,12 +4177,18 @@ function categoryIconComponent(icon?: string | null) {
             <p>Configura solo lo que necesitas para que el presupuesto familiar calcule bien.</p>
           </div>
           <div class="cutoff-row">
-            <label>Día de corte<input v-model.number="settingsForm.cutoff_day" type="number" min="1" max="28" /></label>
+            <label>
+              Zona horaria
+              <input v-model="settingsForm.time_zone" list="time-zone-options" autocomplete="off" required />
+            </label>
+            <datalist id="time-zone-options">
+              <option v-for="timeZone in timeZoneOptions" :key="timeZone" :value="timeZone" />
+            </datalist>
             <button class="primary blue-primary" type="submit" :disabled="actionBusy === 'settings'">
-              {{ actionBusy === 'settings' ? 'Guardando...' : 'Guardar corte' }}
+              {{ actionBusy === 'settings' ? 'Guardando...' : 'Guardar zona horaria' }}
             </button>
           </div>
-          <small>El periodo siempre se arma con días del 1 al 28 para evitar meses raros.</small>
+          <small>Hoy en la app: {{ appToday }} · el presupuesto corre por mes calendario. El corte de cada tarjeta se configura en la cuenta.</small>
         </form>
 
         <div class="setup-tabs" aria-label="Secciones de ajustes">
@@ -3198,7 +4217,14 @@ function categoryIconComponent(icon?: string | null) {
                 <span :style="{ background: account.color }"></span>
                 <div>
                   <b>{{ account.name }}</b>
-                  <small>{{ accountTypeLabel(account.account_type) }} · {{ account.is_active ? 'activa' : 'inactiva' }}</small>
+                  <small>
+                    {{ accountTypeLabel(account.account_type) }}
+                    <template v-if="account.cutoff_day"> · corte {{ account.cutoff_day }}</template>
+                    <template v-if="account.payment_due_day"> · límite {{ account.payment_due_day }}</template>
+                    <template v-else-if="account.account_type === 'credit_card'"> · límite pendiente</template>
+                    <template v-if="account.owner_name"> · {{ account.owner_name }}</template>
+                    · {{ account.is_active ? 'activa' : 'inactiva' }}
+                  </small>
                 </div>
                 <strong>{{ money(account.current_balance_cents, settings.currency) }}</strong>
                 <button class="secondary" type="button" @click="editAccount(account)">Editar</button>
@@ -3220,6 +4246,24 @@ function categoryIconComponent(icon?: string | null) {
                 <button type="button" :class="{ active: accountForm.account_type === 'debit_card' }" @click="accountForm.account_type = 'debit_card'">Tarjeta débito</button>
                 <button type="button" :class="{ active: accountForm.account_type === 'credit_card' }" @click="accountForm.account_type = 'credit_card'">Tarjeta crédito</button>
               </div>
+              <label v-if="accountForm.account_type === 'credit_card'">
+                Día de corte
+                <input v-model.number="accountForm.cutoff_day" type="number" min="1" max="28" required />
+              </label>
+              <label v-if="accountForm.account_type === 'credit_card'">
+                Día límite de pago
+                <input v-model.number="accountForm.payment_due_day" type="number" min="1" max="31" required />
+                <small class="field-hint">Burn Rate marcará el pago 3 días antes para conservar margen.</small>
+              </label>
+              <label>
+                Titular
+                <select v-model="accountForm.owner">
+                  <option value="">Sin titular</option>
+                  <option v-for="member in members.filter((item) => item.is_active)" :key="member.id" :value="String(member.id)">
+                    {{ member.name }}
+                  </option>
+                </select>
+              </label>
               <label v-if="accountForm.account_type === 'cash'">
                 Saldo inicial visible para efectivo
                 <input v-model="accountForm.initial_balance" inputmode="decimal" placeholder="$ 2,000.00" />
@@ -3344,8 +4388,11 @@ function categoryIconComponent(icon?: string | null) {
                   <b>{{ category.name }}</b>
                   <span>
                     {{ category.scope === 'global' ? 'Familia' : category.member_name || 'Personal' }} ·
-                    {{ money(category.monthly_budget_cents, settings.currency) }} ·
-                    {{ category.budget_behavior === 'carryover' ? 'acumulable' : 'mensual' }} ·
+                    {{
+                      category.budget_treatment === 'tracking_only'
+                        ? 'fuera de presupuesto'
+                        : `${money(category.monthly_budget_cents, settings.currency)} · ${category.budget_behavior === 'carryover' ? 'acumulable' : 'mensual'}`
+                    }} ·
                     {{ category.is_active ? 'activa' : 'inactiva' }}
                   </span>
                 </div>
@@ -3368,7 +4415,27 @@ function categoryIconComponent(icon?: string | null) {
               <div v-if="!editingCategoryId" class="segmented blue-segmented">
                 <button
                   type="button"
+                  :class="{ active: categoryForm.budget_treatment === 'budgeted' }"
+                  @click="categoryForm.budget_treatment = 'budgeted'"
+                >
+                  Presupuestada
+                </button>
+                <button
+                  type="button"
+                  :class="{ active: categoryForm.budget_treatment === 'tracking_only' }"
+                  @click="categoryForm.budget_treatment = 'tracking_only'; categoryForm.budget_behavior = 'monthly_reset'"
+                >
+                  Fuera de presupuesto
+                </button>
+              </div>
+              <div v-else class="commitment-readonly">
+                <span>{{ categoryForm.budget_treatment === 'tracking_only' ? 'Fuera de presupuesto' : 'Presupuestada' }}</span>
+              </div>
+              <div v-if="!editingCategoryId" class="segmented blue-segmented">
+                <button
+                  type="button"
                   :class="{ active: categoryForm.budget_behavior === 'monthly_reset' }"
+                  :disabled="categoryForm.budget_treatment === 'tracking_only'"
                   @click="categoryForm.budget_behavior = 'monthly_reset'"
                 >
                   Mensual
@@ -3376,6 +4443,7 @@ function categoryIconComponent(icon?: string | null) {
                 <button
                   type="button"
                   :class="{ active: categoryForm.budget_behavior === 'carryover' }"
+                  :disabled="categoryForm.budget_treatment === 'tracking_only'"
                   @click="categoryForm.budget_behavior = 'carryover'"
                 >
                   Acumulable
@@ -3392,8 +4460,11 @@ function categoryIconComponent(icon?: string | null) {
                   <option v-for="member in members" :key="member.id" :value="member.id">{{ member.name }}</option>
                 </select>
               </label>
-              <label>Presupuesto mensual<input v-model="categoryForm.monthly_budget" inputmode="decimal" required /></label>
-              <div v-if="!editingCategoryId && categoryForm.budget_behavior === 'carryover'" class="field-row">
+              <p v-if="categoryForm.budget_treatment === 'tracking_only'" class="tracking-only-note">
+                Esta categoría solo registra historial aparte; no consume presupuesto ni modifica saldos.
+              </p>
+              <label v-else>Presupuesto mensual<input v-model="categoryForm.monthly_budget" inputmode="decimal" required /></label>
+              <div v-if="!editingCategoryId && categoryForm.budget_treatment === 'budgeted' && categoryForm.budget_behavior === 'carryover'" class="field-row">
                 <label>Saldo inicial<input v-model="categoryForm.carryover_initial_balance" inputmode="decimal" required /></label>
                 <label>Inicio<input v-model="categoryForm.carryover_start_date" type="date" required /></label>
               </div>

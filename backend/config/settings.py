@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
@@ -18,6 +19,15 @@ def env_bool(name: str, default: bool) -> bool:
 
 def env_list(name: str, default: str = "") -> list[str]:
     return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
+
+
+def env_time_zone(name: str, default: str) -> str:
+    value = os.getenv(name, default).strip() or default
+    try:
+        ZoneInfo(value)
+    except ZoneInfoNotFoundError as exc:
+        raise ImproperlyConfigured(f"{name} must be a valid IANA time zone.") from exc
+    return value
 
 
 DEBUG = env_bool("DJANGO_DEBUG", True)
@@ -100,7 +110,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = "es-mx"
-TIME_ZONE = "America/Mexico_City"
+TIME_ZONE = env_time_zone("BURN_RATE_TIME_ZONE", "America/Mexico_City")
 USE_I18N = True
 USE_TZ = True
 INVITATION_TTL_DAYS = int(os.getenv("INVITATION_TTL_DAYS", "14"))
@@ -130,12 +140,28 @@ REST_FRAMEWORK = {
     ],
 }
 
+LOCAL_APP_ORIGINS = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+LOCAL_FRONTEND_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+]
+DEFAULT_CORS_ALLOWED_ORIGINS = LOCAL_FRONTEND_ORIGINS
+DEFAULT_CSRF_TRUSTED_ORIGINS = [*LOCAL_APP_ORIGINS, *DEFAULT_CORS_ALLOWED_ORIGINS]
+
 CORS_ALLOWED_ORIGINS = env_list(
     "DJANGO_CORS_ALLOWED_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173",
+    ",".join(DEFAULT_CORS_ALLOWED_ORIGINS),
 )
 CORS_ALLOW_CREDENTIALS = True
-CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS", ",".join(CORS_ALLOWED_ORIGINS))
+CSRF_TRUSTED_ORIGINS = env_list(
+    "DJANGO_CSRF_TRUSTED_ORIGINS",
+    ",".join([*LOCAL_APP_ORIGINS, *CORS_ALLOWED_ORIGINS]),
+)
 
 SESSION_COOKIE_AGE = int(os.getenv("DJANGO_SESSION_COOKIE_AGE", "2592000"))
 SESSION_SAVE_EVERY_REQUEST = env_bool("DJANGO_SESSION_SAVE_EVERY_REQUEST", True)

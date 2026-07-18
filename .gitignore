@@ -42,3 +42,9 @@ logs/
 tmp/
 temp/
 .cache/
+
+# Datos y referencias locales con información privada
+/pre-issue-2-backup.sql
+/design-system/dark/*.png
+/design-system/light/*.png
+/run-afk-issue-2.md

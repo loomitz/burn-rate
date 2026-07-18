@@ -3,7 +3,6 @@ from datetime import date
 from django.contrib.auth import login, logout
 from django.contrib.auth.models import User
 from django.db import transaction
-from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from rest_framework import mixins, status, viewsets
@@ -45,14 +44,18 @@ from .serializers import (
 )
 from .services import (
     auto_post_due_recurring_charges,
+    build_off_budget_summary,
     build_budget_summary,
+    card_payments_summary,
     confirm_expected_charge,
-    credit_card_interest_free_payment_summary,
+    expected_charge_dismissal_period_start,
+    expected_charge_source_account,
     expected_charges_for_period,
     get_budget_period,
     installment_projection,
 )
 from .setup_services import build_onboarding_status
+from .timezones import app_localdate
 
 
 class IsStaffForUnsafe(BasePermission):
@@ -333,8 +336,8 @@ class TransactionViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(category__scope=Category.Scope.GLOBAL)
         if params.get("scope") == "personal":
             queryset = queryset.filter(category__scope=Category.Scope.PERSONAL)
-        if params.get("period"):
-            period_date = date.fromisoformat(f"{params['period']}-01")
+        if params.get("date") or params.get("period"):
+            period_date = date.fromisoformat(params["date"] if params.get("date") else f"{params['period']}-01")
             period = get_budget_period(period_date)
             queryset = queryset.filter(date__gte=period.start, date__lte=period.end)
         return queryset
@@ -376,6 +379,13 @@ class BudgetSummaryView(APIView):
         return Response(summary)
 
 
+class OffBudgetSummaryView(APIView):
+    def get(self, request):
+        value = request.query_params.get("date")
+        summary_date = date.fromisoformat(value) if value else None
+        return Response(build_off_budget_summary(summary_date))
+
+
 class ExpectedChargesView(APIView):
     def get(self, request):
         period_param = request.query_params.get("period")
@@ -402,6 +412,7 @@ class ExpectedChargesView(APIView):
                         "id": charge.category.id,
                         "name": charge.category.name,
                         "scope": charge.category.scope,
+                        "budget_treatment": charge.category.budget_treatment,
                         "color": charge.category.color,
                         "icon": charge.category.icon,
                     },
@@ -419,15 +430,17 @@ class InstallmentProjectionView(APIView):
     def get(self, request):
         value = request.query_params.get("date")
         months = int(request.query_params.get("months", 6))
+        account_param = request.query_params.get("account")
+        account_id = int(account_param) if account_param else None
         projection_date = date.fromisoformat(value) if value else None
-        return Response(installment_projection(projection_date, months_ahead=months))
+        return Response(installment_projection(projection_date, months_ahead=months, account_id=account_id))
 
 
 class CreditCardInterestFreePaymentView(APIView):
     def get(self, request):
         value = request.query_params.get("date")
         summary_date = date.fromisoformat(value) if value else None
-        return Response(credit_card_interest_free_payment_summary(summary_date))
+        return Response(card_payments_summary(summary_date))
 
 
 class ConfirmExpectedChargeView(APIView):
@@ -435,15 +448,17 @@ class ConfirmExpectedChargeView(APIView):
         source_type = request.data["source_type"]
         source_id = int(request.data["source_id"])
         charge_date = date.fromisoformat(request.data["date"])
-        account = Account.objects.get(pk=request.data["account"])
+        account_id = request.data.get("account")
+        account = Account.objects.get(pk=account_id) if account_id else None
         transaction = confirm_expected_charge(source_type, source_id, charge_date, account, request.user)
         return Response(TransactionSerializer(transaction, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
 
 class AutoPostRecurringChargesView(APIView):
     def post(self, request):
-        requested_date = date.fromisoformat(request.data.get("date")) if request.data.get("date") else timezone.localdate()
-        as_of = min(requested_date, timezone.localdate())
+        today = app_localdate()
+        requested_date = date.fromisoformat(request.data.get("date")) if request.data.get("date") else today
+        as_of = min(requested_date, today)
         transactions = auto_post_due_recurring_charges(as_of, request.user)
         return Response(
             {
@@ -460,11 +475,12 @@ class DismissExpectedChargeView(APIView):
         source_type = request.data["source_type"]
         source_id = int(request.data["source_id"])
         charge_date = date.fromisoformat(request.data["date"])
-        period = get_budget_period(charge_date)
+        source_account = expected_charge_source_account(source_type, source_id)
+        period_start = expected_charge_dismissal_period_start(source_account, charge_date)
         ExpectedChargeDismissal.objects.get_or_create(
             source_type=source_type,
             source_id=source_id,
-            period_start=period.start,
+            period_start=period_start,
             defaults={"created_by": request.user},
         )
         return Response(status=status.HTTP_204_NO_CONTENT)

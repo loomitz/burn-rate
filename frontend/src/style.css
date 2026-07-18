@@ -94,6 +94,8 @@
   --expenses-soft: #fbece3;
   --commitments-accent: #7252d9;
   --commitments-soft: #eee8ff;
+  --benefits-accent: #8a6f16;
+  --benefits-soft: #fff0bf;
   --settings-accent: #2f65d7;
   --settings-soft: #eaf1ff;
   --expense: var(--ember);
@@ -156,6 +158,8 @@
   --expenses-soft: #2b1a15;
   --commitments-accent: #b79cff;
   --commitments-soft: #251d32;
+  --benefits-accent: #e0bd57;
+  --benefits-soft: #2c2514;
   --settings-accent: #8eb8ff;
   --settings-soft: #172131;
   --purple: #d6a58e;
@@ -548,6 +552,11 @@ h2 {
   --section-soft: var(--commitments-soft);
 }
 
+.app-shell.view-cards {
+  --section-accent: var(--commitments-accent);
+  --section-soft: var(--commitments-soft);
+}
+
 .app-shell.view-settings {
   --section-accent: var(--settings-accent);
   --section-soft: var(--settings-soft);
@@ -662,6 +671,13 @@ h2 {
   font-weight: 700;
 }
 
+.form-stack .field-hint {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
 .form-stack .form-field > label {
   display: block;
   color: inherit;
@@ -756,6 +772,7 @@ h2 {
   .cycle-step-button:hover,
   .month-chip:hover,
   .icon-select-button:hover,
+  .spending-legend button:hover,
   .choice-chips button:hover,
   .segmented button:hover,
   .theme-switch button:hover,
@@ -833,6 +850,7 @@ h2 {
 
 .plan-screen,
 .expenses-screen,
+.benefits-screen,
 .settings-screen {
   display: grid;
   gap: var(--space-lg);
@@ -1053,6 +1071,55 @@ h2 {
   box-shadow: var(--shadow-soft);
 }
 
+.off-budget-panel {
+  display: grid;
+  gap: var(--space-sm);
+  border: 1px solid color-mix(in srgb, #7c3aed 18%, var(--line));
+  border-radius: var(--radius-sm);
+  padding: clamp(1rem, 3vw, 1.25rem);
+  background: color-mix(in srgb, var(--surface) 86%, #ede9fe);
+}
+
+.off-budget-list {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.off-budget-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-sm);
+  border: 1px solid color-mix(in srgb, var(--category-color) 18%, var(--line));
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  background: color-mix(in srgb, var(--category-color) 6%, var(--surface));
+}
+
+.off-budget-row > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.off-budget-row b,
+.off-budget-row small {
+  overflow-wrap: anywhere;
+}
+
+.off-budget-row small {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+}
+
+.off-budget-row strong {
+  color: color-mix(in srgb, var(--category-color) 72%, var(--ink));
+  font-size: var(--font-size-label);
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 .plan-balance {
   display: grid;
   gap: var(--space-xs);
@@ -1122,14 +1189,15 @@ h2 {
 
 .spending-chart-panel {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.68fr);
   gap: var(--space-lg);
   align-items: center;
   border: 1px solid color-mix(in srgb, var(--plan-accent) 20%, var(--line));
   border-radius: var(--radius-sm);
-  padding: clamp(1.125rem, 4vw, 1.5rem);
+  padding: clamp(1.125rem, 4vw, 1.75rem);
   background:
-    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--plan-accent) 12%, transparent), transparent 46%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 92%, var(--plan-soft)), color-mix(in srgb, var(--surface) 96%, var(--paper))),
+    radial-gradient(circle at 80% 18%, color-mix(in srgb, var(--plan-accent) 9%, transparent), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, var(--plan-soft)), color-mix(in srgb, var(--surface) 96%, var(--paper))),
     var(--surface);
   box-shadow: var(--shadow-soft);
 }
@@ -1147,7 +1215,7 @@ h2 {
 
 .spending-chart-copy h2 {
   color: var(--ink);
-  font-size: clamp(1.35rem, 4vw, 1.8rem);
+  font-size: clamp(1.85rem, 5.2vw, 2.75rem);
   line-height: 1.08;
 }
 
@@ -1160,17 +1228,17 @@ h2 {
 }
 
 .spending-chart-layout {
-  display: grid;
-  grid-template-columns: minmax(180px, 0.76fr) minmax(0, 1fr);
-  gap: var(--space-lg);
-  align-items: center;
+  display: contents;
 }
 
 .spending-donut {
   position: relative;
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: center;
   display: grid;
   place-items: center;
-  width: min(100%, 230px);
+  width: min(100%, 240px);
   aspect-ratio: 1;
   margin: 0;
   border-radius: 50%;
@@ -1183,7 +1251,7 @@ h2 {
 .spending-donut::before {
   content: '';
   position: absolute;
-  inset: 22%;
+  inset: 26%;
   border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
   border-radius: inherit;
   background:
@@ -1216,10 +1284,16 @@ h2 {
 }
 
 .spending-legend {
+  grid-column: 1 / -1;
   display: grid;
-  gap: 8px;
+  gap: 0;
   margin: 0;
   padding: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 48%, transparent);
   list-style: none;
 }
 
@@ -1227,44 +1301,92 @@ h2 {
   min-width: 0;
 }
 
+.spending-legend li + li {
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
 .spending-legend button,
 .spending-legend div {
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) auto auto;
-  gap: 8px;
+  grid-template-columns: 56px 14px minmax(0, 1fr) minmax(76px, 0.28fr) minmax(92px, auto) 24px;
+  gap: 10px;
   align-items: center;
   width: 100%;
-  min-height: 42px;
-  border: 1px solid color-mix(in srgb, var(--category-color) 22%, var(--line));
-  border-radius: var(--radius-control);
-  padding: 8px 10px;
+  min-height: 66px;
+  border: 0;
+  border-radius: 0;
+  padding: 8px 14px;
   color: var(--ink);
-  background: color-mix(in srgb, var(--category-color) 7%, var(--surface));
+  background: transparent;
   text-align: left;
+  transition:
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+.spending-legend button:hover {
+  background: color-mix(in srgb, var(--category-color) 6%, transparent);
 }
 
 .spending-legend b {
   min-width: 0;
   overflow: hidden;
   color: var(--ink);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body);
   font-weight: 850;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.spending-legend em {
+.legend-percent {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.legend-percent em {
   color: color-mix(in srgb, var(--category-color) 76%, var(--ink));
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-body);
   font-style: normal;
   font-weight: 900;
 }
 
+.legend-percent i {
+  display: block;
+  width: min(100%, 74px);
+  height: 6px;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--category-color) 88%, var(--ink)) 0 var(--legend-percent),
+      transparent var(--legend-percent) 100%
+    );
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
 .spending-legend strong {
-  color: var(--muted);
-  font-size: var(--font-size-sm);
+  color: color-mix(in srgb, var(--ink) 82%, var(--category-color));
+  font-size: var(--font-size-body);
   font-weight: 800;
+  text-align: right;
   white-space: nowrap;
+}
+
+.legend-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  color: color-mix(in srgb, var(--category-color) 82%, var(--ink));
+  background: color-mix(in srgb, var(--category-color) 10%, var(--surface-tint));
+}
+
+.legend-icon svg {
+  width: 28px;
+  height: 28px;
+  stroke-width: 2.4;
 }
 
 .legend-swatch {
@@ -1275,7 +1397,14 @@ h2 {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 16%, transparent);
 }
 
+.legend-chevron {
+  width: 20px;
+  height: 20px;
+  color: var(--muted);
+}
+
 .spending-empty {
+  grid-column: 1 / -1;
   border: 1px dashed color-mix(in srgb, var(--plan-accent) 22%, var(--line));
   border-radius: var(--radius-control);
   padding: var(--space-md);
@@ -1903,6 +2032,11 @@ h2 {
   background: var(--commitments-soft);
 }
 
+.app-shell.view-cards .cards-view-tabs {
+  border-color: color-mix(in srgb, var(--commitments-accent) 18%, var(--menu-border));
+  background: var(--commitments-soft);
+}
+
 .app-shell.view-settings .segmented,
 .app-shell.view-settings .setup-tabs {
   border-color: color-mix(in srgb, var(--settings-accent) 18%, var(--menu-border));
@@ -2016,6 +2150,14 @@ h2 {
   text-align: left;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.choice-chips button .choice-note {
+  display: block;
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-weight: 750;
 }
 
 .choice-chips .category-icon {
@@ -2143,6 +2285,94 @@ h2 {
   gap: var(--space-sm);
 }
 
+.feed-filter-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  gap: var(--space-xs);
+  align-items: end;
+}
+
+.feed-filter-row label {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: var(--font-size-label);
+  font-weight: 700;
+}
+
+.feed-filter-row select {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-neutral);
+  color: var(--ink);
+  padding: 12px 14px;
+}
+
+.feed-filter-row select:focus {
+  border-color: color-mix(in srgb, var(--ember) 48%, var(--line));
+  outline: 0;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ember) 16%, transparent);
+}
+
+.feed-filter-row select:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.feed-filter-clear {
+  min-width: 48px;
+  min-height: 48px;
+}
+
+.expense-review-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 54px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--green) 18%, var(--line));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface-green-soft) 58%, var(--surface));
+}
+
+.expense-review-toolbar.active {
+  border-color: color-mix(in srgb, var(--green) 34%, var(--line));
+  background: color-mix(in srgb, var(--surface-green-soft) 82%, var(--surface));
+}
+
+.expense-review-toggle {
+  min-height: 40px;
+  padding: 9px 12px;
+  color: var(--green-dark);
+  border-color: color-mix(in srgb, var(--green) 28%, var(--line));
+  background: color-mix(in srgb, var(--surface) 82%, var(--surface-green-soft));
+}
+
+.expense-review-toggle[aria-pressed='true'] {
+  color: #fffaf1;
+  border-color: var(--green);
+  background: var(--green);
+}
+
+.expense-review-count {
+  color: var(--green-dark);
+  font-size: var(--font-size-sm);
+  font-weight: 800;
+}
+
+.expense-review-reset {
+  min-width: 40px;
+  min-height: 40px;
+  margin-left: auto;
+  color: var(--green-dark);
+  border-color: color-mix(in srgb, var(--green) 24%, var(--line));
+  background: color-mix(in srgb, var(--surface) 80%, var(--surface-green-soft));
+}
+
 .feed-row,
 .expected-row,
 .installment-row,
@@ -2212,9 +2442,24 @@ h2 {
   font-weight: 800;
 }
 
+.feed-row.reviewed {
+  border-color: color-mix(in srgb, var(--green) 38%, var(--line));
+  background: color-mix(in srgb, var(--surface-green-soft) 72%, var(--surface));
+}
+
+.feed-row.reviewed::before {
+  background: var(--green);
+}
+
+.feed-row.reviewed strong {
+  color: var(--green-dark);
+}
+
 .feed-row .feed-row-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--space-xs);
 }
 
@@ -2223,8 +2468,61 @@ h2 {
   min-height: 40px;
 }
 
+.expense-review-check {
+  color: var(--muted);
+  border-color: color-mix(in srgb, var(--green) 18%, var(--line));
+  background: var(--surface-neutral);
+}
+
+.expense-review-check.checked {
+  color: #fffaf1;
+  border-color: var(--green);
+  background: var(--green);
+}
+
 .transaction-edit-form {
   grid-column: 1 / -1;
+}
+
+.transaction-danger-zone {
+  display: grid;
+  gap: var(--space-xs);
+  padding-top: var(--space-xs);
+}
+
+.transaction-danger-zone > .danger-action {
+  display: inline-flex;
+  width: 100%;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  justify-self: stretch;
+  padding: 12px 16px;
+  font-size: 0.9375rem;
+  font-weight: 800;
+}
+
+.transaction-delete-confirm {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(156px, 1fr));
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+.transaction-delete-confirm span {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+}
+
+.transaction-delete-confirm .danger-action,
+.transaction-delete-confirm .secondary {
+  width: 100%;
+  min-height: 48px;
+  justify-content: center;
+  padding: 12px 16px;
+  font-size: 0.9375rem;
+  font-weight: 800;
 }
 
 .feed-row small {
@@ -2271,6 +2569,26 @@ h2 {
   margin: 0;
   color: var(--muted);
   font-size: var(--font-size-sm);
+}
+
+.tracking-only-note,
+.tracking-inline {
+  color: color-mix(in srgb, #7c3aed 72%, var(--muted));
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+}
+
+.tracking-only-note {
+  margin: 0;
+  border: 1px solid color-mix(in srgb, #7c3aed 18%, var(--line));
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: color-mix(in srgb, #ede9fe 44%, var(--surface));
+}
+
+.tracking-inline {
+  display: block;
+  margin-top: 3px;
 }
 
 .empty-card {
@@ -2448,99 +2766,85 @@ h2 {
   white-space: nowrap;
 }
 
-.credit-card-payment-panel {
-  display: grid;
-  gap: var(--space-sm);
-  border: 1px solid color-mix(in srgb, var(--commitments-accent) 16%, var(--line));
-  border-radius: var(--radius-sm);
-  padding: var(--space-sm);
-  background: color-mix(in srgb, var(--surface) 82%, var(--commitments-soft));
+.msi-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 
-.credit-card-payment-header,
-.credit-card-payment-row,
-.credit-card-payment-row dl {
-  display: grid;
-  gap: var(--space-xs);
+.filter-chip {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 800;
 }
 
-.credit-card-payment-header {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+.filter-chip.active {
+  color: var(--commitments-accent);
+  border-color: color-mix(in srgb, var(--commitments-accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--commitments-accent) 10%, var(--surface));
 }
 
-.credit-card-payment-header > div {
-  display: grid;
-  gap: 2px;
+.filter-chip.owner.active {
+  color: var(--chip-color, var(--commitments-accent));
+  border-color: color-mix(in srgb, var(--chip-color, var(--commitments-accent)) 45%, var(--line));
+  background: color-mix(in srgb, var(--chip-color, var(--commitments-accent)) 12%, var(--surface));
 }
 
-.credit-card-payment-header span,
-.credit-card-payment-row b {
-  color: var(--ink);
-  font-size: var(--font-size-sm);
-  font-weight: 900;
-}
-
-.credit-card-payment-header small,
-.credit-card-payment-row dt {
+.filter-hint {
   color: var(--muted);
   font-size: 11px;
   font-weight: 800;
 }
 
-.credit-card-payment-header strong,
-.credit-card-payment-row span,
-.credit-card-payment-row dd {
-  color: var(--commitments-accent);
-  font-weight: 900;
-  white-space: nowrap;
-}
-
-.credit-card-payment-list {
+.live-windows {
   display: grid;
   gap: var(--space-xs);
 }
 
-.credit-card-payment-row {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--account-color, var(--commitments-accent)) 18%, var(--line));
-  border-radius: 8px;
-  padding: var(--space-xs) var(--space-sm);
-  background: color-mix(in srgb, var(--account-color, var(--commitments-accent)) 5%, var(--surface));
+.live-windows h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--font-size-sm);
+  font-weight: 900;
 }
 
-.credit-card-payment-row::before {
-  content: '';
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: 0;
-  width: 4px;
-  border-radius: 0 999px 999px 0;
-  background: var(--account-color, var(--commitments-accent));
-}
-
-.credit-card-payment-row > div {
+.live-windows article {
   display: flex;
-  min-width: 0;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-xs);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--surface);
 }
 
-.credit-card-payment-row dl {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 0;
+.live-windows article > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
 }
 
-.credit-card-payment-row dt,
-.credit-card-payment-row dd {
-  margin: 0;
-}
-
-.credit-card-payment-row dd {
+.live-windows article b {
+  color: var(--ink);
   font-size: var(--font-size-sm);
+  font-weight: 900;
+}
+
+.live-windows article small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.live-windows article strong {
+  font-weight: 900;
+  white-space: nowrap;
 }
 
 .inline-confirm {
@@ -2828,6 +3132,285 @@ h2 {
   color: var(--ink-soft);
   font-size: 12px;
   font-weight: 800;
+}
+
+.benefits-screen {
+  max-width: 900px;
+}
+
+.benefits-header span {
+  color: var(--benefits-accent);
+}
+
+.benefits-intro,
+.benefit-recommendation-panel,
+.benefit-product-card {
+  border: 1px solid color-mix(in srgb, var(--benefits-accent) 18%, var(--line));
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.benefits-intro {
+  display: grid;
+  gap: var(--space-md);
+  padding: clamp(1rem, 3vw, 1.35rem);
+  background:
+    radial-gradient(circle at 92% 12%, color-mix(in srgb, var(--benefits-accent) 16%, transparent), transparent 36%),
+    linear-gradient(180deg, color-mix(in srgb, var(--benefits-soft) 42%, var(--surface)), var(--surface));
+}
+
+.benefits-intro > div:first-child {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.benefits-intro span,
+.benefit-product-header span,
+.benefit-rule b,
+.benefit-watchout b {
+  color: color-mix(in srgb, var(--benefits-accent) 78%, var(--ink));
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.benefits-intro h2 {
+  color: var(--ink);
+  font-size: clamp(1.45rem, 4vw, 1.85rem);
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.benefits-intro p,
+.benefit-recommendation-panel .section-title-row p,
+.benefit-product-section .section-title-row p {
+  max-width: 62ch;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.benefit-mini-rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-content: start;
+}
+
+.benefit-mini-rules span,
+.benefit-chip-list span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  border: 1px solid color-mix(in srgb, var(--benefit-color, var(--benefits-accent)) 22%, var(--line));
+  border-radius: var(--radius-control);
+  padding: 6px 10px;
+  color: color-mix(in srgb, var(--benefit-color, var(--benefits-accent)) 74%, var(--ink));
+  background: color-mix(in srgb, var(--benefit-color, var(--benefits-accent)) 8%, var(--surface));
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.benefit-recommendation-panel,
+.benefit-product-card {
+  display: grid;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+}
+
+.benefit-recommendation-list,
+.benefit-product-list,
+.benefit-product-section,
+.benefit-detail-list {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.benefit-recommendation-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-sm);
+  align-items: start;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--benefit-color) 18%, var(--line));
+  border-radius: var(--radius-control);
+  padding: var(--space-sm);
+  background: color-mix(in srgb, var(--benefit-color) 6%, var(--surface));
+}
+
+.benefit-rank {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  color: color-mix(in srgb, var(--benefit-color) 74%, var(--ink));
+  background: color-mix(in srgb, var(--benefit-color) 13%, var(--surface));
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.benefit-recommendation-row > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.benefit-recommendation-row b,
+.benefit-product-header h2,
+.benefit-detail-list b {
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.benefit-recommendation-row strong {
+  color: color-mix(in srgb, var(--benefit-color) 82%, var(--ink));
+  font-size: var(--font-size-label);
+  font-weight: 900;
+}
+
+.benefit-recommendation-row p,
+.benefit-detail-list small,
+.benefit-watchout {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.benefit-recommendation-row small {
+  color: color-mix(in srgb, var(--benefit-color) 58%, var(--muted));
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.benefit-product-list {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.benefit-product-card {
+  --benefit-color: var(--benefits-accent);
+  align-content: start;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--benefit-color) 5%, var(--surface)), var(--surface) 48%),
+    var(--surface);
+}
+
+.benefit-product-header {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.benefit-product-header h2 {
+  font-size: 1.12rem;
+  line-height: 1.18;
+  overflow-wrap: anywhere;
+}
+
+.benefit-product-header p {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.benefit-rule {
+  display: grid;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--benefit-color) 18%, var(--line));
+  border-radius: var(--radius-control);
+  padding: var(--space-sm);
+  background: color-mix(in srgb, var(--benefit-color) 7%, var(--surface));
+}
+
+.benefit-rule span {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.benefit-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.benefit-detail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.benefit-detail-list li {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: var(--space-sm);
+  align-items: start;
+  border: 1px solid color-mix(in srgb, var(--benefit-color) 14%, var(--line));
+  border-radius: 12px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--benefit-color) 3%, var(--surface-neutral));
+}
+
+.benefit-detail-list strong {
+  display: grid;
+  place-items: center;
+  min-height: 40px;
+  border-radius: 10px;
+  color: color-mix(in srgb, var(--benefit-color) 82%, var(--ink));
+  background: color-mix(in srgb, var(--benefit-color) 10%, var(--surface));
+  font-size: 14px;
+  font-weight: 950;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.benefit-detail-list span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.benefit-watchout {
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--paper-muted) 64%, var(--surface));
+}
+
+.benefit-source-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.benefit-source-list a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--benefit-color) 22%, var(--line));
+  border-radius: var(--radius-control);
+  padding: 7px 10px;
+  color: color-mix(in srgb, var(--benefit-color) 78%, var(--ink));
+  background: color-mix(in srgb, var(--benefit-color) 6%, var(--surface));
+  font-size: 12px;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.benefit-source-list a:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--benefit-color) 24%, transparent);
+  outline-offset: 2px;
+}
+
+.benefit-source-list a:hover {
+  border-color: color-mix(in srgb, var(--benefit-color) 42%, var(--line));
 }
 
 .action-row {
@@ -3666,6 +4249,12 @@ input[type='color'] {
   box-shadow: none;
 }
 
+.bottom-nav .nav-cards.active {
+  color: var(--commitments-accent);
+  background: var(--commitments-soft);
+  box-shadow: none;
+}
+
 .bottom-nav .nav-settings.active {
   color: var(--settings-accent);
   background: var(--settings-soft);
@@ -3719,7 +4308,7 @@ input[type='color'] {
 
 :root[data-theme='dark'] .spending-chart-panel {
   background:
-    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--plan-accent) 14%, transparent), transparent 46%),
+    radial-gradient(circle at 80% 18%, color-mix(in srgb, var(--plan-accent) 12%, transparent), transparent 38%),
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 90%, var(--plan-soft)), color-mix(in srgb, var(--surface) 96%, #0d0f0f)),
     var(--surface);
 }
@@ -3866,27 +4455,53 @@ input[type='color'] {
   }
 
   .spending-chart-panel {
+    grid-template-columns: 1fr;
     gap: var(--space-md);
     padding: var(--space-md);
   }
 
   .spending-chart-layout {
+    display: grid;
     grid-template-columns: 1fr;
     gap: var(--space-md);
   }
 
   .spending-donut {
+    grid-column: auto;
+    grid-row: auto;
     width: min(76vw, 220px);
     justify-self: center;
   }
 
   .spending-legend button,
   .spending-legend div {
-    grid-template-columns: 14px minmax(0, 1fr) auto;
+    grid-template-columns: 50px 14px minmax(0, 1fr) auto;
+    min-height: 64px;
+    padding: 8px 10px;
   }
 
+  .legend-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+  }
+
+  .legend-icon svg {
+    width: 25px;
+    height: 25px;
+  }
+
+  .legend-percent {
+    justify-items: end;
+  }
+
+  .legend-percent i,
   .spending-legend strong {
-    grid-column: 2 / -1;
+    display: none;
+  }
+
+  .legend-chevron {
+    display: none;
   }
 
   .plan-balance strong {
@@ -3925,6 +4540,30 @@ input[type='color'] {
 
   .section-title-row > span {
     justify-self: end;
+  }
+
+  .feed-filter-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .feed-filter-clear {
+    justify-self: start;
+  }
+
+  .expense-review-toolbar {
+    align-items: stretch;
+  }
+
+  .expense-review-toggle {
+    flex: 1 1 auto;
+  }
+
+  .expense-review-count {
+    flex: 1 0 100%;
+  }
+
+  .expense-review-reset {
+    margin-left: 0;
   }
 
   .summary-top {
@@ -4064,6 +4703,19 @@ input[type='color'] {
     width: min(100%, 780px);
   }
 
+  .benefits-intro {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.48fr);
+    align-items: center;
+  }
+
+  .benefit-recommendation-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .benefit-product-card {
+    padding: var(--space-lg);
+  }
+
   .bottom-nav {
     top: var(--space-md);
     width: min(100%, 520px);
@@ -4076,6 +4728,16 @@ input[type='color'] {
 }
 
 @media (max-width: 420px) {
+  .bottom-nav {
+    gap: 4px;
+    padding: 6px;
+  }
+
+  .bottom-nav button {
+    padding-inline: 2px;
+    font-size: 0.625rem;
+  }
+
   .login-panel {
     grid-template-rows: minmax(260px, 0.8fr) auto;
     gap: var(--space-sm);
@@ -4096,6 +4758,24 @@ input[type='color'] {
 
   .home-totals div:last-child {
     grid-column: auto;
+  }
+
+  .benefit-recommendation-row {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .benefit-rank {
+    width: 30px;
+    height: 30px;
+  }
+
+  .benefit-detail-list li {
+    grid-template-columns: 58px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .benefit-detail-list strong {
+    font-size: 12px;
   }
 
 }

@@ -11,6 +11,8 @@ from django.db import models
 from django.db.models import F
 from django.utils import timezone
 
+from .timezones import app_localdate, default_app_time_zone, normalize_time_zone
+
 
 def default_invitation_expiry():
     return timezone.now() + timedelta(days=getattr(settings, "INVITATION_TTL_DAYS", 14))
@@ -30,17 +32,21 @@ def merchant_concept_lookup_key(value: str) -> str:
 
 class AppSettings(models.Model):
     currency = models.CharField(max_length=3, default="MXN")
-    cutoff_day = models.PositiveSmallIntegerField(
-        default=20,
-        validators=[MinValueValidator(1), MaxValueValidator(28)],
-    )
+    time_zone = models.CharField(max_length=64, default=default_app_time_zone)
 
     class Meta:
         verbose_name = "app settings"
         verbose_name_plural = "app settings"
 
+    def clean(self) -> None:
+        try:
+            self.time_zone = normalize_time_zone(self.time_zone)
+        except ValueError as exc:
+            raise ValidationError({"time_zone": str(exc)}) from exc
+
     def save(self, *args, **kwargs):
         self.pk = 1
+        self.full_clean()
         super().save(*args, **kwargs)
 
     @classmethod
@@ -49,7 +55,7 @@ class AppSettings(models.Model):
         return settings_obj
 
     def __str__(self) -> str:
-        return f"{self.currency}, corte {self.cutoff_day}"
+        return f"{self.currency}, {self.time_zone}"
 
 
 class HouseholdMember(models.Model):
@@ -77,6 +83,10 @@ class Category(models.Model):
         GLOBAL = "global", "Global"
         PERSONAL = "personal", "Personal"
 
+    class BudgetTreatment(models.TextChoices):
+        BUDGETED = "budgeted", "Presupuestada"
+        TRACKING_ONLY = "tracking_only", "Fuera de presupuesto"
+
     class BudgetBehavior(models.TextChoices):
         MONTHLY_RESET = "monthly_reset", "Se reinicia cada mes"
         CARRYOVER = "carryover", "Acumula saldo"
@@ -87,6 +97,11 @@ class Category(models.Model):
     order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
     scope = models.CharField(max_length=16, choices=Scope.choices, default=Scope.GLOBAL)
+    budget_treatment = models.CharField(
+        max_length=24,
+        choices=BudgetTreatment.choices,
+        default=BudgetTreatment.BUDGETED,
+    )
     member = models.ForeignKey(
         HouseholdMember,
         null=True,
@@ -102,7 +117,7 @@ class Category(models.Model):
     )
     carryover_initial_balance_cents = models.IntegerField(default=0)
     carryover_start_date = models.DateField(null=True, blank=True)
-    overspend_tracking_start_date = models.DateField(default=timezone.localdate)
+    overspend_tracking_start_date = models.DateField(default=app_localdate)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -125,6 +140,15 @@ class Category(models.Model):
             raise ValidationError({"member": "Las categorias personales requieren una persona."})
         if self.scope == self.Scope.GLOBAL and self.member_id is not None:
             raise ValidationError({"member": "Las categorias globales no deben tener persona."})
+        if self.budget_treatment == self.BudgetTreatment.TRACKING_ONLY:
+            if self.monthly_budget_cents != 0:
+                raise ValidationError({"monthly_budget_cents": "Las categorias fuera de presupuesto no usan presupuesto mensual."})
+            if self.budget_behavior != self.BudgetBehavior.MONTHLY_RESET:
+                raise ValidationError({"budget_behavior": "Las categorias fuera de presupuesto no usan comportamiento acumulable."})
+            if self.carryover_start_date is not None:
+                raise ValidationError({"carryover_start_date": "Las categorias fuera de presupuesto no usan fecha acumulable."})
+            if self.carryover_initial_balance_cents != 0:
+                raise ValidationError({"carryover_initial_balance_cents": "Las categorias fuera de presupuesto no usan saldo inicial."})
         if self.budget_behavior == self.BudgetBehavior.CARRYOVER and self.carryover_start_date is None:
             raise ValidationError({"carryover_start_date": "Las categorias acumulables requieren fecha de inicio."})
         if self.budget_behavior == self.BudgetBehavior.MONTHLY_RESET and self.carryover_start_date is not None:
@@ -210,6 +234,23 @@ class Account(models.Model):
     account_type = models.CharField(max_length=24, choices=AccountType.choices)
     color = models.CharField(max_length=7, default="#475569")
     initial_balance_cents = models.IntegerField(default=0)
+    cutoff_day = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(28)],
+    )
+    payment_due_day = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(31)],
+    )
+    owner = models.ForeignKey(
+        "HouseholdMember",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="owned_accounts",
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -219,6 +260,12 @@ class Account(models.Model):
     def clean(self) -> None:
         if self.account_type != self.AccountType.CASH and self.initial_balance_cents != 0:
             raise ValidationError({"initial_balance_cents": "Solo las cuentas de efectivo pueden tener saldo inicial."})
+        if self.account_type == self.AccountType.CREDIT_CARD:
+            if self.cutoff_day is None:
+                self.cutoff_day = 20
+        else:
+            self.cutoff_day = None
+            self.payment_due_day = None
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -337,11 +384,16 @@ class Transaction(models.Model):
         if self.amount_cents <= 0:
             raise ValidationError({"amount_cents": "El monto debe ser positivo."})
         if self.transaction_type in [self.TransactionType.EXPENSE, self.TransactionType.EXPECTED_CHARGE]:
+            is_tracking_only = (
+                self.category_id is not None
+                and self.category
+                and self.category.budget_treatment == Category.BudgetTreatment.TRACKING_ONLY
+            )
             if not self.merchant:
                 raise ValidationError({"merchant": "Los gastos requieren comercio o nombre."})
             if self.category_id is None:
                 raise ValidationError({"category": "Los gastos requieren categoria."})
-            if self.account_id is None:
+            if self.account_id is None and not is_tracking_only:
                 raise ValidationError({"account": "Los gastos requieren cuenta o medio de pago."})
         if self.transaction_type == self.TransactionType.TRANSFER:
             if self.account_id is None or self.destination_account_id is None:
@@ -396,7 +448,8 @@ class RecurringExpense(models.Model):
     def clean(self) -> None:
         if not self.merchant:
             raise ValidationError({"merchant": "Los cargos mensuales requieren comercio."})
-        if self.auto_charge and self.account_id is None:
+        is_tracking_only = self.category.budget_treatment == Category.BudgetTreatment.TRACKING_ONLY if self.category_id else False
+        if self.auto_charge and self.account_id is None and not is_tracking_only:
             raise ValidationError({"account": "Los cargos automaticos requieren cuenta o medio de pago."})
         if self.end_date and self.end_date < self.start_date:
             raise ValidationError({"end_date": "La fecha final no puede ser anterior al inicio."})

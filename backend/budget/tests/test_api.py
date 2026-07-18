@@ -1,4 +1,5 @@
 from datetime import date
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core import mail
@@ -44,6 +45,19 @@ class BudgetApiTests(APITestCase):
         response = self.client.get("/api/categories/")
 
         self.assertEqual(response.status_code, 403)
+
+    def test_settings_exposes_and_updates_time_zone(self):
+        response = self.client.patch("/api/settings/", {"time_zone": "America/Los_Angeles"}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["time_zone"], "America/Los_Angeles")
+        self.assertEqual(AppSettings.load().time_zone, "America/Los_Angeles")
+
+    def test_settings_rejects_invalid_time_zone(self):
+        response = self.client.patch("/api/settings/", {"time_zone": "Mars/Base"}, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("time_zone", response.data)
 
     def test_auth_me_returns_null_without_session(self):
         self.client.logout()
@@ -96,6 +110,24 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.data["color"], "#ca8a04")
         self.assertEqual(response.data["icon"], "paw")
         self.assertEqual(response.data["budget_behavior"], Category.BudgetBehavior.MONTHLY_RESET)
+
+    def test_category_can_be_created_as_tracking_only_without_budget(self):
+        response = self.client.post(
+            "/api/categories/",
+            {
+                "name": "Tarjeta ajena",
+                "scope": "global",
+                "budget_treatment": "tracking_only",
+                "color": "#7c3aed",
+                "icon": "credit-card",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["budget_treatment"], "tracking_only")
+        self.assertEqual(response.data["monthly_budget_cents"], 0)
+        self.assertFalse(CategoryBudgetChange.objects.filter(category_id=response.data["id"]).exists())
 
     def test_category_can_be_created_as_carryover_budget(self):
         response = self.client.post(
@@ -229,6 +261,168 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(summary.data["scope"], "family")
         self.assertEqual(summary.data["totals"]["spent_cents"], 25000)
         self.assertEqual(summary.data["categories"][0]["icon"], "tag")
+
+    def test_live_window_canonical_scenario(self):
+        card_response = self.client.post(
+            "/api/accounts/",
+            {"name": "Tarjeta", "account_type": "credit_card", "cutoff_day": 20, "payment_due_day": 10},
+            format="json",
+        )
+        self.assertEqual(card_response.status_code, 201)
+        card_id = card_response.data["id"]
+        category_response = self.client.post(
+            "/api/categories/",
+            {"name": "Comida", "scope": "global", "monthly_budget_cents": 1000000},
+            format="json",
+        )
+        self.assertEqual(category_response.status_code, 201)
+        category_id = category_response.data["id"]
+
+        def _expense(amount_cents, iso_date, account_id):
+            response = self.client.post(
+                "/api/transactions/",
+                {
+                    "transaction_type": "expense",
+                    "merchant": "Compra",
+                    "amount_cents": amount_cents,
+                    "date": iso_date,
+                    "account": account_id,
+                    "category": category_id,
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, 201)
+
+        def _row(query_iso, today):
+            with patch("budget.services.app_localdate", return_value=today):
+                summary = self.client.get(f"/api/budget/summary/?date={query_iso}&scope=family")
+            self.assertEqual(summary.status_code, 200)
+            return next(row for row in summary.data["categories"] if row["category_id"] == category_id)
+
+        # $5,000 con tarjeta antes del corte + $2,000 en efectivo -> disponible $3,000.
+        _expense(500000, "2026-07-10", card_id)
+        _expense(200000, "2026-07-12", self.account.id)
+        self.assertEqual(_row("2026-07-15", date(2026, 7, 15))["available_cents"], 300000)
+
+        # El 21 de julio (pasado el corte del 20) se libera lo de la tarjeta -> $8,000.
+        self.assertEqual(_row("2026-07-21", date(2026, 7, 21))["available_cents"], 800000)
+
+        # $4,000 con tarjeta post-corte -> disponible julio $4,000.
+        _expense(400000, "2026-07-25", card_id)
+        self.assertEqual(_row("2026-07-28", date(2026, 7, 28))["available_cents"], 400000)
+
+        # Agosto vivo antes del corte del 20: el ciclo abierto arranco el 21 jul -> $6,000.
+        august = _row("2026-08-05", date(2026, 8, 5))
+        self.assertEqual(august["available_cents"], 600000)
+        self.assertEqual(august["monthly_flow_cents"], 0)
+
+        # La foto de cierre de julio queda en $4,000.
+        self.assertEqual(_row("2026-07-31", date(2026, 8, 5))["available_cents"], 400000)
+
+    def test_can_delete_expense_and_recalculate_budget_summary(self):
+        transaction = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Pago duplicado",
+            amount_cents=25000,
+            date=date(2026, 4, 25),
+            account=self.account,
+            category=self.category,
+            created_by=self.user,
+        )
+
+        response = self.client.delete(f"/api/transactions/{transaction.id}/")
+        summary = self.client.get("/api/budget/summary/?date=2026-04-25&scope=family")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Transaction.objects.filter(pk=transaction.id).exists())
+        self.assertEqual(summary.status_code, 200)
+        self.assertEqual(summary.data["totals"]["spent_cents"], 0)
+
+    def test_transaction_list_can_filter_by_budget_period_date(self):
+        current_period = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Super actual",
+            amount_cents=25000,
+            date=date(2026, 4, 25),
+            account=self.account,
+            category=self.category,
+            created_by=self.user,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Super anterior",
+            amount_cents=20000,
+            date=date(2026, 3, 25),
+            account=self.account,
+            category=self.category,
+            created_by=self.user,
+        )
+
+        response = self.client.get("/api/transactions/?date=2026-04-25&type=expense")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([transaction["id"] for transaction in response.data], [current_period.id])
+
+    def test_can_create_tracking_only_expense_without_account_and_get_off_budget_summary(self):
+        external = Category.objects.create(
+            name="Gasto externo",
+            scope=Category.Scope.GLOBAL,
+            budget_treatment="tracking_only",
+        )
+
+        response = self.client.post(
+            "/api/transactions/",
+            {
+                "transaction_type": "expense",
+                "merchant": "Compra ajena",
+                "amount_cents": 25000,
+                "date": "2026-04-25",
+                "category": external.id,
+            },
+            format="json",
+        )
+        budget_summary = self.client.get("/api/budget/summary/?date=2026-04-25&scope=total")
+        off_budget_summary = self.client.get("/api/budget/off-budget-summary/?date=2026-04-25")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertIsNone(response.data["account"])
+        self.assertEqual(budget_summary.data["totals"]["spent_cents"], 0)
+        self.assertEqual(off_budget_summary.status_code, 200)
+        self.assertEqual(off_budget_summary.data["totals"]["spent_cents"], 25000)
+        self.assertEqual(off_budget_summary.data["categories"][0]["category_name"], "Gasto externo")
+
+    def test_can_confirm_tracking_only_expected_charge_without_account(self):
+        external = Category.objects.create(
+            name="Deuda externa",
+            scope=Category.Scope.GLOBAL,
+            budget_treatment="tracking_only",
+        )
+        recurring = RecurringExpense.objects.create(
+            name="Pago externo",
+            merchant="Banco externo",
+            amount_cents=12000,
+            category=external,
+            start_date=date(2026, 4, 21),
+            charge_day=25,
+        )
+
+        response = self.client.post(
+            "/api/expected-charges/confirm/",
+            {
+                "source_type": "recurring",
+                "source_id": recurring.id,
+                "date": "2026-04-25",
+                "account": None,
+            },
+            format="json",
+        )
+        budget_summary = self.client.get("/api/budget/summary/?date=2026-04-25&scope=total")
+        off_budget_summary = self.client.get("/api/budget/off-budget-summary/?date=2026-04-25")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertIsNone(response.data["account"])
+        self.assertEqual(budget_summary.data["totals"]["spent_cents"], 0)
+        self.assertEqual(off_budget_summary.data["totals"]["spent_cents"], 12000)
 
     def test_expense_creates_merchant_concept_suggestion(self):
         first = self.client.post(
@@ -704,42 +898,129 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.data["periods"][0]["plans"][0]["merchant"], "Liverpool")
         self.assertEqual(response.data["plans"][0]["remaining_payments"], 2)
 
-    def test_credit_card_interest_free_payment_endpoint_returns_card_totals_for_cycle(self):
-        card = Account.objects.create(name="Tarjeta dorada", account_type=Account.AccountType.CREDIT_CARD)
+    def test_card_payments_endpoint_returns_closed_open_and_owners(self):
+        ana = HouseholdMember.objects.create(name="Anita", color="#2563eb")
+        beto = HouseholdMember.objects.create(name="Beto", color="#dc2626")
+        oro = Account.objects.create(
+            name="Tarjeta oro",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=20,
+            payment_due_day=10,
+            owner=ana,
+        )
+        azul = Account.objects.create(
+            name="Tarjeta azul",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=5,
+            payment_due_day=25,
+            owner=beto,
+        )
         InstallmentPlan.objects.create(
             name="Laptop",
             merchant="Liverpool",
             total_amount_cents=600000,
             category=self.category,
+            account=oro,
+            start_date=date(2026, 3, 21),
+            end_date=date(2026, 5, 21),
+        )
+        for amount, when, account in (
+            (30000, date(2026, 4, 10), oro),
+            (50000, date(2026, 5, 1), oro),
+            (20000, date(2026, 4, 20), azul),
+            (40000, date(2026, 5, 8), azul),
+        ):
+            Transaction.objects.create(
+                transaction_type=Transaction.TransactionType.EXPENSE,
+                merchant="Super",
+                amount_cents=amount,
+                date=when,
+                account=account,
+                category=self.category,
+                created_by=self.user,
+            )
+
+        response = self.client.get("/api/credit-cards/interest-free-payment/?date=2026-05-10")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["total_cents"], 250000)
+        rows = {row["account_name"]: row for row in response.data["cards"]}
+        self.assertNotIn("interest_free_payment_cents", rows["Tarjeta oro"])
+        self.assertEqual(rows["Tarjeta oro"]["closed_cycle"]["purchase_cents"], 30000)
+        self.assertEqual(rows["Tarjeta oro"]["closed_cycle"]["installment_cents"], 200000)
+        self.assertEqual(rows["Tarjeta oro"]["closed_cycle"]["total_cents"], 230000)
+        self.assertEqual(rows["Tarjeta oro"]["closed_cycle"]["payment_due_date"], date(2026, 5, 10))
+        self.assertEqual(rows["Tarjeta oro"]["closed_cycle"]["safe_payment_date"], date(2026, 5, 7))
+        self.assertEqual(rows["Tarjeta oro"]["open_cycle"]["purchase_cents"], 50000)
+        self.assertEqual(rows["Tarjeta oro"]["open_cycle"]["installment_cents"], 200000)
+        self.assertEqual(rows["Tarjeta oro"]["open_cycle"]["total_cents"], 250000)
+        self.assertEqual(rows["Tarjeta oro"]["open_cycle"]["payment_due_date"], date(2026, 6, 10))
+        self.assertEqual(rows["Tarjeta oro"]["open_cycle"]["safe_payment_date"], date(2026, 6, 7))
+        self.assertEqual(rows["Tarjeta oro"]["owner"]["name"], "Anita")
+        self.assertEqual(rows["Tarjeta azul"]["closed_cycle"]["total_cents"], 20000)
+        self.assertEqual(rows["Tarjeta azul"]["open_cycle"]["total_cents"], 40000)
+        owners = {(bucket["member"] or {}).get("name"): bucket for bucket in response.data["owners"]}
+        self.assertEqual(owners["Anita"]["total_cents"], 230000)
+        self.assertEqual(owners["Beto"]["total_cents"], 20000)
+
+    def test_installment_projection_account_filter_endpoint_returns_cycles(self):
+        card = Account.objects.create(
+            name="Tarjeta dorada",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=20,
+        )
+        InstallmentPlan.objects.create(
+            name="Pantalla",
+            merchant="Liverpool",
+            total_amount_cents=900000,
+            category=self.category,
             account=card,
             start_date=date(2026, 4, 21),
             end_date=date(2026, 6, 21),
         )
-        Transaction.objects.create(
-            transaction_type=Transaction.TransactionType.EXPENSE,
-            merchant="Super",
-            amount_cents=100000,
-            date=date(2026, 4, 25),
-            account=card,
-            category=self.category,
-            created_by=self.user,
-        )
 
-        response = self.client.get("/api/credit-cards/interest-free-payment/?date=2026-04-25")
+        response = self.client.get(f"/api/installments/projection/?date=2026-04-25&months=3&account={card.id}")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["total_cents"], 300000)
-        self.assertEqual(response.data["cards"][0]["account_name"], "Tarjeta dorada")
-        self.assertEqual(response.data["cards"][0]["cycle_purchase_cents"], 100000)
-        self.assertEqual(response.data["cards"][0]["installment_cents"], 200000)
-        self.assertEqual(response.data["cards"][0]["interest_free_payment_cents"], 300000)
+        self.assertEqual(response.data["mode"], "cycle")
+        self.assertEqual(response.data["account"]["id"], card.id)
+        self.assertEqual(response.data["periods"][0]["key"], "2026-05-20")
+        self.assertEqual(response.data["periods"][0]["total_cents"], 300000)
+
+    def test_dismiss_card_installment_anchors_to_card_cycle(self):
+        card = Account.objects.create(
+            name="Tarjeta dorada",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=20,
+        )
+        plan = InstallmentPlan.objects.create(
+            name="Pantalla",
+            merchant="Liverpool",
+            total_amount_cents=900000,
+            category=self.category,
+            account=card,
+            start_date=date(2026, 4, 21),
+            end_date=date(2026, 6, 21),
+        )
+
+        response = self.client.post(
+            "/api/expected-charges/dismiss/",
+            {"source_type": "installment", "source_id": plan.id, "date": "2026-05-01"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        dismissal = ExpectedChargeDismissal.objects.get(source_type="installment", source_id=plan.id)
+        self.assertEqual(dismissal.period_start, date(2026, 4, 21))
+        charges = self.client.get("/api/expected-charges/?period=2026-05")
+        self.assertNotIn(plan.id, [charge["source_id"] for charge in charges.data["charges"]])
 
     def test_non_admin_cannot_change_settings_accounts_people_or_categories(self):
         User.objects.create_user(username="reader", password="testpass123")
         self.client.logout()
         self.client.login(username="reader", password="testpass123")
 
-        settings_response = self.client.put("/api/settings/", {"currency": "MXN", "cutoff_day": 15}, format="json")
+        settings_response = self.client.put("/api/settings/", {"currency": "MXN"}, format="json")
         account_response = self.client.post(
             "/api/accounts/",
             {"name": "Debito reader", "account_type": "debit_card"},
@@ -868,6 +1149,148 @@ class BudgetApiTests(APITestCase):
         self.assertEqual(response.data["color"], "#2563eb")
         self.assertEqual(response.data["initial_balance_cents"], 35000)
         self.assertFalse(response.data["is_active"])
+
+    def test_create_credit_card_account_with_cutoff_and_owner(self):
+        response = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Tarjeta oro",
+                "account_type": "credit_card",
+                "cutoff_day": 15,
+                "payment_due_day": 5,
+                "owner": self.member.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["cutoff_day"], 15)
+        self.assertEqual(response.data["payment_due_day"], 5)
+        self.assertEqual(response.data["owner"], self.member.id)
+        self.assertEqual(response.data["owner_name"], "Ana")
+
+    def test_credit_card_requires_cutoff_day(self):
+        response = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Tarjeta sin corte",
+                "account_type": "credit_card",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("cutoff_day", response.data)
+
+    def test_credit_card_requires_payment_due_day(self):
+        response = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Tarjeta sin limite",
+                "account_type": "credit_card",
+                "cutoff_day": 12,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("payment_due_day", response.data)
+
+    def test_cutoff_day_out_of_range_rejected(self):
+        too_high = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Tarjeta alta",
+                "account_type": "credit_card",
+                "cutoff_day": 29,
+            },
+            format="json",
+        )
+        self.assertEqual(too_high.status_code, 400)
+        self.assertIn("cutoff_day", too_high.data)
+
+        too_low = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Tarjeta baja",
+                "account_type": "credit_card",
+                "cutoff_day": 0,
+            },
+            format="json",
+        )
+        self.assertEqual(too_low.status_code, 400)
+        self.assertIn("cutoff_day", too_low.data)
+
+    def test_payment_due_day_out_of_range_rejected(self):
+        too_high = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Tarjeta limite alto",
+                "account_type": "credit_card",
+                "cutoff_day": 20,
+                "payment_due_day": 32,
+            },
+            format="json",
+        )
+        self.assertEqual(too_high.status_code, 400)
+        self.assertIn("payment_due_day", too_high.data)
+
+        too_low = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Tarjeta limite bajo",
+                "account_type": "credit_card",
+                "cutoff_day": 20,
+                "payment_due_day": 0,
+            },
+            format="json",
+        )
+        self.assertEqual(too_low.status_code, 400)
+        self.assertIn("payment_due_day", too_low.data)
+
+    def test_non_credit_card_rejects_cutoff_day(self):
+        response = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Debito con corte",
+                "account_type": "debit_card",
+                "cutoff_day": 10,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("cutoff_day", response.data)
+
+    def test_non_credit_card_rejects_payment_due_day(self):
+        response = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Debito con limite",
+                "account_type": "debit_card",
+                "payment_due_day": 10,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("payment_due_day", response.data)
+
+    def test_credit_card_owner_is_optional(self):
+        response = self.client.post(
+            "/api/accounts/",
+            {
+                "name": "Tarjeta sin titular",
+                "account_type": "credit_card",
+                "cutoff_day": 12,
+                "payment_due_day": 2,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertIsNone(response.data["owner"])
+        self.assertIsNone(response.data["owner_name"])
 
 
 class AuthBootstrapApiTests(APITestCase):

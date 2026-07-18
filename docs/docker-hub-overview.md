@@ -7,7 +7,7 @@ Está pensada para instalarse detrás de una VPN, red privada o reverse proxy co
 ## Imagen
 
 ```bash
-docker pull loomitz/burnrate:v0.1.16
+docker pull loomitz/burnrate:v0.1.26
 ```
 
 También está disponible:
@@ -46,7 +46,7 @@ Crea un archivo `docker-compose.yml`:
 ```yaml
 services:
   app:
-    image: loomitz/burnrate:v0.1.16
+    image: loomitz/burnrate:v0.1.26
     environment:
       DB_NAME: ${DB_NAME:-burn_rate}
       DB_USER: ${DB_USER:-burn_rate}
@@ -56,8 +56,9 @@ services:
 
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?configura DJANGO_SECRET_KEY}
       DJANGO_DEBUG: "false"
+      BURN_RATE_TIME_ZONE: ${BURN_RATE_TIME_ZONE:-America/Mexico_City}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
-      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174}
 
       DJANGO_SESSION_COOKIE_AGE: ${DJANGO_SESSION_COOKIE_AGE:-2592000}
       DJANGO_SESSION_SAVE_EVERY_REQUEST: "true"
@@ -121,8 +122,9 @@ DB_USER=burn_rate
 DB_PASSWORD=usa-una-password-real
 
 DJANGO_SECRET_KEY=usa-un-secreto-largo-y-aleatorio
+BURN_RATE_TIME_ZONE=America/Mexico_City
 DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
-DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174
 
 BURN_RATE_PUBLIC_URL=http://localhost:8000
 BURN_RATE_FRONTEND_URL=http://localhost:8000
@@ -221,7 +223,7 @@ DJANGO_CSRF_COOKIE_SECURE=true
 DJANGO_TRUST_X_FORWARDED_PROTO=true
 ```
 
-La imagen `v0.1.16` fue revisada y publicada para `linux/amd64` y `linux/arm64`.
+La imagen `v0.1.26` fue revisada y publicada para `linux/amd64` y `linux/arm64`.
 
 ## Código fuente
 
@@ -233,6 +235,16 @@ https://github.com/loomitz/burn-rate
 
 ## Tags
 
+- `v0.1.26`: corrige la fecha mostrada cuando el ciclo cerrado está en cero y el saldo sigue acumulándose en el ciclo abierto.
+- `v0.1.25`: resumen de tarjetas separado de Pagos, con gráficos de distribución, comparación de saldos, estado por tarjeta y Django 5.2.16.
+- `v0.1.24`: presupuesto por mes calendario con ciclos por tarjeta, ventana viva, fecha límite y pago preventivo, más actualización de Beneficios con Klar Platino.
+- `v0.1.23`: sección `Beneficios` para comparar tarjetas y cuentas por tipo de gasto, incluyendo Banamex Costco, BBVA Oro, Santander LikeU crédito y Amex Platinum Credit Card.
+- `v0.1.22`: modo temporal de revisión en gastos filtrados para marcar pagos revisados sin guardar estado en la base.
+- `v0.1.21`: el feed de gastos del periodo permite filtrar por tipo de pago o por cuenta/tarjeta específica.
+- `v0.1.20`: el ciclo seleccionado se refleja en Gastos > Movimientos y el feed del periodo permite filtrar por categoría.
+- `v0.1.19`: zona horaria configurable para el calendario de la app y eliminación de gastos registrados.
+- `v0.1.18`: gráfico de distribución sin agrupación de otras categorías y lista visual con iconos, porcentajes y montos.
+- `v0.1.17`: categorias fuera de presupuesto, resumen separado de esos cargos y origen CSRF local para Vite en `5174`.
 - `v0.1.16`: edición de gastos recientes y resumen de pago para no generar intereses por tarjeta.
 - `v0.1.15`: barras de presupuesto llenadas por gasto/compromiso, excedente proyectado distinguible y cuenta visible en movimientos.
 - `v0.1.14`: cargos automáticos configurables para pagos mensuales, endpoint de autopost idempotente y ancho consistente entre tabs.

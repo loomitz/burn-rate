@@ -27,6 +27,7 @@ La instalación objetivo de esta versión es sencilla: un contenedor `app` que s
 - Sesiones autorrenovables por actividad, regreso a pestaña visible y refresco periódico.
 - Categorías mensuales que registran excedentes por ciclo y categorías acumulables con saldo global.
 - Compras a meses con fecha del primer pago, cantidad de meses y redondeo del pago requerido al siguiente peso.
+- Ciclos por tarjeta con día de corte, fecha límite bancaria y pago preventivo 3 días antes.
 - Contenedor único de aplicación con migraciones automáticas al arrancar.
 - PostgreSQL privado dentro de Docker Compose por defecto.
 - Endpoint `/healthz/` para healthcheck del contenedor.
@@ -59,7 +60,7 @@ cp .env.example .env
 DB_PASSWORD=usa-una-password-real
 DJANGO_SECRET_KEY=usa-un-secreto-largo-y-aleatorio
 DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,tu-host.local
-DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://tu-host.local:8000
+DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://localhost:5173,http://localhost:5174,http://tu-host.local:8000
 BURN_RATE_PUBLIC_URL=http://tu-host.local:8000
 ```
 
@@ -89,12 +90,12 @@ La base de datos no publica puertos al host por defecto. Solo se expone la aplic
 
 Si vas a instalar desde Docker Hub sin clonar este repositorio, crea un archivo `docker-compose.yml` con este template:
 
-La imagen `loomitz/burnrate:v0.1.16` está publicada para `linux/amd64` y `linux/arm64`.
+La imagen `loomitz/burnrate:v0.1.26` está publicada para `linux/amd64` y `linux/arm64`.
 
 ```yaml
 services:
   app:
-    image: loomitz/burnrate:v0.1.16
+    image: loomitz/burnrate:v0.1.26
     environment:
       DB_NAME: ${DB_NAME:-burn_rate}
       DB_USER: ${DB_USER:-burn_rate}
@@ -103,9 +104,10 @@ services:
       DB_PORT: 5432
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?configura DJANGO_SECRET_KEY}
       DJANGO_DEBUG: "false"
+      BURN_RATE_TIME_ZONE: ${BURN_RATE_TIME_ZONE:-America/Mexico_City}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
-      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
-      DJANGO_CORS_ALLOWED_ORIGINS: ${DJANGO_CORS_ALLOWED_ORIGINS:-}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174}
+      DJANGO_CORS_ALLOWED_ORIGINS: ${DJANGO_CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174}
       DJANGO_SESSION_COOKIE_AGE: ${DJANGO_SESSION_COOKIE_AGE:-2592000}
       DJANGO_SESSION_SAVE_EVERY_REQUEST: "true"
       DJANGO_SESSION_COOKIE_SAMESITE: Lax
@@ -163,8 +165,9 @@ DB_NAME=burn_rate
 DB_USER=burn_rate
 DB_PASSWORD=usa-una-password-real
 DJANGO_SECRET_KEY=usa-un-secreto-largo-y-aleatorio
+BURN_RATE_TIME_ZONE=America/Mexico_City
 DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
-DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174
 BURN_RATE_PUBLIC_URL=http://localhost:8000
 ```
 
@@ -182,7 +185,7 @@ docker compose up -d
 3. En una base limpia y lista, la pantalla inicial detecta que no hay usuarios y muestra la bienvenida.
 4. El primer usuario registra email, nombre completo, nombre visible y password.
 5. Ese usuario queda como `staff` y `superuser`, se crea su miembro de casa y la sesión inicia automáticamente.
-6. En `Ajustes` se configuran cuentas, personas, categorías y día de corte.
+6. En `Ajustes` se configuran cuentas, personas, categorías y zona horaria. El presupuesto corre por mes calendario; cada tarjeta de crédito define su día de corte (1–28), día límite de pago (1–31) y un titular opcional. Burn Rate agenda el pago 3 días antes del límite bancario.
 7. Desde `Ajustes > Invitar`, el admin puede invitar a una segunda persona.
 8. La invitación captura solo email y si la persona será admin.
 9. Si hay SMTP y `BURN_RATE_PUBLIC_URL`, se envía email. Si no, el admin copia el link y lo manda por el canal que prefiera.
@@ -211,15 +214,16 @@ Si estas variables no están completas, el flujo sigue funcionando y muestra el 
 
 | Variable | Uso |
 | --- | --- |
-| `BURN_RATE_IMAGE` | Imagen usada por el `docker-compose.yml` del repo. Por defecto `loomitz/burnrate:v0.1.16`. |
+| `BURN_RATE_IMAGE` | Imagen usada por el `docker-compose.yml` del repo. Por defecto `loomitz/burnrate:v0.1.26`. |
 | `APP_BIND` | Interfaz del host donde Docker publica la app. Por defecto `127.0.0.1`. |
 | `APP_PORT` | Puerto del host para acceder a Burn Rate. Por defecto `8000`. |
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Credenciales de PostgreSQL. |
 | `DB_HOST`, `DB_PORT` | En Docker Compose, el contenedor `app` usa `DB_HOST=db`. |
 | `DJANGO_SECRET_KEY` | Obligatorio en producción. Debe ser largo y privado. |
 | `DJANGO_DEBUG` | Debe ser `false` fuera de desarrollo. |
+| `BURN_RATE_TIME_ZONE` | Zona horaria base de la app, en formato IANA. Por defecto `America/Mexico_City`; también se puede ajustar desde Ajustes. |
 | `DJANGO_ALLOWED_HOSTS` | Hosts válidos para Django, separados por coma. |
-| `DJANGO_CSRF_TRUSTED_ORIGINS` | Orígenes confiables para POST desde navegador. Incluye protocolo. |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | Orígenes confiables para POST desde navegador. Incluye protocolo y el puerto real del frontend si usas Vite. |
 | `DJANGO_SESSION_COOKIE_AGE` | Duración de sesión en segundos. Por defecto 30 días. |
 | `DJANGO_SESSION_SAVE_EVERY_REQUEST` | Renueva la sesión en cada request cuando está en `true`. |
 | `DJANGO_SESSION_COOKIE_SECURE` | Usa cookies de sesión solo por HTTPS cuando está en `true`. |
@@ -311,6 +315,7 @@ pnpm dev
 ```
 
 La interfaz queda en `http://localhost:5173` y Vite proxya `/api` hacia Django en `http://localhost:8001`.
+Si Vite cae al puerto alterno `5174`, ese origen tambien debe estar en `DJANGO_CSRF_TRUSTED_ORIGINS`; los defaults locales del repo ya lo incluyen.
 
 ## Pruebas y checks
 

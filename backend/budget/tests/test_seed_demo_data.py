@@ -30,3 +30,6 @@ class SeedDemoDataTests(TestCase):
         self.assertTrue(InstallmentPlan.objects.filter(name="Demo MSI personal Papa").exists())
         self.assertFalse(Account.objects.filter(account_type="other").exists())
         self.assertFalse(Account.objects.exclude(account_type=Account.AccountType.CASH).exclude(initial_balance_cents=0).exists())
+        demo_card = Account.objects.get(account_type=Account.AccountType.CREDIT_CARD)
+        self.assertEqual(demo_card.cutoff_day, 20)
+        self.assertEqual(demo_card.payment_due_day, 10)

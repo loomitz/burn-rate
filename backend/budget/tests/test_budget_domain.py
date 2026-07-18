@@ -1,4 +1,5 @@
-from datetime import date
+from datetime import date, datetime, timezone as dt_timezone
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
@@ -6,37 +7,156 @@ from django.test import TestCase
 
 from budget.models import (
     Account,
+    AppSettings,
     BudgetAllocation,
     Category,
     CategoryBudgetChange,
     CategoryOverspendRecord,
+    ExpectedChargeDismissal,
     HouseholdMember,
     InstallmentPlan,
     RecurringExpense,
     Transaction,
 )
 from budget.services import (
+    account_balance,
     auto_post_due_recurring_charges,
+    build_off_budget_summary,
     build_budget_summary,
-    credit_card_interest_free_payment_summary,
+    card_cycle,
+    card_cycle_for_offset,
+    card_payment_dates,
+    card_payments_summary,
+    confirm_expected_charge,
     expected_charges_for_period,
     get_budget_period,
+    installment_charge_for_period,
     installment_projection,
+    last_closed_card_cycle,
+    previous_budget_period,
+    previous_card_cycle,
+    project_budget_periods,
+    record_category_budget_change,
 )
 
 
 class BudgetPeriodTests(TestCase):
-    def test_cutoff_day_twenty_includes_day_twenty_as_period_end(self):
-        period = get_budget_period(date(2026, 4, 20), cutoff_day=20)
+    def test_period_is_calendar_month(self):
+        period = get_budget_period(date(2026, 4, 20))
 
-        self.assertEqual(period.start, date(2026, 3, 21))
-        self.assertEqual(period.end, date(2026, 4, 20))
+        self.assertEqual(period.start, date(2026, 4, 1))
+        self.assertEqual(period.end, date(2026, 4, 30))
 
-    def test_day_after_cutoff_starts_next_period(self):
-        period = get_budget_period(date(2026, 4, 21), cutoff_day=20)
+    def test_first_day_of_month_belongs_to_its_own_month(self):
+        period = get_budget_period(date(2026, 4, 1))
 
-        self.assertEqual(period.start, date(2026, 4, 21))
-        self.assertEqual(period.end, date(2026, 5, 20))
+        self.assertEqual(period.start, date(2026, 4, 1))
+        self.assertEqual(period.end, date(2026, 4, 30))
+
+    def test_february_period_ends_on_day_28_when_not_leap(self):
+        period = get_budget_period(date(2026, 2, 15))
+
+        self.assertEqual(period.start, date(2026, 2, 1))
+        self.assertEqual(period.end, date(2026, 2, 28))
+
+    def test_february_period_ends_on_day_29_when_leap(self):
+        period = get_budget_period(date(2028, 2, 15))
+
+        self.assertEqual(period.start, date(2028, 2, 1))
+        self.assertEqual(period.end, date(2028, 2, 29))
+
+    def test_default_period_uses_configured_app_time_zone(self):
+        settings = AppSettings.load()
+        settings.time_zone = "America/Los_Angeles"
+        settings.save()
+
+        with patch("budget.timezones.timezone.now", return_value=datetime(2026, 5, 21, 6, 30, tzinfo=dt_timezone.utc)):
+            period = get_budget_period()
+
+        self.assertEqual(period.start, date(2026, 5, 1))
+        self.assertEqual(period.end, date(2026, 5, 31))
+
+    def test_previous_budget_period_handles_day_31_month_ends(self):
+        period = previous_budget_period(get_budget_period(date(2026, 3, 15)))
+
+        self.assertEqual(period.start, date(2026, 2, 1))
+        self.assertEqual(period.end, date(2026, 2, 28))
+
+    def test_project_budget_periods_handles_day_31_month_ends(self):
+        periods = project_budget_periods(date(2026, 1, 31), months_ahead=3)
+
+        self.assertEqual(
+            [period.end for period in periods],
+            [date(2026, 1, 31), date(2026, 2, 28), date(2026, 3, 31), date(2026, 4, 30)],
+        )
+
+
+class CardCycleTests(TestCase):
+    def test_cutoff_day_closes_the_cycle_inclusive(self):
+        cycle = card_cycle(20, date(2026, 4, 20))
+
+        self.assertEqual(cycle.start, date(2026, 3, 21))
+        self.assertEqual(cycle.end, date(2026, 4, 20))
+
+    def test_day_after_cutoff_opens_next_cycle(self):
+        cycle = card_cycle(20, date(2026, 4, 21))
+
+        self.assertEqual(cycle.start, date(2026, 4, 21))
+        self.assertEqual(cycle.end, date(2026, 5, 20))
+
+    def test_cycle_crosses_month_boundary(self):
+        cycle = card_cycle(20, date(2026, 5, 5))
+
+        self.assertEqual(cycle.start, date(2026, 4, 21))
+        self.assertEqual(cycle.end, date(2026, 5, 20))
+
+    def test_cutoff_28_next_to_non_leap_february_starts_on_march_first(self):
+        cycle = card_cycle(28, date(2027, 3, 10))
+
+        self.assertEqual(cycle.start, date(2027, 3, 1))
+        self.assertEqual(cycle.end, date(2027, 3, 28))
+
+    def test_cutoff_28_next_to_leap_february_starts_on_february_29(self):
+        cycle = card_cycle(28, date(2028, 3, 10))
+
+        self.assertEqual(cycle.start, date(2028, 2, 29))
+        self.assertEqual(cycle.end, date(2028, 3, 28))
+
+    def test_cutoff_28_cycle_containing_february_ends_on_february_28(self):
+        cycle = card_cycle(28, date(2027, 2, 15))
+
+        self.assertEqual(cycle.start, date(2027, 1, 29))
+        self.assertEqual(cycle.end, date(2027, 2, 28))
+
+    def test_last_closed_card_cycle_is_previous_to_the_open_one(self):
+        cycle = last_closed_card_cycle(20, date(2026, 4, 25))
+
+        self.assertEqual(cycle.start, date(2026, 3, 21))
+        self.assertEqual(cycle.end, date(2026, 4, 20))
+
+    def test_card_cycle_for_offset_moves_whole_cycles(self):
+        cycle = card_cycle_for_offset(20, date(2026, 4, 25), 1)
+
+        self.assertEqual(cycle.start, date(2026, 5, 21))
+        self.assertEqual(cycle.end, date(2026, 6, 20))
+
+    def test_payment_dates_use_the_first_due_day_after_cutoff_and_keep_three_day_margin(self):
+        dates = card_payment_dates(card_cycle(20, date(2026, 4, 20)), 10)
+
+        self.assertEqual(dates.payment_due_date, date(2026, 5, 10))
+        self.assertEqual(dates.safe_payment_date, date(2026, 5, 7))
+
+    def test_payment_dates_can_fall_in_the_same_month_as_cutoff(self):
+        dates = card_payment_dates(card_cycle(5, date(2026, 4, 5)), 25)
+
+        self.assertEqual(dates.payment_due_date, date(2026, 4, 25))
+        self.assertEqual(dates.safe_payment_date, date(2026, 4, 22))
+
+    def test_payment_due_day_is_clamped_to_short_months_before_subtracting_margin(self):
+        dates = card_payment_dates(card_cycle(20, date(2026, 2, 20)), 31)
+
+        self.assertEqual(dates.payment_due_date, date(2026, 2, 28))
+        self.assertEqual(dates.safe_payment_date, date(2026, 2, 25))
 
 
 class BudgetSummaryTests(TestCase):
@@ -142,10 +262,10 @@ class BudgetSummaryTests(TestCase):
             category=self.global_category,
             amount_cents=800000,
             effective_date=date(2026, 4, 25),
-            period_start=date(2026, 4, 21),
-            period_end=date(2026, 5, 20),
+            period_start=date(2026, 4, 1),
+            period_end=date(2026, 4, 30),
         )
-        BudgetAllocation.objects.filter(category=self.global_category, period_start__gte=date(2026, 4, 21)).update(
+        BudgetAllocation.objects.filter(category=self.global_category, period_start__gte=date(2026, 4, 1)).update(
             amount_cents=800000
         )
 
@@ -154,6 +274,32 @@ class BudgetSummaryTests(TestCase):
 
         self.assertEqual(previous_after_change["totals"]["budget_cents"], 500000)
         self.assertEqual(current_after_change["totals"]["budget_cents"], 800000)
+
+    def test_earlier_budget_change_does_not_squash_scheduled_future_change(self):
+        today = date(2026, 7, 2)
+        with patch("budget.services.app_localdate", return_value=today):
+            # Cambio programado: septiembre sube a 800000 (con baseline previo de 500000).
+            record_category_budget_change(
+                self.global_category, 800000, date(2026, 9, 1), previous_amount_cents=500000
+            )
+            # Materializa las allocations de julio (500000) y septiembre (800000).
+            build_budget_summary(date(2026, 7, 15), scope="family")
+            build_budget_summary(date(2026, 9, 15), scope="family")
+
+            # Cambio posterior con efecto anterior: julio baja a 300000.
+            record_category_budget_change(self.global_category, 300000, date(2026, 7, 2))
+
+            september_summary = build_budget_summary(date(2026, 9, 15), scope="family")
+
+        july_allocation = BudgetAllocation.objects.get(
+            category=self.global_category, period_start=date(2026, 7, 1)
+        )
+        september_allocation = BudgetAllocation.objects.get(
+            category=self.global_category, period_start=date(2026, 9, 1)
+        )
+        self.assertEqual(july_allocation.amount_cents, 300000)
+        self.assertEqual(september_allocation.amount_cents, 800000)
+        self.assertEqual(september_summary["totals"]["budget_cents"], 800000)
 
     def test_carryover_category_tracks_real_balance_and_projected_available(self):
         travel = Category.objects.create(
@@ -168,8 +314,8 @@ class BudgetSummaryTests(TestCase):
             category=travel,
             amount_cents=100000,
             effective_date=date(2026, 3, 21),
-            period_start=date(2026, 3, 21),
-            period_end=date(2026, 4, 20),
+            period_start=date(2026, 3, 1),
+            period_end=date(2026, 3, 31),
         )
         Transaction.objects.create(
             transaction_type=Transaction.TransactionType.EXPENSE,
@@ -216,7 +362,7 @@ class BudgetSummaryTests(TestCase):
         summary = build_budget_summary(date(2026, 4, 25), scope="member", member_id=self.member.id)
         row = summary["categories"][0]
 
-        record = CategoryOverspendRecord.objects.get(category=self.personal_category, period_start=date(2026, 3, 21))
+        record = CategoryOverspendRecord.objects.get(category=self.personal_category, period_start=date(2026, 3, 1))
         self.assertEqual(record.overspend_cents, 25000)
         self.assertEqual(row["overspend_count"], 1)
         self.assertEqual(row["overspend_total_cents"], 25000)
@@ -244,6 +390,74 @@ class BudgetSummaryTests(TestCase):
 
         self.assertEqual(summary["totals"]["spent_cents"], 0)
 
+    def test_tracking_only_category_is_excluded_from_budget_summary_allocations_and_card_payment(self):
+        external = Category.objects.create(
+            name="Tarjeta ajena",
+            scope=Category.Scope.GLOBAL,
+            budget_treatment=Category.BudgetTreatment.TRACKING_ONLY,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Compra externa",
+            amount_cents=75000,
+            date=date(2026, 4, 25),
+            category=external,
+            created_by=self.user,
+        )
+
+        summary = build_budget_summary(date(2026, 4, 25), scope="total")
+        card_payment = card_payments_summary(date(2026, 4, 25))
+
+        self.assertEqual(summary["totals"]["budget_cents"], 600000)
+        self.assertEqual(summary["totals"]["spent_cents"], 0)
+        self.assertNotIn(external.id, [item["category_id"] for item in summary["categories"]])
+        self.assertFalse(BudgetAllocation.objects.filter(category=external).exists())
+        self.assertEqual(card_payment["total_cents"], 0)
+        self.assertEqual(account_balance(self.cash), 0)
+
+    def test_off_budget_summary_tracks_manual_and_expected_debts_separately(self):
+        external = Category.objects.create(
+            name="Deuda no presupuestada",
+            scope=Category.Scope.GLOBAL,
+            budget_treatment=Category.BudgetTreatment.TRACKING_ONLY,
+            icon="credit-card",
+            color="#7c3aed",
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Prestamo familiar",
+            amount_cents=50000,
+            date=date(2026, 4, 25),
+            category=external,
+            created_by=self.user,
+        )
+        RecurringExpense.objects.create(
+            name="Pago externo mensual",
+            merchant="Banco externo",
+            amount_cents=12000,
+            category=external,
+            start_date=date(2026, 4, 21),
+            charge_day=25,
+        )
+        InstallmentPlan.objects.create(
+            name="Compra tarjeta ajena",
+            merchant="Liverpool",
+            total_amount_cents=240000,
+            category=external,
+            start_date=date(2026, 4, 21),
+            end_date=date(2026, 5, 21),
+        )
+
+        summary = build_off_budget_summary(date(2026, 4, 25))
+
+        self.assertEqual(summary["totals"]["spent_cents"], 50000)
+        self.assertEqual(summary["totals"]["expected_cents"], 132000)
+        self.assertEqual(summary["totals"]["total_cents"], 182000)
+        self.assertEqual(summary["categories"][0]["category_name"], "Deuda no presupuestada")
+        self.assertEqual(summary["categories"][0]["spent_cents"], 50000)
+        self.assertEqual(summary["categories"][0]["expected_cents"], 132000)
+        self.assertEqual(len(summary["expected_charges"]), 2)
+
     def test_only_cash_accounts_can_have_initial_balance(self):
         cash = Account.objects.create(
             name="Sobre",
@@ -261,10 +475,182 @@ class BudgetSummaryTests(TestCase):
         self.assertEqual(cash.initial_balance_cents, 50000)
 
 
+class LiveWindowSummaryTests(TestCase):
+    """Ventana viva: disponible = allocation - gasto no-tarjeta del mes - gasto vivo por tarjeta - expected."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="admin", password="testpass123")
+        self.cash = Account.objects.create(name="Caja", account_type=Account.AccountType.CASH)
+        self.card = Account.objects.create(
+            name="Tarjeta",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=20,
+        )
+        self.food = Category.objects.create(
+            name="Comida",
+            scope=Category.Scope.GLOBAL,
+            monthly_budget_cents=1000000,
+            overspend_tracking_start_date=date(2026, 7, 1),
+        )
+
+    def expense(self, amount_cents, when, account, category=None):
+        return Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Gasto",
+            amount_cents=amount_cents,
+            date=when,
+            account=account,
+            category=category or self.food,
+            created_by=self.user,
+        )
+
+    def summary_on(self, query_date, today):
+        with patch("budget.services.app_localdate", return_value=today):
+            return build_budget_summary(query_date, scope="family")
+
+    def row_on(self, query_date, today, name="Comida"):
+        summary = self.summary_on(query_date, today)
+        return next(row for row in summary["categories"] if row["category_name"] == name)
+
+    def test_live_window_current_month_before_cut(self):
+        self.expense(500000, date(2026, 7, 10), self.card)
+        self.expense(200000, date(2026, 7, 12), self.cash)
+
+        row = self.row_on(date(2026, 7, 15), date(2026, 7, 15))
+
+        self.assertEqual(row["available_cents"], 300000)
+        self.assertEqual(row["spent_cents"], 700000)
+        self.assertEqual(row["real_available_cents"], 300000)
+        self.assertEqual(row["monthly_flow_cents"], 700000)
+        self.assertEqual(len(row["live_windows"]), 2)
+        windows = {window["kind"]: window for window in row["live_windows"]}
+        self.assertEqual(windows["month"]["spent_cents"], 200000)
+        self.assertEqual(windows["card"]["account_id"], self.card.id)
+        self.assertEqual(windows["card"]["account_name"], "Tarjeta")
+        self.assertEqual(windows["card"]["spent_cents"], 500000)
+        self.assertEqual(windows["card"]["start"], date(2026, 6, 21))
+        self.assertEqual(windows["card"]["end"], date(2026, 7, 20))
+
+    def test_liberation_exactly_on_cut_day(self):
+        self.expense(500000, date(2026, 7, 20), self.card)
+
+        on_cut_day = self.row_on(date(2026, 7, 20), date(2026, 7, 20))
+        day_after_cut = self.row_on(date(2026, 7, 20), date(2026, 7, 21))
+
+        self.assertEqual(on_cut_day["available_cents"], 500000)
+        self.assertEqual(day_after_cut["available_cents"], 1000000)
+        self.assertEqual([window["kind"] for window in day_after_cut["live_windows"]], ["month"])
+
+    def test_liberation_after_cut_keeps_month_spend(self):
+        self.expense(500000, date(2026, 7, 10), self.card)
+        self.expense(200000, date(2026, 7, 12), self.cash)
+
+        row = self.row_on(date(2026, 7, 21), date(2026, 7, 21))
+
+        self.assertEqual(row["available_cents"], 800000)
+        self.assertEqual(row["spent_cents"], 200000)
+        self.assertEqual(row["monthly_flow_cents"], 700000)
+        self.assertEqual([window["kind"] for window in row["live_windows"]], ["month"])
+
+    def test_post_cut_purchase_crosses_into_next_month(self):
+        self.expense(500000, date(2026, 7, 10), self.card)
+        self.expense(200000, date(2026, 7, 12), self.cash)
+        self.expense(400000, date(2026, 7, 25), self.card)
+
+        july = self.row_on(date(2026, 7, 28), date(2026, 7, 28))
+        august = self.row_on(date(2026, 8, 5), date(2026, 8, 5))
+
+        self.assertEqual(july["available_cents"], 400000)
+        self.assertEqual(august["available_cents"], 600000)
+        self.assertEqual(august["spent_cents"], 400000)
+        self.assertEqual(august["monthly_flow_cents"], 0)
+        card_window = next(window for window in august["live_windows"] if window["kind"] == "card")
+        self.assertEqual(card_window["spent_cents"], 400000)
+        self.assertEqual(card_window["start"], date(2026, 7, 21))
+        self.assertEqual(card_window["end"], date(2026, 8, 20))
+
+    def test_closing_snapshot_is_immutable(self):
+        self.expense(500000, date(2026, 7, 10), self.card)
+        self.expense(200000, date(2026, 7, 12), self.cash)
+        self.expense(400000, date(2026, 7, 25), self.card)
+
+        seen_from_august = self.row_on(date(2026, 7, 31), date(2026, 8, 10))
+        seen_from_september = self.row_on(date(2026, 7, 31), date(2026, 9, 3))
+
+        self.assertEqual(seen_from_august["available_cents"], 400000)
+        self.assertEqual(seen_from_september["available_cents"], 400000)
+
+    def test_february_cutoff_28_release(self):
+        card28 = Account.objects.create(
+            name="Tarjeta 28",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=28,
+        )
+        self.expense(300000, date(2026, 2, 15), card28)
+
+        february = self.row_on(date(2026, 2, 20), date(2026, 2, 20))
+        march = self.row_on(date(2026, 3, 5), date(2026, 3, 5))
+
+        self.assertEqual(february["available_cents"], 700000)
+        self.assertEqual(march["available_cents"], 1000000)
+        self.assertEqual([window["kind"] for window in march["live_windows"]], ["month"])
+
+    def test_carryover_not_recharged_at_cut(self):
+        travel = Category.objects.create(
+            name="Viajes",
+            scope=Category.Scope.GLOBAL,
+            budget_behavior=Category.BudgetBehavior.CARRYOVER,
+            carryover_initial_balance_cents=0,
+            carryover_start_date=date(2026, 7, 1),
+        )
+        CategoryBudgetChange.objects.create(
+            category=travel,
+            amount_cents=1000000,
+            effective_date=date(2026, 7, 1),
+            period_start=date(2026, 7, 1),
+            period_end=date(2026, 7, 31),
+        )
+        self.expense(300000, date(2026, 7, 10), self.card, category=travel)
+
+        before_cut = self.row_on(date(2026, 7, 15), date(2026, 7, 15), name="Viajes")
+        after_cut = self.row_on(date(2026, 7, 25), date(2026, 7, 25), name="Viajes")
+
+        self.assertEqual(before_cut["real_available_cents"], 700000)
+        self.assertEqual(before_cut["live_windows"], [])
+        self.assertEqual(after_cut["real_available_cents"], 700000)
+        self.assertEqual(after_cut["spent_cents"], 300000)
+
+    def test_overspend_record_uses_live_available_at_close(self):
+        self.expense(1200000, date(2026, 7, 12), self.cash)
+
+        self.summary_on(date(2026, 8, 5), date(2026, 8, 5))
+
+        record = CategoryOverspendRecord.objects.get(category=self.food, period_start=date(2026, 7, 1))
+        self.assertEqual(record.overspend_cents, 200000)
+        self.assertEqual(record.budget_cents, 1000000)
+        self.assertEqual(record.spent_cents, 1200000)
+
+    def test_liberated_card_spend_does_not_create_overspend_record(self):
+        self.expense(1200000, date(2026, 7, 5), self.card)
+
+        self.summary_on(date(2026, 8, 5), date(2026, 8, 5))
+        july_close = self.row_on(date(2026, 7, 31), date(2026, 8, 5))
+
+        self.assertFalse(
+            CategoryOverspendRecord.objects.filter(category=self.food, period_start=date(2026, 7, 1)).exists()
+        )
+        self.assertEqual(july_close["monthly_flow_cents"], 1200000)
+        self.assertEqual(july_close["available_cents"], 1000000)
+
+
 class ExpectedChargeTests(TestCase):
     def setUp(self):
         self.member = HouseholdMember.objects.create(name="Luis", color="#2563eb")
-        self.card = Account.objects.create(name="Tarjeta dorada", account_type=Account.AccountType.CREDIT_CARD)
+        self.card = Account.objects.create(
+            name="Tarjeta dorada",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=20,
+        )
         self.category = Category.objects.create(
             name="Streaming",
             scope=Category.Scope.PERSONAL,
@@ -352,8 +738,8 @@ class ExpectedChargeTests(TestCase):
             total_amount_cents=1200000,
             category=self.category,
             account=self.card,
-            start_date=date(2026, 4, 21),
-            end_date=date(2026, 6, 21),
+            start_date=date(2026, 4, 10),
+            end_date=date(2026, 6, 10),
         )
 
         summary = build_budget_summary(date(2026, 4, 25), scope="member", member_id=self.member.id)
@@ -368,8 +754,8 @@ class ExpectedChargeTests(TestCase):
             total_amount_cents=1200000,
             category=self.category,
             account=self.card,
-            start_date=date(2026, 4, 21),
-            end_date=date(2026, 6, 21),
+            start_date=date(2026, 4, 10),
+            end_date=date(2026, 6, 10),
         )
 
         projection = installment_projection(date(2026, 4, 25))
@@ -391,8 +777,8 @@ class ExpectedChargeTests(TestCase):
             total_amount_cents=1200000,
             category=self.category,
             account=self.card,
-            start_date=date(2026, 4, 21),
-            end_date=date(2026, 12, 21),
+            start_date=date(2026, 4, 10),
+            end_date=date(2026, 12, 10),
             first_payment_number=4,
         )
 
@@ -411,8 +797,8 @@ class ExpectedChargeTests(TestCase):
             total_amount_cents=271438,
             category=self.category,
             account=self.card,
-            start_date=date(2026, 4, 21),
-            end_date=date(2027, 3, 21),
+            start_date=date(2026, 4, 10),
+            end_date=date(2027, 3, 10),
             round_up_monthly_payment=True,
         )
 
@@ -429,7 +815,11 @@ class ExpectedChargeTests(TestCase):
         self.assertTrue(projection["plans"][0]["round_up_monthly_payment"])
 
     def test_interest_free_payment_summary_groups_cycle_card_purchases_and_installments_by_credit_card(self):
-        other_card = Account.objects.create(name="Tarjeta azul", account_type=Account.AccountType.CREDIT_CARD)
+        other_card = Account.objects.create(
+            name="Tarjeta azul",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=20,
+        )
         debit = Account.objects.create(name="Debito", account_type=Account.AccountType.DEBIT_CARD)
         plan = InstallmentPlan.objects.create(
             name="Laptop",
@@ -483,14 +873,452 @@ class ExpectedChargeTests(TestCase):
             category=self.category,
         )
 
-        summary = credit_card_interest_free_payment_summary(date(2026, 4, 25))
+        summary = card_payments_summary(date(2026, 4, 25))
         rows = {row["account_name"]: row for row in summary["cards"]}
 
-        self.assertEqual(summary["period"], {"start": date(2026, 4, 21), "end": date(2026, 5, 20)})
-        self.assertEqual(rows["Tarjeta dorada"]["cycle_purchase_cents"], 100000)
-        self.assertEqual(rows["Tarjeta dorada"]["installment_cents"], 200000)
-        self.assertEqual(rows["Tarjeta dorada"]["interest_free_payment_cents"], 300000)
-        self.assertEqual(rows["Tarjeta azul"]["cycle_purchase_cents"], 0)
-        self.assertEqual(rows["Tarjeta azul"]["installment_cents"], 100000)
-        self.assertEqual(rows["Tarjeta azul"]["interest_free_payment_cents"], 100000)
-        self.assertEqual(summary["total_cents"], 400000)
+        self.assertNotIn("period", summary)
+        self.assertEqual(set(rows), {"Tarjeta dorada", "Tarjeta azul"})
+        dorada = rows["Tarjeta dorada"]
+        self.assertEqual(dorada["open_cycle"]["start"], date(2026, 4, 21))
+        self.assertEqual(dorada["open_cycle"]["end"], date(2026, 5, 20))
+        self.assertEqual(dorada["open_cycle"]["purchase_cents"], 100000)
+        self.assertEqual(dorada["open_cycle"]["installment_cents"], 200000)
+        self.assertEqual(dorada["open_cycle"]["total_cents"], 300000)
+        self.assertEqual(dorada["closed_cycle"]["start"], date(2026, 3, 21))
+        self.assertEqual(dorada["closed_cycle"]["end"], date(2026, 4, 20))
+        self.assertEqual(dorada["closed_cycle"]["purchase_cents"], 50000)
+        self.assertEqual(dorada["closed_cycle"]["installment_cents"], 0)
+        self.assertEqual(dorada["closed_cycle"]["total_cents"], 50000)
+        azul = rows["Tarjeta azul"]
+        self.assertEqual(azul["open_cycle"]["purchase_cents"], 0)
+        self.assertEqual(azul["open_cycle"]["installment_cents"], 100000)
+        self.assertEqual(azul["open_cycle"]["total_cents"], 100000)
+        self.assertEqual(azul["closed_cycle"]["total_cents"], 0)
+        self.assertEqual(summary["total_cents"], 50000)
+
+    def test_card_installment_is_numbered_by_card_cycles_across_month_boundary(self):
+        plan = InstallmentPlan.objects.create(
+            name="Pantalla",
+            merchant="Liverpool",
+            total_amount_cents=900000,
+            category=self.category,
+            account=self.card,
+            start_date=date(2026, 4, 21),
+            end_date=date(2026, 6, 21),
+        )
+
+        first_cycle = card_cycle(20, date(2026, 4, 21))
+        second_cycle = card_cycle_for_offset(20, date(2026, 4, 21), 1)
+        third_cycle = card_cycle_for_offset(20, date(2026, 4, 21), 2)
+
+        first_payment = installment_charge_for_period(plan, first_cycle)
+        self.assertEqual(first_payment["payment_number"], 1)
+        self.assertEqual(first_payment["amount_cents"], 300000)
+        self.assertEqual(installment_charge_for_period(plan, second_cycle)["payment_number"], 2)
+        self.assertEqual(installment_charge_for_period(plan, third_cycle)["payment_number"], 3)
+        self.assertIsNone(installment_charge_for_period(plan, previous_card_cycle(20, first_cycle)))
+
+    def test_card_installment_expected_charge_lands_in_corte_month(self):
+        plan = InstallmentPlan.objects.create(
+            name="Pantalla",
+            merchant="Liverpool",
+            total_amount_cents=900000,
+            category=self.category,
+            account=self.card,
+            start_date=date(2026, 4, 21),
+            end_date=date(2026, 6, 21),
+        )
+
+        april = expected_charges_for_period(get_budget_period(date(2026, 4, 25)))
+        may = expected_charges_for_period(get_budget_period(date(2026, 5, 25)))
+        july = expected_charges_for_period(get_budget_period(date(2026, 7, 25)))
+
+        self.assertNotIn(plan.id, [charge.source_id for charge in april if charge.source_type == "installment"])
+        may_charge = next(charge for charge in may if charge.source_id == plan.id)
+        self.assertEqual(may_charge.payment_number, 1)
+        self.assertEqual(may_charge.amount_cents, 300000)
+        july_charge = next(charge for charge in july if charge.source_id == plan.id)
+        self.assertEqual(july_charge.payment_number, 3)
+        self.assertEqual(july_charge.amount_cents, 300000)
+
+    def test_non_card_installment_uses_calendar_month_numbering(self):
+        plan = InstallmentPlan.objects.create(
+            name="Pantalla sin tarjeta",
+            merchant="Liverpool",
+            total_amount_cents=900000,
+            category=self.category,
+            start_date=date(2026, 4, 21),
+            end_date=date(2026, 6, 21),
+        )
+
+        april = expected_charges_for_period(get_budget_period(date(2026, 4, 25)))
+
+        april_charge = next(charge for charge in april if charge.source_id == plan.id)
+        self.assertEqual(april_charge.payment_number, 1)
+        self.assertEqual(april_charge.amount_cents, 300000)
+
+    def test_installment_projection_month_mode_breaks_down_by_card(self):
+        InstallmentPlan.objects.create(
+            name="Pantalla",
+            merchant="Liverpool",
+            total_amount_cents=900000,
+            category=self.category,
+            account=self.card,
+            start_date=date(2026, 4, 10),
+            end_date=date(2026, 6, 10),
+        )
+        InstallmentPlan.objects.create(
+            name="Colchon sin tarjeta",
+            merchant="Costco",
+            total_amount_cents=200000,
+            category=self.category,
+            start_date=date(2026, 4, 10),
+            end_date=date(2026, 5, 10),
+        )
+
+        projection = installment_projection(date(2026, 4, 25))
+
+        self.assertEqual(projection["mode"], "month")
+        self.assertIsNone(projection["account"])
+        self.assertEqual(projection["periods"][0]["key"], "2026-04")
+        self.assertEqual(projection["periods"][0]["total_cents"], 400000)
+        cards = {row["account_id"]: row["total_cents"] for row in projection["periods"][0]["cards"]}
+        self.assertEqual(cards[self.card.id], 300000)
+        self.assertEqual(cards[None], 100000)
+        first_plan = projection["periods"][0]["plans"][0]
+        self.assertIn("account", first_plan)
+        self.assertIn("owner", first_plan)
+
+    def test_installment_projection_account_filter_uses_real_card_cycles(self):
+        InstallmentPlan.objects.create(
+            name="Pantalla",
+            merchant="Liverpool",
+            total_amount_cents=900000,
+            category=self.category,
+            account=self.card,
+            start_date=date(2026, 4, 21),
+            end_date=date(2026, 6, 21),
+        )
+
+        projection = installment_projection(date(2026, 4, 25), months_ahead=3, account_id=self.card.id)
+
+        self.assertEqual(projection["mode"], "cycle")
+        self.assertEqual(projection["account"]["id"], self.card.id)
+        self.assertEqual(projection["account"]["cutoff_day"], 20)
+        self.assertEqual(projection["current_period_key"], "2026-05-20")
+        self.assertEqual(projection["periods"][0]["start"], date(2026, 4, 21))
+        self.assertEqual(projection["periods"][0]["end"], date(2026, 5, 20))
+        self.assertEqual(projection["periods"][0]["total_cents"], 300000)
+        self.assertEqual(projection["periods"][1]["key"], "2026-06-20")
+        self.assertEqual(projection["periods"][1]["total_cents"], 300000)
+        self.assertEqual(projection["periods"][2]["key"], "2026-07-20")
+        self.assertEqual(projection["periods"][2]["total_cents"], 300000)
+        self.assertEqual(projection["periods"][3]["key"], "2026-08-20")
+        self.assertEqual(projection["periods"][3]["total_cents"], 0)
+
+    def test_dismissed_card_installment_is_anchored_to_cycle(self):
+        plan = InstallmentPlan.objects.create(
+            name="Pantalla",
+            merchant="Liverpool",
+            total_amount_cents=900000,
+            category=self.category,
+            account=self.card,
+            start_date=date(2026, 4, 21),
+            end_date=date(2026, 6, 21),
+        )
+        may_period = get_budget_period(date(2026, 5, 25))
+
+        self.assertIn(plan.id, [charge.source_id for charge in expected_charges_for_period(may_period)])
+
+        cycle_dismissal = ExpectedChargeDismissal.objects.create(
+            source_type="installment", source_id=plan.id, period_start=date(2026, 4, 21)
+        )
+        self.assertNotIn(plan.id, [charge.source_id for charge in expected_charges_for_period(may_period)])
+
+        cycle_dismissal.delete()
+        ExpectedChargeDismissal.objects.create(
+            source_type="installment", source_id=plan.id, period_start=date(2026, 5, 1)
+        )
+        self.assertNotIn(plan.id, [charge.source_id for charge in expected_charges_for_period(may_period)])
+
+    def test_confirming_card_installment_in_cycle_is_idempotent(self):
+        user = User.objects.create_user(username="confirmador", password="testpass123")
+        plan = InstallmentPlan.objects.create(
+            name="Pantalla",
+            merchant="Liverpool",
+            total_amount_cents=900000,
+            category=self.category,
+            account=self.card,
+            start_date=date(2026, 4, 21),
+            end_date=date(2026, 6, 21),
+        )
+
+        transaction = confirm_expected_charge("installment", plan.id, date(2026, 4, 25), self.card, user)
+
+        self.assertEqual(transaction.amount_cents, 300000)
+        self.assertEqual(transaction.date, date(2026, 4, 25))
+        may_charges = expected_charges_for_period(get_budget_period(date(2026, 5, 25)))
+        self.assertNotIn(plan.id, [charge.source_id for charge in may_charges])
+
+    def test_inherited_card_installment_has_no_phantom_payment_before_plan_start(self):
+        # Plan heredado capturado el dia siguiente al corte: los pagos 1-4 ocurrieron antes
+        # del inicio del plan y por definicion no se rastrean. Julio no debe cobrar el pago 4.
+        plan = InstallmentPlan.objects.create(
+            name="Refri heredado",
+            merchant="Liverpool",
+            total_amount_cents=1200000,
+            category=self.category,
+            account=self.card,
+            start_date=date(2026, 7, 21),
+            end_date=date(2027, 2, 21),
+            first_payment_number=5,
+        )
+
+        july = expected_charges_for_period(get_budget_period(date(2026, 7, 25)))
+        august = expected_charges_for_period(get_budget_period(date(2026, 8, 25)))
+
+        self.assertEqual(plan.installments_count, 12)
+        self.assertNotIn(plan.id, [charge.source_id for charge in july if charge.source_type == "installment"])
+        august_charge = next(charge for charge in august if charge.source_id == plan.id)
+        self.assertEqual(august_charge.payment_number, 5)
+        self.assertEqual(august_charge.amount_cents, 100000)
+
+    def test_inherited_card_installment_keeps_summary_and_projection_consistent(self):
+        plan = InstallmentPlan.objects.create(
+            name="Refri heredado",
+            merchant="Liverpool",
+            total_amount_cents=1200000,
+            category=self.category,
+            account=self.card,
+            start_date=date(2026, 7, 21),
+            end_date=date(2027, 2, 21),
+            first_payment_number=5,
+        )
+
+        summary = card_payments_summary(date(2026, 7, 25))
+        month_projection = installment_projection(date(2026, 7, 1), months_ahead=8)
+        cycle_projection = installment_projection(date(2026, 6, 25), months_ahead=2, account_id=self.card.id)
+
+        row = next(r for r in summary["cards"] if r["account_id"] == self.card.id)
+        self.assertEqual(row["closed_cycle"]["installment_cents"], 0)
+        self.assertEqual(row["open_cycle"]["installment_cents"], 100000)
+
+        totals = {period["key"]: period["total_cents"] for period in month_projection["periods"]}
+        self.assertEqual(totals["2026-07"], 0)
+        self.assertEqual(totals["2026-08"], 100000)
+        self.assertEqual(totals["2027-03"], 100000)
+        plan_row = next(p for p in month_projection["plans"] if p["id"] == plan.id)
+        # Pagos 5..12: exactamente 8 mensualidades, ni una mas ni una menos.
+        self.assertEqual(sum(month["amount_cents"] for month in plan_row["monthly_amounts"]), 800000)
+
+        self.assertEqual(cycle_projection["periods"][0]["end"], date(2026, 7, 20))
+        self.assertEqual(cycle_projection["periods"][0]["total_cents"], 0)
+        self.assertEqual(cycle_projection["periods"][1]["total_cents"], 100000)
+        self.assertEqual(cycle_projection["periods"][2]["total_cents"], 100000)
+
+    def test_post_cut_capture_with_first_payment_number_one_keeps_current_behavior(self):
+        plan = InstallmentPlan.objects.create(
+            name="Pantalla post-corte",
+            merchant="Liverpool",
+            total_amount_cents=300000,
+            category=self.category,
+            account=self.card,
+            start_date=date(2026, 7, 21),
+            end_date=date(2026, 9, 21),
+        )
+
+        july = expected_charges_for_period(get_budget_period(date(2026, 7, 25)))
+        august = expected_charges_for_period(get_budget_period(date(2026, 8, 25)))
+
+        self.assertNotIn(plan.id, [charge.source_id for charge in july if charge.source_type == "installment"])
+        august_charge = next(charge for charge in august if charge.source_id == plan.id)
+        self.assertEqual(august_charge.payment_number, 1)
+        self.assertEqual(august_charge.amount_cents, 100000)
+
+
+class CardPaymentsSummaryTests(TestCase):
+    def setUp(self):
+        self.ana = HouseholdMember.objects.create(name="Ana", color="#2563eb")
+        self.beto = HouseholdMember.objects.create(name="Beto", color="#dc2626")
+        self.oro = Account.objects.create(
+            name="Oro",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=20,
+            payment_due_day=10,
+            owner=self.ana,
+        )
+        self.azul = Account.objects.create(
+            name="Azul",
+            account_type=Account.AccountType.CREDIT_CARD,
+            cutoff_day=5,
+            payment_due_day=25,
+            owner=self.beto,
+        )
+        self.category = Category.objects.create(
+            name="Compras", scope=Category.Scope.GLOBAL, monthly_budget_cents=500000
+        )
+
+    def expense(self, amount_cents, when, account, **kwargs):
+        return Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPENSE,
+            merchant="Comercio",
+            amount_cents=amount_cents,
+            date=when,
+            account=account,
+            category=kwargs.pop("category", self.category),
+            **kwargs,
+        )
+
+    def test_last_closed_and_open_cycle_around_cutoff_day(self):
+        self.expense(30000, date(2026, 4, 20), self.oro)
+
+        on_cutoff = card_payments_summary(date(2026, 4, 20))
+        after_cutoff = card_payments_summary(date(2026, 4, 21))
+
+        oro_on = next(row for row in on_cutoff["cards"] if row["account_id"] == self.oro.id)
+        self.assertEqual(oro_on["open_cycle"]["start"], date(2026, 3, 21))
+        self.assertEqual(oro_on["open_cycle"]["end"], date(2026, 4, 20))
+        self.assertEqual(oro_on["open_cycle"]["purchase_cents"], 30000)
+        self.assertEqual(oro_on["closed_cycle"]["start"], date(2026, 2, 21))
+        self.assertEqual(oro_on["closed_cycle"]["end"], date(2026, 3, 20))
+        self.assertEqual(oro_on["closed_cycle"]["purchase_cents"], 0)
+        self.assertEqual(on_cutoff["total_cents"], 0)
+
+        oro_after = next(row for row in after_cutoff["cards"] if row["account_id"] == self.oro.id)
+        self.assertEqual(oro_after["closed_cycle"]["start"], date(2026, 3, 21))
+        self.assertEqual(oro_after["closed_cycle"]["end"], date(2026, 4, 20))
+        self.assertEqual(oro_after["closed_cycle"]["purchase_cents"], 30000)
+        self.assertEqual(oro_after["open_cycle"]["start"], date(2026, 4, 21))
+        self.assertEqual(oro_after["open_cycle"]["purchase_cents"], 0)
+        self.assertEqual(after_cutoff["total_cents"], 30000)
+
+    def test_card_payments_summary_groups_closed_open_and_owners(self):
+        tracking = Category.objects.create(
+            name="Externa",
+            scope=Category.Scope.GLOBAL,
+            budget_treatment=Category.BudgetTreatment.TRACKING_ONLY,
+        )
+        plan = InstallmentPlan.objects.create(
+            name="Laptop",
+            merchant="Liverpool",
+            total_amount_cents=600000,
+            category=self.category,
+            account=self.oro,
+            start_date=date(2026, 3, 21),
+            end_date=date(2026, 5, 21),
+        )
+        self.expense(30000, date(2026, 4, 10), self.oro)
+        self.expense(50000, date(2026, 5, 1), self.oro)
+        self.expense(99999, date(2026, 5, 1), self.oro, category=tracking)
+        self.expense(12345, date(2026, 5, 1), self.oro, installment_plan=plan)
+        self.expense(20000, date(2026, 4, 20), self.azul)
+        self.expense(40000, date(2026, 5, 8), self.azul)
+
+        summary = card_payments_summary(date(2026, 5, 10))
+
+        rows = {row["account_name"]: row for row in summary["cards"]}
+        self.assertEqual(summary["total_cents"], 250000)
+        oro = rows["Oro"]
+        self.assertEqual(oro["closed_cycle"]["start"], date(2026, 3, 21))
+        self.assertEqual(oro["closed_cycle"]["end"], date(2026, 4, 20))
+        self.assertEqual(oro["closed_cycle"]["purchase_cents"], 30000)
+        self.assertEqual(oro["closed_cycle"]["installment_cents"], 200000)
+        self.assertEqual(oro["closed_cycle"]["total_cents"], 230000)
+        self.assertEqual(oro["closed_cycle"]["payment_due_date"], date(2026, 5, 10))
+        self.assertEqual(oro["closed_cycle"]["safe_payment_date"], date(2026, 5, 7))
+        self.assertEqual(oro["open_cycle"]["start"], date(2026, 4, 21))
+        self.assertEqual(oro["open_cycle"]["end"], date(2026, 5, 20))
+        self.assertEqual(oro["open_cycle"]["purchase_cents"], 50000)
+        self.assertEqual(oro["open_cycle"]["installment_cents"], 200000)
+        self.assertEqual(oro["open_cycle"]["total_cents"], 250000)
+        self.assertEqual(oro["open_cycle"]["payment_due_date"], date(2026, 6, 10))
+        self.assertEqual(oro["open_cycle"]["safe_payment_date"], date(2026, 6, 7))
+        self.assertEqual(oro["owner"]["name"], "Ana")
+        azul = rows["Azul"]
+        self.assertEqual(azul["closed_cycle"]["start"], date(2026, 4, 6))
+        self.assertEqual(azul["closed_cycle"]["end"], date(2026, 5, 5))
+        self.assertEqual(azul["closed_cycle"]["purchase_cents"], 20000)
+        self.assertEqual(azul["closed_cycle"]["total_cents"], 20000)
+        self.assertEqual(azul["closed_cycle"]["payment_due_date"], date(2026, 5, 25))
+        self.assertEqual(azul["closed_cycle"]["safe_payment_date"], date(2026, 5, 22))
+        self.assertEqual(azul["open_cycle"]["purchase_cents"], 40000)
+        self.assertEqual(azul["open_cycle"]["total_cents"], 40000)
+        owners = {(bucket["member"] or {}).get("name"): bucket for bucket in summary["owners"]}
+        self.assertEqual(owners["Ana"]["total_cents"], 230000)
+        self.assertEqual(owners["Ana"]["account_ids"], [self.oro.id])
+        self.assertEqual(owners["Beto"]["total_cents"], 20000)
+        self.assertEqual(owners["Beto"]["account_ids"], [self.azul.id])
+
+    def test_expected_charge_on_card_is_charged_by_cycle_like_the_live_window(self):
+        self.expense(100000, date(2026, 7, 10), self.oro)
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.EXPECTED_CHARGE,
+            merchant="Seguro",
+            amount_cents=50000,
+            date=date(2026, 7, 15),
+            account=self.oro,
+            category=self.category,
+        )
+
+        # Durante el ciclo, la ventana viva de la tarjeta retiene 150000...
+        with patch("budget.services.app_localdate", return_value=date(2026, 7, 15)):
+            before_cut = build_budget_summary(date(2026, 7, 15), scope="family")
+        row = next(r for r in before_cut["categories"] if r["category_id"] == self.category.id)
+        card_window = next(w for w in row["live_windows"] if w["kind"] == "card")
+        self.assertEqual(card_window["spent_cents"], 150000)
+
+        # ...y al corte, Pagos cobra exactamente lo que la ventana libero.
+        summary = card_payments_summary(date(2026, 7, 25))
+        oro = next(r for r in summary["cards"] if r["account_id"] == self.oro.id)
+        self.assertEqual(oro["closed_cycle"]["start"], date(2026, 6, 21))
+        self.assertEqual(oro["closed_cycle"]["end"], date(2026, 7, 20))
+        self.assertEqual(oro["closed_cycle"]["purchase_cents"], 150000)
+        self.assertEqual(oro["closed_cycle"]["total_cents"], 150000)
+        self.assertEqual(oro["closed_cycle"]["total_cents"], card_window["spent_cents"])
+
+    def test_cutoff_28_card_survives_non_leap_february_boundary(self):
+        card28 = Account.objects.create(
+            name="Corte 28", account_type=Account.AccountType.CREDIT_CARD, cutoff_day=28
+        )
+        InstallmentPlan.objects.create(
+            name="Refri",
+            merchant="Liverpool",
+            total_amount_cents=600000,
+            category=self.category,
+            account=card28,
+            start_date=date(2026, 2, 10),
+            end_date=date(2026, 4, 10),
+        )
+        self.expense(15000, date(2026, 4, 10), card28)
+
+        open_view = card_payments_summary(date(2026, 4, 10))
+        closed_view = card_payments_summary(date(2026, 5, 10))
+
+        row_open = next(row for row in open_view["cards"] if row["account_id"] == card28.id)
+        self.assertEqual(row_open["open_cycle"]["start"], date(2026, 3, 29))
+        self.assertEqual(row_open["open_cycle"]["end"], date(2026, 4, 28))
+        self.assertEqual(row_open["open_cycle"]["purchase_cents"], 15000)
+        row_closed = next(row for row in closed_view["cards"] if row["account_id"] == card28.id)
+        self.assertEqual(row_closed["closed_cycle"]["start"], date(2026, 3, 29))
+        self.assertEqual(row_closed["closed_cycle"]["end"], date(2026, 4, 28))
+
+    def test_cutoff_28_cycle_projection_survives_non_leap_february_boundary(self):
+        card28 = Account.objects.create(
+            name="Corte 28", account_type=Account.AccountType.CREDIT_CARD, cutoff_day=28
+        )
+        InstallmentPlan.objects.create(
+            name="Refri",
+            merchant="Liverpool",
+            total_amount_cents=600000,
+            category=self.category,
+            account=card28,
+            start_date=date(2026, 2, 10),
+            end_date=date(2026, 4, 10),
+        )
+
+        projection = installment_projection(date(2026, 4, 10), months_ahead=3, account_id=card28.id)
+
+        self.assertEqual(projection["mode"], "cycle")
+        self.assertEqual(projection["periods"][0]["start"], date(2026, 3, 29))
+        self.assertEqual(projection["periods"][0]["end"], date(2026, 4, 28))
+        self.assertEqual(projection["periods"][0]["total_cents"], 200000)
