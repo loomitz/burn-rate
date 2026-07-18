@@ -7,7 +7,7 @@ Está pensada para instalarse detrás de una VPN, red privada o reverse proxy co
 ## Imagen
 
 ```bash
-docker pull loomitz/burnrate:v0.1.25
+docker pull loomitz/burnrate:v0.1.26
 ```
 
 También está disponible:
@@ -46,7 +46,7 @@ Crea un archivo `docker-compose.yml`:
 ```yaml
 services:
   app:
-    image: loomitz/burnrate:v0.1.25
+    image: loomitz/burnrate:v0.1.26
     environment:
       DB_NAME: ${DB_NAME:-burn_rate}
       DB_USER: ${DB_USER:-burn_rate}
@@ -223,7 +223,7 @@ DJANGO_CSRF_COOKIE_SECURE=true
 DJANGO_TRUST_X_FORWARDED_PROTO=true
 ```
 
-La imagen `v0.1.25` fue revisada y publicada para `linux/amd64` y `linux/arm64`.
+La imagen `v0.1.26` fue revisada y publicada para `linux/amd64` y `linux/arm64`.
 
 ## Código fuente
 
@@ -235,6 +235,7 @@ https://github.com/loomitz/burn-rate
 
 ## Tags
 
+- `v0.1.26`: corrige la fecha mostrada cuando el ciclo cerrado está en cero y el saldo sigue acumulándose en el ciclo abierto.
 - `v0.1.25`: resumen de tarjetas separado de Pagos, con gráficos de distribución, comparación de saldos, estado por tarjeta y Django 5.2.16.
 - `v0.1.24`: presupuesto por mes calendario con ciclos por tarjeta, ventana viva, fecha límite y pago preventivo, más actualización de Beneficios con Klar Platino.
 - `v0.1.23`: sección `Beneficios` para comparar tarjetas y cuentas por tipo de gasto, incluyendo Banamex Costco, BBVA Oro, Santander LikeU crédito y Amex Platinum Credit Card.
